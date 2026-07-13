@@ -1,0 +1,279 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  REGULAR
+  ADMIN
+  SUPERADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PropertyType {
+  APARTMENT
+  VILLA
+  STUDIO
+}
+
+enum PropertyStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum ConnectionStatus {
+  INTERESTED
+  CONNECTED
+  REJECTED
+}
+
+enum PaymentType {
+  NEW_LISTING
+  BOOST_LISTING
+  REFILL_MATCHES
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum NotificationType {
+  EKYC_APPROVED
+  PROPERTY_APPROVED
+  NEW_MATCH
+  PAYMENT_SUCCESS
+  NEW_REVIEW_SUBMITTED
+  REVIEW_APPROVED
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  fullName     String
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(REGULAR)
+  isActive     Boolean   @default(true)
+  isAdmin      Boolean   @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Profiles & Settings
+  identityVerification IdentityVerification?
+  userQuota            UserQuota?
+  tenantPreferences    TenantPreference[]
+  favorites            Favorite[]
+
+  // Property Ownership & Actions
+  properties Property[] @relation("PropertyOwner")
+
+  // Reviews
+  propertyReviews PropertyReview[] @relation("ReviewWriter")
+
+  // Matchmaker Connections
+  ownerMatchConnections  MatchConnection[] @relation("OwnerMatchConnections")
+  tenantMatchConnections MatchConnection[] @relation("TenantMatchConnections")
+
+  // Administration Approvals
+  approvedVerifications IdentityVerification[] @relation("ApprovedVerifications")
+  approvedProperties    Property[]             @relation("ApprovedProperties")
+  approvedReviews       PropertyReview[]       @relation("ApprovedReviews")
+
+  // Transactions & Billing
+  paymentTransactions PaymentTransaction[]
+  leaseContracts      LeaseContract[]
+  notifications       Notification[]
+}
+
+model IdentityVerification {
+  id                 String             @id @default(uuid()) @db.Uuid
+  userId             String             @unique @db.Uuid
+  user               User               @relation(fields: [userId], references: [id])
+  nationalId         String
+  nationalIdFrontUrl String
+  nationalIdBackUrl  String
+  selfieUrl          String
+  status             VerificationStatus @default(PENDING)
+
+  // Admin Approval
+  reviewedBy      String? @db.Uuid
+  reviewer        User?   @relation("ApprovedVerifications", fields: [reviewedBy], references: [id])
+  rejectionReason String?
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+}
+
+model UserQuota {
+  id                    String   @id @default(uuid()) @db.Uuid
+  userId                String   @unique @db.Uuid
+  user                  User     @relation(fields: [userId], references: [id])
+  freeListingsLeft      Int      @default(1)
+  freeMatchSearchesLeft Int      @default(3)
+  optimizerUsesLeft     Int      @default(2)
+  lastResetDate         DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Property {
+  id                     String         @id @default(uuid()) @db.Uuid
+  ownerId                String         @db.Uuid
+  owner                  User           @relation("PropertyOwner", fields: [ownerId], references: [id])
+  title                  String
+  description            String
+  governorate            String
+  city                   String
+  district               String
+  manualAddress          String
+  propertyType           PropertyType
+  propertyAroundServices String?        @db.Text
+  rentAmount             Float
+  areaM2                 Float
+  bedrooms               Int
+  bathrooms              Int
+  isFurnished            Boolean
+  hasElevator            Boolean
+  hasParking             Boolean
+  contactRevealed        Boolean        @default(false)
+  status                 PropertyStatus @default(PENDING)
+  isBoosted              Boolean        @default(false)
+
+  // Admin Approval
+  approvedBy     String?   @db.Uuid
+  approvedByUser User?     @relation("ApprovedProperties", fields: [approvedBy], references: [id])
+  approvedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  propertyImages   PropertyImage[]
+  propertyReviews  PropertyReview[]
+  favorites        Favorite[]
+  matchConnections MatchConnection[]
+}
+
+model PropertyImage {
+  id           String   @id @default(uuid()) @db.Uuid
+  propertyId   String   @db.Uuid
+  property     Property @relation(fields: [propertyId], references: [id])
+  imageUrl     String
+  displayOrder Int
+  isCover      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PropertyReview {
+  id         String             @id @default(uuid()) @db.Uuid
+  reviewerId String             @db.Uuid
+  reviewer   User               @relation("ReviewWriter", fields: [reviewerId], references: [id])
+  propertyId String             @db.Uuid
+  property   Property           @relation(fields: [propertyId], references: [id])
+  rating     Int
+  comment    String?            @db.Text
+  status     VerificationStatus @default(PENDING)
+
+  // Admin Approval
+  reviewedBy String? @db.Uuid
+  reviewerBy User?   @relation("ApprovedReviews", fields: [reviewedBy], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TenantPreference {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @db.Uuid
+  tenant                 User     @relation(fields: [tenantId], references: [id])
+  maxBudget              Float
+  requiredBedrooms       Int
+  needsFurnished         Boolean
+  preferredNeighborhoods String   @db.Text
+  lifestyleRequirements  String?  @db.Text
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model Favorite {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  tenant     User     @relation(fields: [tenantId], references: [id])
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([tenantId, propertyId])
+}
+
+model MatchConnection {
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @db.Uuid
+  tenant     User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
+  propertyId String           @db.Uuid
+  property   Property         @relation(fields: [propertyId], references: [id])
+  ownerId    String           @db.Uuid
+  owner      User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
+  matchScore Float
+  status     ConnectionStatus @default(INTERESTED)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+}
+
+model PaymentTransaction {
+  id                  String        @id @default(uuid()) @db.Uuid
+  userId              String        @db.Uuid
+  user                User          @relation(fields: [userId], references: [id])
+  paymobOrderId       String        @unique
+  paymobTransactionId String?
+  amount              Float
+  currency            String        @default("EGP")
+  paymentType         PaymentType
+  status              PaymentStatus @default(PENDING)
+  paidAt              DateTime?
+  createdAt           DateTime      @default(now())
+}
+
+model LeaseContract {
+  id                String   @id @default(uuid()) @db.Uuid
+  generatedByUserId String   @db.Uuid
+  generatedBy       User     @relation(fields: [generatedByUserId], references: [id])
+  ownerName         String
+  ownerNationalId   String
+  tenantName        String
+  tenantNationalId  String
+  propertyAddress   String
+  customClauses     String?  @db.Text
+  pdfUrl            String?
+  startDate         DateTime
+  endDate           DateTime
+  rentAmount        Float
+  createdAt         DateTime @default(now())
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+}

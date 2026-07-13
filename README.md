@@ -25,6 +25,36 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## Local Database Development Setup
+
+To initialize and sync the database in your local environment, follow these steps:
+
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+
+2. **Start the Local Database & Proxy**:
+   Run the following command in a dedicated terminal and keep it running in the background:
+   ```bash
+   npx prisma dev
+   ```
+   *This starts the local PostgreSQL engine and the connection proxy on port 51213.*
+
+3. **Synchronize Your Database Schema**:
+   In a separate terminal, push the schema directly to the database:
+   ```bash
+   npx prisma db push
+   ```
+
+4. **Generate the Typed Prisma Client**:
+   Generate the TypeScript types for your development editor:
+   ```bash
+   npx prisma generate
+   ```
+
+*Note: Never commit your `.env` file containing local connection strings. It is excluded by `.gitignore`.*
+
 ## Project setup
 
 ```bash
