@@ -7,6 +7,8 @@ import { CustomI18nValidationExceptionFilter } from './auth/filters/i18n-validat
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.setGlobalPrefix('api');
+
   app.useGlobalPipes(
     new I18nValidationPipe({
       whitelist: true,
