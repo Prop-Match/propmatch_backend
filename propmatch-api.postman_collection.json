@@ -10,16 +10,17 @@
 			"name": "Auth",
 			"item": [
 				{
-					"name": "Sign Up",
+					"name": "Sign Up / Register",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
 									"const response = pm.response.json();",
-									"if (response.access_token) {",
-									"    pm.collectionVariables.set(\"jwt_token\", response.access_token);",
-									"    console.log(\"Access token successfully saved to collection variable!\");",
+									"if (response.accessToken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Access and Refresh tokens successfully saved!\");",
 									"}"
 								],
 								"type": "text/javascript",
@@ -44,7 +45,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"fullName\": \"محمد أحمد\",\n    \"email\": \"mohamed.test@example.com\",\n    \"password\": \"P@ssword123\"\n}",
+							"raw": "{\n    \"fullName\": \"محمد أحمد\",\n    \"email\": \"mohamed.test@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01092219864\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -52,13 +53,13 @@
 							}
 						},
 						"url": {
-							"raw": "{{baseUrl}}/auth/signup",
+							"raw": "{{baseUrl}}/auth/register",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"auth",
-								"signup"
+								"register"
 							]
 						},
 						"description": "Registers a new unified user account in the system and automatically configures their default profile quotas."
@@ -73,9 +74,10 @@
 							"script": {
 								"exec": [
 									"const response = pm.response.json();",
-									"if (response.access_token) {",
-									"    pm.collectionVariables.set(\"jwt_token\", response.access_token);",
-									"    console.log(\"Access token successfully saved to collection variable!\");",
+									"if (response.accessToken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Access and Refresh tokens successfully saved!\");",
 									"}"
 								],
 								"type": "text/javascript",
@@ -116,7 +118,93 @@
 								"login"
 							]
 						},
-						"description": "Authenticates user credentials and returns a Bearer JWT access token."
+						"description": "Authenticates user credentials and returns a Bearer JWT access token and refresh token."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Me / Session Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"me"
+							]
+						},
+						"description": "Retrieves the authenticated user's unified profile data mapped to the frontend contract format."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.accessToken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Tokens successfully refreshed and saved!\");",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"refresh"
+							]
+						},
+						"description": "Exchanges a valid refresh token for a brand new access and refresh token pair."
 					},
 					"response": []
 				}
@@ -151,6 +239,11 @@
 		},
 		{
 			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
 			"value": "",
 			"type": "string"
 		}
