@@ -20,7 +20,7 @@ import { UsersModule } from './users/users.module';
     I18nModule.forRoot({
       fallbackLanguage: 'ar',
       loaderOptions: {
-        path: path.join(__dirname, '../i18n/auth/'),
+        path: path.join(__dirname, '../i18n/'),
         watch: true,
       },
       resolvers: [new AcceptLanguageResolver()],

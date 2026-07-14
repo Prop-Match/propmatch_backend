@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { I18nContext } from 'nestjs-i18n';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
+import { RefreshDto } from './dto/refresh.dto';
 @Injectable()
 export class AuthService {
   constructor(
@@ -90,5 +91,39 @@ export class AuthService {
       );
     }
     return { user: transformUserToFrontend(user) };
+  }
+  async refresh(refreshDto: RefreshDto) {
+    try {
+      const payload: {
+        sub: string;
+        email: string;
+        role: string;
+      } = await this.jwtService.verifyAsync(refreshDto.refreshToken);
+      const userId = payload.sub;
+
+      // check if the user of this id exists
+      const user = await this.userService.findById(userId);
+      if (!user) {
+        throw new UnauthorizedException(
+          I18nContext.current()?.t('auth.USER_NOT_FOUND'),
+        );
+      }
+
+      const mappedUser = transformUserToFrontend(user);
+      const newPayload = {
+        sub: user.id,
+        email: user.email,
+        role: mappedUser.role,
+      };
+      return {
+        accessToken: await this.jwtService.signAsync(newPayload),
+        refreshToken: await this.jwtService.signAsync(newPayload),
+        user: mappedUser,
+      };
+    } catch {
+      throw new UnauthorizedException(
+        I18nContext.current()?.t('auth.INVALID_REFRESH_TOKEN'),
+      );
+    }
   }
 }

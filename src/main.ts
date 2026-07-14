@@ -1,7 +1,8 @@
-import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
+import 'dotenv/config';
 import { I18nValidationPipe } from 'nestjs-i18n';
 import { AppModule } from './app.module';
+import { CustomI18nValidationExceptionFilter } from './auth/filters/i18n-validation.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,6 +14,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new CustomI18nValidationExceptionFilter());
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

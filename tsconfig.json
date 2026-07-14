@@ -17,7 +17,6 @@
     "paths": {
       "@generated/*": ["generated/*"]
     },
-    "ignoreDeprecations": "6.0",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
