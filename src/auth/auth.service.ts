@@ -6,6 +6,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { I18nContext } from 'nestjs-i18n';
+import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
 @Injectable()
 export class AuthService {
@@ -28,17 +29,19 @@ export class AuthService {
       );
     }
     const payLoad = { sub: user.id, email: user.email, role: user.role };
+    const mappedUser = transformUserToFrontend(user);
     return {
-      access_token: await this.jwtService.signAsync(payLoad),
-      user: {
-        id: user.id,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-      },
+      accesstoken: await this.jwtService.signAsync(payLoad),
+      refreshToken: await this.jwtService.signAsync(payLoad),
+      user: mappedUser,
     };
   }
-  async signup(fullName: string, password: string, email: string) {
+  async signup(
+    fullName: string,
+    password: string,
+    email: string,
+    phoneNumber: string,
+  ) {
     const user = await this.userService.findByEmail(email);
     if (user) {
       throw new ConflictException(
@@ -52,6 +55,7 @@ export class AuthService {
       fullName,
       email,
       passwordHash,
+      phoneNumber,
       userQuota: {
         create: {
           freeListingsLeft: 1,
@@ -60,19 +64,31 @@ export class AuthService {
         },
       },
     });
+    const userWithRelations = await this.userService.findById(newUser.id);
+    if (!userWithRelations) {
+      throw new ConflictException(
+        I18nContext.current()?.t('auth.REGISTRATION_FAILED'),
+      );
+    }
+    const mappedUser = transformUserToFrontend(userWithRelations);
     const payload = {
       sub: newUser.id,
       email: newUser.email,
       role: newUser.role,
     };
     return {
-      access_token: await this.jwtService.signAsync(payload),
-      user: {
-        id: newUser.id,
-        fullName: newUser.fullName,
-        email: newUser.email,
-        role: newUser.role,
-      },
+      accessToken: await this.jwtService.signAsync(payload),
+      refreshToken: await this.jwtService.signAsync(payload),
+      user: mappedUser,
     };
+  }
+  async getMe(userId: string) {
+    const user = await this.userService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException(
+        I18nContext.current()?.t('auth.USER_NOT_FOUND'),
+      );
+    }
+    return { user: transformUserToFrontend(user) };
   }
 }

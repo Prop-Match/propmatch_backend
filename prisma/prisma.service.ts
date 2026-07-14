@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { PrismaClient } from 'generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from 'generated/prisma/client';
 import { Pool } from 'pg';
 
 @Injectable()
@@ -24,8 +24,8 @@ export class PrismaService
         if (apiKey) {
           const decodedJson = JSON.parse(
             Buffer.from(apiKey, 'base64').toString('utf-8'),
-          );
-          if (decodedJson.databaseUrl) {
+          ) as { databaseUrl?: string };
+          if (decodedJson && decodedJson.databaseUrl) {
             connectionString = decodedJson.databaseUrl;
           }
         }

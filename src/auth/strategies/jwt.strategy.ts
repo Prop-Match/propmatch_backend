@@ -12,7 +12,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: any) {
+  validate(payload: { sub: string; email: string; role: string }) {
     // This return value is attached automatically to req.user
     return { userId: payload.sub, email: payload.email, role: payload.role };
   }

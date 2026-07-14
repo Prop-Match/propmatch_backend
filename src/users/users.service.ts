@@ -12,11 +12,15 @@ export class UsersService {
   findById(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({
       where: { id },
+      include: {
+        identityVerification: true,
+      },
     });
   }
   findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({
       where: { email },
+      include: { identityVerification: true },
     });
   }
   // findAll() {
