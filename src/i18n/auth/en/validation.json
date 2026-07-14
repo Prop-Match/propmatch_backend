@@ -1,0 +1,7 @@
+{
+  "REQUIRED": "This field is required.",
+  "INVALID_EMAIL": "Invalid email address.",
+  "INVALID_STRING": "This field must be a string.",
+  "MIN_LENGTH": "This field must be at least {value} characters long.",
+  "PASSWORD_REQUIREMENTS": "Password must be at least 8 characters long, and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
+}
