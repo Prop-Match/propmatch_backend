@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsIn,
   IsNotEmpty,
   IsString,
   Matches,
@@ -13,15 +14,6 @@ export class SignupDto {
   email!: string;
 
   @IsNotEmpty({ message: i18nValidationMessage('validation.REQUIRED') })
-  //   @MinLength(8, {
-  //     message: i18nValidationMessage('validation.MIN_LENGTH', { min: 8 }),
-  //   })
-  //   @Matches(
-  //     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
-  //     {
-  //       message: i18nValidationMessage('validation.PASSWORD_REQUIREMENTS'),
-  //     },
-  //   )
   password!: string;
 
   @IsString({ message: i18nValidationMessage('validation.INVALID_STRING') })
@@ -40,4 +32,10 @@ export class SignupDto {
     message: i18nValidationMessage('validation.INVALID_PHONE_NUMBER'),
   })
   phoneNumber!: string;
+
+  @IsNotEmpty({ message: i18nValidationMessage('validation.REQUIRED') })
+  @IsIn(['TENANT', 'LANDLORD'], {
+    message: i18nValidationMessage('validation.INVALID_ROLE'),
+  })
+  role!: 'TENANT' | 'LANDLORD';
 }

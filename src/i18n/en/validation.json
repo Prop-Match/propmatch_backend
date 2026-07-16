@@ -4,5 +4,6 @@
   "INVALID_STRING": "This field must be a string.",
   "MIN_LENGTH": "This field must be at least {value} characters long.",
   "PASSWORD_REQUIREMENTS": "Password must be at least 8 characters long, and contain at least one uppercase letter, one lowercase letter, one number, and one special character.",
-  "INVALID_PHONE_NUMBER": "Invalid phone number."
+  "INVALID_PHONE_NUMBER": "Invalid phone number.",
+  "INVALID_ROLE": "Please select a valid role (TENANT or LANDLORD)."
 }

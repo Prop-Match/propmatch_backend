@@ -42,6 +42,7 @@ export class AuthService {
     password: string,
     email: string,
     phoneNumber: string,
+    role: 'TENANT' | 'LANDLORD',
   ) {
     const user = await this.userService.findByEmail(email);
     if (user) {
@@ -57,13 +58,18 @@ export class AuthService {
       email,
       passwordHash,
       phoneNumber,
-      userQuota: {
-        create: {
-          freeListingsLeft: 1,
-          freeMatchSearchesLeft: 3,
-          optimizerUsesLeft: 5,
-        },
-      },
+      role,
+      ...(role === 'LANDLORD'
+        ? {
+            userQuota: {
+              create: {
+                freeListingsLeft: 1,
+                optimizerUsesLeft: 2,
+                freeOffersLeft: 3,
+              },
+            },
+          }
+        : {}),
     });
     const userWithRelations = await this.userService.findById(newUser.id);
     if (!userWithRelations) {

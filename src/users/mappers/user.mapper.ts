@@ -5,7 +5,7 @@ export interface TransformedUser {
   fullName: string;
   email: string;
   phone: string;
-  role: 'user' | 'admin';
+  role: 'tenant' | 'landlord' | 'admin';
   verificationStatus: 'unverified' | 'pending_review' | 'verified' | 'rejected';
   verificationRejectedAt: string | null;
   verificationResubmitAfter: string | null;
@@ -28,8 +28,12 @@ export function transformUserToFrontend(
     verificationStatus = 'rejected';
   }
 
-  const mappedRole: 'user' | 'admin' =
-    user.role === 'ADMIN' || user.role === 'SUPERADMIN' ? 'admin' : 'user';
+  const mappedRole: 'tenant' | 'landlord' | 'admin' =
+    user.role === 'ADMIN'
+      ? 'admin'
+      : user.role === 'LANDLORD'
+        ? 'landlord'
+        : 'tenant';
 
   return {
     id: user.id,

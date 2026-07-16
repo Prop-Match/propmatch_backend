@@ -26,6 +26,7 @@ export class AuthController {
       signupDto.password,
       signupDto.email,
       signupDto.phoneNumber,
+      signupDto.role,
     );
   }
   @UseGuards(JwtAuthGuard)
