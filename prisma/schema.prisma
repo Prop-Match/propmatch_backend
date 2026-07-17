@@ -179,20 +179,37 @@ model Property {
   description            String
   governorate            String
   city                   String
-  district               String
-  manualAddress          String         @map("manual_address")
+  neighborhood           String
+  street                 String?
+  detailedAddress        String         @map("manual_address")
   propertyType           PropertyType   @map("property_type")
-  propertyAroundServices String?        @map("property_around_services") @db.Text
-  rentAmount             Float          @map("rent_amount")
-  areaM2                 Float          @map("area_m2")
-  bedrooms               Int
+  // propertyAroundServices String?        @map("property_around_services") @db.Text
+  monthlyRent            Float          @map("monthly_rent")
+  deposit                Float          @map("deposit")
+  area                   Float          @map("area")
+  rooms                  Int
   bathrooms              Int
+  finish                 String
   isFurnished            Boolean        @map("is_furnished")
+  orientation            String
   hasElevator            Boolean        @map("has_elevator")
   hasParking             Boolean        @map("has_parking")
+  leaseDurationMonths      Int            @map("lease_duration_months")
   contactRevealed        Boolean        @default(false) @map("contact_revealed")
   status                 PropertyStatus @default(PENDING)
   isBoosted              Boolean        @default(false) @map("is_boosted")
+
+  // Amenities
+  amenities         Amenity[]
+
+  // conditions
+  familiesOnly          Boolean   @default(false) @map("families_only")
+  studentsAllowed       Boolean   @default(false) @map("students_allowed")
+  singlesAllowed        Boolean   @default(false) @map("singles_allowed")
+  foreignersAllowed     Boolean   @default(false) @map("foreigners_allowed")
+  childrenAllowed       Boolean   @default(false) @map("children_allowed")
+  petsAllowed           Boolean   @default(false) @map("pets_allowed")
+  smokingAllowed        Boolean   @default(false) @map("smoking_allowed")
 
   // Admin Approval
   approvedBy     String?   @map("approved_by") @db.Uuid
@@ -221,6 +238,14 @@ model PropertyImage {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("property_image")
+}
+
+model Amenity {
+  id         String     @id @default(uuid()) @db.Uuid
+  name       String
+  slug       String     @unique
+
+  properties Property[]
 }
 
 model PropertyReview {
