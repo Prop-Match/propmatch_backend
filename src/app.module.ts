@@ -10,6 +10,7 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { UsersModule } from './users/users.module';
 import { PropertiesModule } from './properties/properties.module';
 import { VerificationModule } from './verification/verification.module';
+import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { VerificationModule } from './verification/verification.module';
     }),
     PropertiesModule,
     VerificationModule,
+    TenantRequestsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

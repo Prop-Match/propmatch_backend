@@ -9,10 +9,11 @@ import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { VerifiedGuard } from '../common/guards/verified.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('landlord/properties')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
 export class PropertiesController {
   constructor(private readonly propertiesService: PropertiesService) {}
 
@@ -20,8 +21,8 @@ export class PropertiesController {
    * POST /api/landlord/properties
    *
    * Creates a new property listing for the authenticated landlord.
-   * Requires JWT auth + LANDLORD role.
-   * Gates: identity verification must be APPROVED, free listing quota must be > 0.
+   * Requires JWT auth + LANDLORD role + APPROVED identity verification.
+   * Gates: free listing quota must be > 0.
    */
   @Post()
   @Roles('LANDLORD')
