@@ -1,0 +1,6 @@
+{
+  "REASON_REQUIRED": "A rejection reason is required.",
+  "ALREADY_REVIEWED": "This item has already been reviewed.",
+  "NOT_FOUND": "Not found.",
+  "SUPER_ADMIN_ROLE_NAME": "Super Admin"
+}
