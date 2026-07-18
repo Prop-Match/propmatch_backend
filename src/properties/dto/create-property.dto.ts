@@ -1,79 +1,93 @@
-import { PropertyType } from "@generated/prisma/enums";
-import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsString, ValidateNested } from "class-validator";
-import { PropertyConditionsDto } from "./property-conditions.dto";
-import { PropertyLocationDto } from "./property-location.dto";
+import { PropertyType } from '@generated/prisma/enums';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  MinLength,
+  ArrayMinSize,
+} from 'class-validator';
 
 export class CreatePropertyDto {
-    @IsString()
-    @IsNotEmpty()
-    title: string;
+  @IsString()
+  @MinLength(4)
+  title: string;
 
-    @IsString()
-    @IsNotEmpty()
-    description: string;
+  @IsString()
+  @MinLength(20)
+  description: string;
 
-    @ValidateNested()
-    @Type(() => PropertyLocationDto)
-    location: PropertyLocationDto;
+  // ── Location (flat, matching frontend) ──────────────────────────────
 
-    @IsEnum(PropertyType)
-    propertyType: PropertyType;
+  @IsString()
+  @IsNotEmpty()
+  governorate: string;
 
-    // @IsString()
-    // @IsNotEmpty()
-    // propertyAroundServices: string;
+  @IsString()
+  @IsNotEmpty()
+  city: string;
 
-    @IsNumber()
-    @IsNotEmpty()
-    monthlyRent: number;
+  /** Frontend sends "district" → maps to Prisma "neighborhood" */
+  @IsString()
+  @IsNotEmpty()
+  district: string;
 
-    @IsNumber()
-    @IsNotEmpty()
-    deposit: number;
+  /** Frontend sends "manualAddress" → maps to Prisma "detailedAddress" (manual_address) */
+  @IsString()
+  @MinLength(5)
+  manualAddress: string;
 
-    @IsNumber()
-    @IsNotEmpty()
-    leaseDurationMonths: number;
+  // ── Property type ───────────────────────────────────────────────────
 
-    @IsNumber()
-    @IsNotEmpty()
-    area: number;
+  @IsEnum(PropertyType)
+  propertyType: PropertyType;
 
-    @IsNumber()
-    @IsNotEmpty()
-    rooms: number;
+  /** Free text fed to the AI matcher — optional */
+  @IsString()
+  @IsOptional()
+  propertyAroundServices?: string;
 
-    @IsNumber()
-    @IsNotEmpty()
-    bathrooms: number;
+  // ── Financials & dimensions ─────────────────────────────────────────
 
-    @IsString()
-    @IsNotEmpty()
-    finish: string;
+  /** Frontend sends "rentAmount" → maps to Prisma "monthlyRent" */
+  @IsNumber()
+  @Min(1)
+  rentAmount: number;
 
-    @IsBoolean()
-    @IsNotEmpty()
-    isFurnished: boolean;
+  /** Frontend sends "areaM2" → maps to Prisma "area" */
+  @IsNumber()
+  @Min(1)
+  areaM2: number;
 
-    @IsString()
-    @IsNotEmpty()
-    orientation: string;
+  /** Frontend sends "bedrooms" → maps to Prisma "rooms" */
+  @IsNumber()
+  @Min(0)
+  bedrooms: number;
 
-    @IsArray()
-    @IsString({ each: true })
-    amenities: string[];
+  @IsNumber()
+  @Min(0)
+  bathrooms: number;
 
-    @IsBoolean()
-    @IsNotEmpty()
-    hasElevator: boolean;
+  // ── Booleans ────────────────────────────────────────────────────────
 
-    @IsBoolean()
-    @IsNotEmpty()
-    hasParking: boolean;
+  @IsBoolean()
+  isFurnished: boolean;
 
-    @ValidateNested()
-    @Type(() => PropertyConditionsDto)
-    conditions: PropertyConditionsDto;
+  @IsBoolean()
+  hasElevator: boolean;
 
+  @IsBoolean()
+  hasParking: boolean;
+
+  // ── Images ──────────────────────────────────────────────────────────
+
+  /** Array of image URLs — at least 1 required */
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  images: string[];
 }
