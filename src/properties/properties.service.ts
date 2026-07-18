@@ -6,12 +6,13 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { transformPropertyToDetail } from './mappers/property.mapper';
+import { RealtimeService } from 'src/realtime/realtime.service';
 
 @Injectable()
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly realtimeService: RealtimeService) {}
 
   /** Prisma include used whenever we need the full property detail. */
   private static readonly DETAIL_INCLUDE = {
@@ -101,6 +102,8 @@ export class PropertiesService {
           })),
         });
       }
+
+      this.realtimeService.propertySubmitted(property);
 
       // Decrement the free listing quota
       await tx.userQuota.update({
