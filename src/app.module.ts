@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { UsersModule } from './users/users.module';
 import { PropertiesModule } from './properties/properties.module';
+import { VerificationModule } from './verification/verification.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { PropertiesModule } from './properties/properties.module';
       resolvers: [new AcceptLanguageResolver()],
     }),
     PropertiesModule,
+    VerificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
