@@ -1,116 +1,303 @@
-import { NotImplementedException } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { validate } from 'class-validator';
-import { VerificationStatus } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
+import { VerificationDocumentUploadService } from './services/verification-document-upload.service';
 import { SubmitVerificationDto } from './dto/submit-verification.dto';
+import { ValidatedVerificationFiles } from './types/verification-upload-files.type';
 import { VerificationService } from './verification.service';
 
-const safeSelect = {
-  status: true,
-  rejectionReason: true,
-  submittedAt: true,
-  reviewedAt: true,
+const files: ValidatedVerificationFiles = {
+  nationalIdFront: {
+    fieldname: 'nationalIdFront',
+    mimetype: 'image/jpeg',
+    size: 3,
+    buffer: Buffer.from([0xff, 0xd8, 0xff]),
+  },
+  nationalIdBack: {
+    fieldname: 'nationalIdBack',
+    mimetype: 'image/jpeg',
+    size: 3,
+    buffer: Buffer.from([0xff, 0xd8, 0xff]),
+  },
+  selfie: {
+    fieldname: 'selfie',
+    mimetype: 'image/jpeg',
+    size: 3,
+    buffer: Buffer.from([0xff, 0xd8, 0xff]),
+  },
+};
+const newKeys = {
+  nationalIdFrontObjectKey: 'new-front',
+  nationalIdBackObjectKey: 'new-back',
+  selfieObjectKey: 'new-selfie',
+};
+const oldKeys = {
+  nationalIdFrontObjectKey: 'old-front',
+  nationalIdBackObjectKey: 'old-back',
+  selfieObjectKey: 'old-selfie',
 };
 
-describe('VerificationService', () => {
-  const findUnique = jest.fn();
-  const create = jest.fn();
-  const update = jest.fn();
-  const upsert = jest.fn();
+describe('VerificationService submission lifecycle', () => {
+  const findUser = jest.fn();
+  const findVerification = jest.fn();
+  const createVerification = jest.fn();
+  const updateManyVerification = jest.fn();
+  const uploadVerificationDocuments = jest.fn();
+  const deleteVerificationDocuments = jest.fn();
+  const kycSubmitted = jest.fn();
   const prisma = {
-    identityVerification: { findUnique, create, update, upsert },
+    user: { findUnique: findUser },
+    identityVerification: {
+      findUnique: findVerification,
+      create: createVerification,
+      updateMany: updateManyVerification,
+    },
   };
-  let service: VerificationService;
+  const uploads = { uploadVerificationDocuments, deleteVerificationDocuments };
+  const realtime = { kycSubmitted };
+  const service = new VerificationService(
+    prisma as unknown as PrismaService,
+    uploads as unknown as VerificationDocumentUploadService,
+    realtime as unknown as RealtimeService,
+  );
+  const noVerificationUser = {
+    fullName: 'Test User',
+    identityVerification: null,
+  };
+  const resubmissionUser = {
+    fullName: 'Test User',
+    identityVerification: { status: 'RESUBMISSION_REQUIRED', ...oldKeys },
+  };
 
-  const date = new Date('2026-07-18T10:00:00.000Z');
-  const selectedRow = (
-    status: VerificationStatus,
-    rejectionReason: string | null = null,
-  ) => ({ status, rejectionReason, submittedAt: date, reviewedAt: null });
-
-  beforeEach(async () => {
+  beforeEach(() => {
     jest.clearAllMocks();
-    const moduleRef = await Test.createTestingModule({
-      providers: [
-        VerificationService,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
-    service = moduleRef.get(VerificationService);
-  });
-
-  it('maps no row to a submittable NOT_SUBMITTED response', async () => {
-    findUnique.mockResolvedValue(null);
-
-    await expect(service.getMyVerification('user-1')).resolves.toEqual({
-      status: 'NOT_SUBMITTED',
-      rejectionReason: null,
-      submittedAt: null,
-      reviewedAt: null,
-      canSubmit: true,
-    });
+    uploadVerificationDocuments.mockResolvedValue(newKeys);
+    deleteVerificationDocuments.mockResolvedValue(undefined);
+    createVerification.mockResolvedValue({});
+    updateManyVerification.mockResolvedValue({ count: 1 });
   });
 
   it.each([
-    ['PENDING', false],
-    ['APPROVED', false],
-  ] as const)('%s cannot be submitted again', async (status, canSubmit) => {
-    findUnique.mockResolvedValue(selectedRow(status, 'stale reason'));
-
-    const response = await service.getMyVerification('user-1');
-
-    expect(response.canSubmit).toBe(canSubmit);
-    expect(response.rejectionReason).toBeNull();
-  });
-
-  it('returns a rejection reason for REJECTED without allowing submission', async () => {
-    findUnique.mockResolvedValue(selectedRow('REJECTED', 'سبب الرفض'));
-
-    await expect(service.getMyVerification('user-1')).resolves.toMatchObject({
-      status: 'REJECTED',
-      rejectionReason: 'سبب الرفض',
-      canSubmit: false,
+    ['PENDING', 'طلب التحقق قيد المراجعة بالفعل.'],
+    ['APPROVED', 'تم توثيق الهوية بالفعل.'],
+    ['REJECTED', 'لا يمكن إعادة إرسال طلب التحقق في حالته الحالية.'],
+  ])('rejects %s before upload', async (status, message) => {
+    findUser.mockResolvedValue({
+      fullName: 'Test User',
+      identityVerification: { status, ...oldKeys },
     });
+    await expect(service.submit('user-1', {}, files)).rejects.toMatchObject({
+      message,
+    });
+    expect(uploadVerificationDocuments).not.toHaveBeenCalled();
+    expect(createVerification).not.toHaveBeenCalled();
+    expect(updateManyVerification).not.toHaveBeenCalled();
+    expect(deleteVerificationDocuments).not.toHaveBeenCalled();
+    expect(kycSubmitted).not.toHaveBeenCalled();
   });
 
-  it('returns a rejection reason for RESUBMISSION_REQUIRED and allows submission', async () => {
-    findUnique.mockResolvedValue(
-      selectedRow('RESUBMISSION_REQUIRED', 'يرجى إعادة الرفع'),
+  it('rejects a missing authenticated user without side effects', async () => {
+    findUser.mockResolvedValue(null);
+    await expect(service.submit('user-1', {}, files)).rejects.toBeInstanceOf(
+      UnauthorizedException,
     );
-
-    await expect(service.getMyVerification('user-1')).resolves.toMatchObject({
-      status: 'RESUBMISSION_REQUIRED',
-      rejectionReason: 'يرجى إعادة الرفع',
-      canSubmit: true,
-    });
+    expect(uploadVerificationDocuments).not.toHaveBeenCalled();
+    expect(createVerification).not.toHaveBeenCalled();
+    expect(kycSubmitted).not.toHaveBeenCalled();
   });
 
-  it('uses the exact safe Prisma select and never returns sensitive fields', async () => {
-    findUnique.mockResolvedValue(selectedRow('PENDING'));
+  it.each([['provided-id'], [undefined]])(
+    'creates a pending verification safely',
+    async (nationalId) => {
+      findUser.mockResolvedValue(noVerificationUser);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      const id = nationalId as string | undefined;
+      const response = await service.submit(
+        'user-1',
+        { nationalId: id },
+        files,
+      );
+      expect(uploadVerificationDocuments).toHaveBeenCalledWith(files);
+      expect(createVerification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'user-1',
+            nationalId: id ?? null,
+            ...newKeys,
+            status: 'PENDING',
+            rejectionReason: null,
+            reviewedAt: null,
+            reviewedBy: null,
+          }),
+        }),
+      );
+      expect(kycSubmitted).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', userName: 'Test User' }),
+      );
+      expect(response).toMatchObject({
+        status: 'PENDING',
+        rejectionReason: null,
+        reviewedAt: null,
+        canSubmit: false,
+      });
+      expect(response).not.toHaveProperty('nationalIdFrontObjectKey');
+    },
+  );
 
+  it('preserves upload errors without persistence or announcement', async () => {
+    const error = new Error('upload failed');
+    findUser.mockResolvedValue(noVerificationUser);
+    uploadVerificationDocuments.mockRejectedValue(error);
+    await expect(service.submit('user-1', {}, files)).rejects.toBe(error);
+    expect(createVerification).not.toHaveBeenCalled();
+    expect(deleteVerificationDocuments).not.toHaveBeenCalled();
+    expect(kycSubmitted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [new Error('database failed')],
+    [Object.assign(new Error('unique'), { code: 'P2002' })],
+  ])('cleans new objects after create failure', async (error) => {
+    findUser.mockResolvedValue(noVerificationUser);
+    createVerification.mockRejectedValue(error);
+    await expect(service.submit('user-1', {}, files)).rejects.toBeInstanceOf(
+      error instanceof Error && 'code' in error ? ConflictException : Error,
+    );
+    expect(deleteVerificationDocuments).toHaveBeenCalledWith(newKeys);
+    expect(kycSubmitted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['provided-id', true],
+    [undefined, false],
+  ])(
+    'conditionally updates allowed resubmission national ID',
+    async (nationalId, hasNationalId) => {
+      findUser.mockResolvedValue(resubmissionUser);
+      await service.submit('user-1', { nationalId }, files);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const update = updateManyVerification.mock.calls[0]?.[0] as unknown as {
+        where: { userId: string; status: string };
+        data: Record<string, unknown>;
+      };
+      expect(update.where).toEqual({
+        userId: 'user-1',
+        status: 'RESUBMISSION_REQUIRED',
+      });
+      expect(update.data).toMatchObject({
+        ...newKeys,
+        status: 'PENDING',
+        rejectionReason: null,
+        reviewedAt: null,
+        reviewedBy: null,
+      });
+      if (hasNationalId) expect(update.data.nationalId).toBe(nationalId);
+      else expect(update.data).not.toHaveProperty('nationalId');
+      expect(deleteVerificationDocuments).toHaveBeenCalledWith(oldKeys);
+      expect(kycSubmitted).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([[{ count: 0 }], [new Error('update failed')]])(
+    'cleans new keys but retains old keys when resubmission cannot persist',
+    async (result) => {
+      findUser.mockResolvedValue(resubmissionUser);
+      if ('count' in result) updateManyVerification.mockResolvedValue(result);
+      else updateManyVerification.mockRejectedValue(result);
+      await expect(service.submit('user-1', {}, files)).rejects.toBeInstanceOf(
+        'count' in result ? ConflictException : Error,
+      );
+      expect(deleteVerificationDocuments).toHaveBeenCalledTimes(1);
+      expect(deleteVerificationDocuments).toHaveBeenCalledWith(newKeys);
+      expect(deleteVerificationDocuments).not.toHaveBeenCalledWith(oldKeys);
+      expect(kycSubmitted).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps persisted submission successful if realtime fails', async () => {
+    findUser.mockResolvedValue(noVerificationUser);
+    kycSubmitted.mockImplementation(() => {
+      throw new Error('socket unavailable');
+    });
+    await expect(service.submit('user-1', {}, files)).resolves.toMatchObject({
+      status: 'PENDING',
+    });
+    expect(createVerification).toHaveBeenCalled();
+    expect(deleteVerificationDocuments).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      null,
+      {
+        status: 'NOT_SUBMITTED',
+        rejectionReason: null,
+        submittedAt: null,
+        reviewedAt: null,
+        canSubmit: true,
+      },
+    ],
+    [
+      {
+        status: 'PENDING',
+        rejectionReason: 'hidden',
+        submittedAt: new Date(),
+        reviewedAt: null,
+      },
+      { canSubmit: false, rejectionReason: null },
+    ],
+    [
+      {
+        status: 'APPROVED',
+        rejectionReason: 'hidden',
+        submittedAt: new Date(),
+        reviewedAt: null,
+      },
+      { canSubmit: false, rejectionReason: null },
+    ],
+    [
+      {
+        status: 'REJECTED',
+        rejectionReason: 'reason',
+        submittedAt: new Date(),
+        reviewedAt: null,
+      },
+      { canSubmit: false, rejectionReason: 'reason' },
+    ],
+    [
+      {
+        status: 'RESUBMISSION_REQUIRED',
+        rejectionReason: 'reason',
+        submittedAt: new Date(),
+        reviewedAt: null,
+      },
+      { canSubmit: true, rejectionReason: 'reason' },
+    ],
+  ])('keeps GET verification response safe', async (row, expected) => {
+    findVerification.mockResolvedValue(row);
     const response = await service.getMyVerification('user-1');
-
-    expect(findUnique).toHaveBeenCalledWith({
+    expect(response).toMatchObject(expected);
+    expect(findVerification).toHaveBeenCalledWith({
       where: { userId: 'user-1' },
-      select: safeSelect,
+      select: {
+        status: true,
+        rejectionReason: true,
+        submittedAt: true,
+        reviewedAt: true,
+      },
     });
-    expect(response).not.toHaveProperty('nationalId');
-    expect(response).not.toHaveProperty('nationalIdFrontObjectKey');
-    expect(response).not.toHaveProperty('nationalIdBackObjectKey');
-    expect(response).not.toHaveProperty('selfieObjectKey');
-    expect(response).not.toHaveProperty('id');
-    expect(response).not.toHaveProperty('userId');
-    expect(response).not.toHaveProperty('reviewedBy');
-  });
-
-  it('keeps submit as a non-persisting Not Implemented stub', async () => {
-    await expect(service.submit('user-1', {})).rejects.toBeInstanceOf(
-      NotImplementedException,
-    );
-    expect(create).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
-    expect(upsert).not.toHaveBeenCalled();
+    for (const key of [
+      'id',
+      'userId',
+      'nationalId',
+      'reviewedBy',
+      'nationalIdFrontObjectKey',
+      'nationalIdBackObjectKey',
+      'selfieObjectKey',
+    ])
+      expect(response).not.toHaveProperty(key);
   });
 });
 
@@ -120,41 +307,26 @@ describe('SubmitVerificationDto', () => {
     dto.nationalId = nationalId as string | undefined;
     return validate(dto);
   };
-
-  it('accepts an omitted nationalId', async () => {
+  it('accepts omitted, undefined, and non-empty national IDs', async () => {
     await expect(validate(new SubmitVerificationDto())).resolves.toHaveLength(
       0,
     );
-  });
-
-  it('accepts an explicitly undefined nationalId', async () => {
     await expect(validateNationalId(undefined)).resolves.toHaveLength(0);
+    await expect(validateNationalId('123')).resolves.toHaveLength(0);
   });
-
-  it.each(['valid-national-id', '123'])(
-    'accepts a non-empty nationalId without finalizing its format: %s',
-    async (nationalId) => {
-      await expect(validateNationalId(nationalId)).resolves.toHaveLength(0);
-    },
-  );
-
-  it('rejects null nationalId', async () => {
-    await expect(validateNationalId(null)).resolves.not.toHaveLength(0);
-  });
-
-  it.each(['', '   '])(
-    'rejects %p with exactly one required-message constraint',
-    async (nationalId) => {
-      const errors = await validateNationalId(nationalId);
-      const messages = errors.flatMap((error) =>
-        Object.values(error.constraints ?? {}),
-      );
-      const requiredMessages = messages.filter((message) =>
-        message.includes('validation.REQUIRED'),
-      );
-
+  it.each([null, '', '   '])(
+    'rejects invalid national ID value %p',
+    async (value) => {
+      const errors = await validateNationalId(value);
       expect(errors).not.toHaveLength(0);
-      expect(requiredMessages).toHaveLength(1);
+      if (typeof value === 'string') {
+        const messages = errors.flatMap((error) =>
+          Object.values(error.constraints ?? {}),
+        );
+        expect(
+          messages.filter((message) => message.includes('validation.REQUIRED')),
+        ).toHaveLength(1);
+      }
     },
   );
 });
