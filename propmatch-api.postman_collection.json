@@ -209,6 +209,236 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "Admin",
+			"item": [
+				{
+					"name": "Get Queues",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/admin/queues",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"queues"
+							]
+						},
+						"description": "Retrieves the pending admin queues."
+					},
+					"response": []
+				},
+				{
+					"name": "Get KYC Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/admin/kyc/{{userId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"kyc",
+								"{{userId}}"
+							]
+						},
+						"description": "Retrieves national ID and selfie URLs for admin KYC review."
+					},
+					"response": []
+				},
+				{
+					"name": "Review KYC",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"decision\": \"approve\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/kyc/{{userId}}/review",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"kyc",
+								"{{userId}}",
+								"review"
+							]
+						},
+						"description": "Approves or rejects identity verification."
+					},
+					"response": []
+				},
+				{
+					"name": "Review Property",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"decision\": \"approve\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/properties/{{propertyId}}/review",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"properties",
+								"{{propertyId}}",
+								"review"
+							]
+						},
+						"description": "Approves or rejects a property listing."
+					},
+					"response": []
+				},
+				{
+					"name": "Review Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"decision\": \"approve\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/requests/{{requestId}}/review",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"requests",
+								"{{requestId}}",
+								"review"
+							]
+						},
+						"description": "Approves or rejects a tenant request."
+					},
+					"response": []
+				},
+				{
+					"name": "Review Property Review",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"decision\": \"approve\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/reviews/{{reviewId}}/review",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"reviews",
+								"{{reviewId}}",
+								"review"
+							]
+						},
+						"description": "Approves or rejects a property review."
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"event": [
