@@ -8,12 +8,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { I18nContext } from 'nestjs-i18n';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
-import { I18nContext } from 'nestjs-i18n';
 
 @Injectable()
 export class AdminService {
@@ -21,9 +21,6 @@ export class AdminService {
     private readonly prismaService: PrismaService,
     private readonly realtimeService: RealtimeService,
   ) {}
-  private getTranslation(key: string, fallback: string): string {
-    return I18nContext.current()?.t(key) ?? fallback;
-  }
   async getQueues() {
     const [kyc, properties, requests, reviews] = await Promise.all([
       this.prismaService.identityVerification.findMany({
@@ -140,20 +137,18 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const v = await this.prismaService.identityVerification.findUnique({
       where: { userId },
     });
     if (!v) {
-      throw new NotFoundException(
-        this.getTranslation('admin.NOT_FOUND', 'Not found.'),
-      );
+      throw new NotFoundException(I18nContext.current()?.t('admin.NOT_FOUND'));
     }
     if (v.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -187,7 +182,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const p = await this.prismaService.property.findUnique({
@@ -195,12 +190,12 @@ export class AdminService {
     });
     if (!p) {
       throw new NotFoundException(
-        this.getTranslation('admin.PROPERTY_NOT_FOUND', 'PROPERTY_NOT_FOUND'),
+        I18nContext.current()?.t('admin.PROPERTY_NOT_FOUND'),
       );
     }
     if (p.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -232,7 +227,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const r = await this.prismaService.tenantRequest.findUnique({
@@ -240,12 +235,12 @@ export class AdminService {
     });
     if (!r) {
       throw new NotFoundException(
-        this.getTranslation('admin.REQUEST_NOT_FOUND', 'REQUEST_NOT_FOUND'),
+        I18nContext.current()?.t('admin.REQUEST_NOT_FOUND'),
       );
     }
     if (r.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -275,7 +270,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const ur = await this.prismaService.propertyReview.findUnique({
@@ -283,12 +278,12 @@ export class AdminService {
     });
     if (!ur) {
       throw new NotFoundException(
-        this.getTranslation('admin.REVIEW_NOT_FOUND', 'REVIEW_NOT_FOUND'),
+        I18nContext.current()?.t('admin.REVIEW_NOT_FOUND'),
       );
     }
     if (ur.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -322,7 +317,7 @@ export class AdminService {
     if (adminCount > 0) {
       if (!creatorId) {
         throw new UnauthorizedException(
-          this.getTranslation('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN', 'Only super-admins can create new admins.'),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
       const superAdmin = await this.prismaService.user.findUnique({
@@ -330,7 +325,7 @@ export class AdminService {
       });
       if (!superAdmin || superAdmin.role === 'ADMIN') {
         throw new ForbiddenException(
-          this.getTranslation('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN', 'Only super-admins can create new admins.'),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
     }
@@ -340,7 +335,7 @@ export class AdminService {
     });
     if (existingUser) {
       throw new ConflictException(
-        this.getTranslation('auth.EMAIL_EXISTS', 'Email already exists.'),
+        I18nContext.current()?.t('auth.EMAIL_EXISTS'),
       );
     }
     // 3. Hash password and persist new Admin
