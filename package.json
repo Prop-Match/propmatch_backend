@@ -94,6 +94,9 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "prisma": {
+      "seed": "ts-node prisma/seed-admin-demo.ts"
+    }
   }
 }
