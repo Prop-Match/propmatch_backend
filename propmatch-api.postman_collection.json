@@ -8,17 +8,18 @@
 	"item": [
 		{
 			"name": "Auth",
+			"id": "27573463-7dd1a7b8-eaf5-41a3-9fdf-df344414f679",
 			"item": [
 				{
-					"name": "Sign Up / Register",
+					"name": "Sign Up (Tenant)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
 									"const response = pm.response.json();",
-									"if (response.accessToken) {",
-									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"if (response.accesstoken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accesstoken);",
 									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
 									"    console.log(\"Access and Refresh tokens successfully saved!\");",
 									"}"
@@ -45,7 +46,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"fullName\": \"محمد أحمد\",\n    \"email\": \"mohamed.test@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01092219864\"\n}",
+							"raw": "{\n    \"fullName\": \"محمد المستأجر\",\n    \"email\": \"tenant.test@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01092219864\",\n    \"role\": \"TENANT\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -62,20 +63,77 @@
 								"register"
 							]
 						},
-						"description": "Registers a new unified user account in the system and automatically configures their default profile quotas."
+						"description": "Registers a new tenant user account."
 					},
 					"response": []
 				},
 				{
-					"name": "Log In",
+					"name": "Sign Up (Landlord)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
 									"const response = pm.response.json();",
-									"if (response.accessToken) {",
-									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"if (response.accesstoken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accesstoken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Access and Refresh tokens successfully saved!\");",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"description": "Preferred language for responses (ar/en)",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fullName\": \"أحمد المالك\",\n    \"email\": \"landlord.test@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01234567890\",\n    \"role\": \"LANDLORD\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"register"
+							]
+						},
+						"description": "Registers a new landlord user account."
+					},
+					"response": []
+				},
+				{
+					"name": "Log In (Tenant)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.accesstoken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accesstoken);",
 									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
 									"    console.log(\"Access and Refresh tokens successfully saved!\");",
 									"}"
@@ -101,7 +159,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"email\": \"mohamed.test@example.com\",\n    \"password\": \"P@ssword123\"\n}",
+							"raw": "{\n    \"email\": \"tenant.test@example.com\",\n    \"password\": \"P@ssword123\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -118,12 +176,125 @@
 								"login"
 							]
 						},
-						"description": "Authenticates user credentials and returns a Bearer JWT access token and refresh token."
+						"description": "Authenticates tenant user."
+					},
+					"response": []
+				},
+				{
+					"name": "Log In (Landlord)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.accesstoken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accesstoken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Access and Refresh tokens successfully saved!\");",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"landlord.test@example.com\",\n    \"password\": \"P@ssword123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticates landlord user."
+					},
+					"response": []
+				},
+				{
+					"name": "Log In (Admin)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.accesstoken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accesstoken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Access and Refresh tokens successfully saved!\");",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"admin@example.com\",\n    \"password\": \"P@ssword123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticates admin user."
 					},
 					"response": []
 				},
 				{
 					"name": "Get Me / Session Profile",
+					"id": "27573463-6eb2435e-34e9-4219-9fea-b3d50601418d",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -154,14 +325,15 @@
 				},
 				{
 					"name": "Refresh Token",
+					"id": "27573463-46ec96b4-9144-41aa-af41-7413544e197f",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
 									"const response = pm.response.json();",
-									"if (response.accessToken) {",
-									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"if (response.accesstoken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accesstoken);",
 									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
 									"    console.log(\"Tokens successfully refreshed and saved!\");",
 									"}"
