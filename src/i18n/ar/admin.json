@@ -1,0 +1,7 @@
+{
+  "reason_too_short": "يجب أن يكون السبب مكوناً من 3 أحرف على الأقل",
+  "IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER": "لا يوجد طلب توثيق لهذا المستخدم",
+  "PROPERTY_NOT_FOUND": "The specified property was not found",
+  "REQUEST_NOT_FOUND": "The specified tenant request was not found",
+  "REVIEW_NOT_FOUND": "The specified review was not found"
+}
