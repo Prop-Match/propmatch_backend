@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Post,
   Request,
   UseGuards,
@@ -12,8 +13,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
-@Controller('landlord/properties')
-@UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
+@Controller()
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class PropertiesController {
   constructor(private readonly propertiesService: PropertiesService) {}
 
@@ -24,12 +25,19 @@ export class PropertiesController {
    * Requires JWT auth + LANDLORD role + APPROVED identity verification.
    * Gates: free listing quota must be > 0.
    */
-  @Post()
+  @Post('landlord/properties')
   @Roles('LANDLORD')
+  @UseGuards(VerifiedGuard)
   async create(
     @Request() req: { user: { userId: string } },
     @Body() dto: CreatePropertyDto,
   ) {
     return this.propertiesService.create(req.user.userId, dto);
   }
+
+  @Get('properties')
+  async getAllProperties() {
+    return this.propertiesService.getAll();
+  }
+
 }

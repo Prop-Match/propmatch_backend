@@ -23,6 +23,8 @@ export class PropertiesService {
       select: {
         fullName: true,
         phoneNumber: true,
+        // Included so the mapper can derive ownerVerified without an extra query.
+        identityVerification: { select: { status: true } },
       },
     },
   };
@@ -109,9 +111,49 @@ export class PropertiesService {
 
     return {
       property: transformPropertyToDetail(property, {
-        ownerVerified: true, // already checked verification above
         contactRevealed: true, // owner always sees their own contact info
       }),
     };
+  }
+
+  async getAll(){
+    const properties = await this.prisma.property.findMany({
+      where: {
+        status: 'APPROVED',
+      },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+
+    return properties.map((p) => {
+      return transformPropertyToDetail(p, {
+        contactRevealed: true,
+      });
+    });
+  }
+
+  async getPropertyById(id: string) {
+    const property = await this.prisma.property.findUniqueOrThrow({
+      where: { id },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+
+    return transformPropertyToDetail(property, {
+      contactRevealed: true,
+    });
+  }
+
+  async getPendingProperties(){
+    const properties = await this.prisma.property.findMany({
+      where: {
+        status: 'PENDING',
+      },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+
+    return properties.map((p) => {
+      return transformPropertyToDetail(p, {
+        contactRevealed: true,
+      });
+    });
   }
 }
