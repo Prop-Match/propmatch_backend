@@ -439,6 +439,147 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "Verification",
+			"id": "27573463-verification-folder-uuid",
+			"item": [
+				{
+					"name": "Get My Verification",
+					"id": "27573463-ver-get-me-uuid",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/verification/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"verification",
+								"me"
+							]
+						},
+						"description": "Retrieves the authenticated user's verification status."
+					},
+					"response": []
+				},
+				{
+					"name": "Submit Verification",
+					"id": "27573463-ver-submit-uuid",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nationalId\": \"30102030405067\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/verification/submit",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"verification",
+								"submit"
+							]
+						},
+						"description": "Submits identity verification details."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Properties",
+			"id": "27573463-properties-folder-uuid",
+			"item": [
+				{
+					"name": "Create Property",
+					"id": "27573463-prop-create-uuid",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"شقة مفروشة رائعة في الدقي\",\n    \"description\": \"شقة سكنية ممتازة ومفروشة بالكامل تقع في حي الدقي الراقي، قريبة من المترو وجميع الخدمات والمحلات التجارية.\",\n    \"governorate\": \"الجيزة\",\n    \"city\": \"الجيزة\",\n    \"district\": \"الدقي\",\n    \"manualAddress\": \"شارع مصدق، بجوار مكتبة سمير وعلي\",\n    \"propertyType\": \"APARTMENT\",\n    \"propertyAroundServices\": \"مترو، صيدليات، سوبرماركت، مطاعم\",\n    \"rentAmount\": 15000,\n    \"areaM2\": 120,\n    \"bedrooms\": 3,\n    \"bathrooms\": 2,\n    \"isFurnished\": true,\n    \"hasElevator\": true,\n    \"hasParking\": false,\n    \"images\": [\n        \"https://example.com/image1.jpg\"\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/landlord/properties",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"landlord",
+								"properties"
+							]
+						},
+						"description": "Creates a new property listing for the authenticated landlord."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Hello World",
+			"id": "27573463-hello-world-uuid",
+			"request": {
+				"method": "GET",
+				"url": {
+					"raw": "{{baseUrl}}/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						""
+					]
+				},
+				"description": "Hello World endpoint check."
+			},
+			"response": []
 		}
 	],
 	"event": [
