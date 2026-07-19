@@ -1,4 +1,4 @@
-import { Property, PropertyImage, PropertyStatus, PropertyType } from 'generated/prisma/client';
+import { Property, PropertyImage, PropertyStatus, PropertyType, VerificationStatus } from 'generated/prisma/client';
 
 /* ────────────────────── Frontend response interfaces ────────────────────── */
 
@@ -47,7 +47,12 @@ export interface PropertyDetailResponse extends PropertySummaryResponse {
 
 type PropertyWithImages = Property & {
   propertyImages: PropertyImage[];
-  owner?: { fullName: string; phoneNumber: string } | null;
+  owner?: {
+    fullName: string;
+    phoneNumber: string;
+    /** Included in DETAIL_INCLUDE so ownerVerified can be derived here. */
+    identityVerification?: { status: VerificationStatus } | null;
+  } | null;
 };
 
 /* ──────────────────────────── Mapper functions ──────────────────────────── */
@@ -77,12 +82,21 @@ function transformImage(image: PropertyImage): PropertyImageResponse {
 }
 
 /**
+ * Derive ownerVerified from the owner's identity verification relation.
+ * This is the single source of truth — no denormalized flag needed.
+ */
+function isOwnerVerified(
+  owner: PropertyWithImages['owner'],
+): boolean {
+  return owner?.identityVerification?.status === 'APPROVED';
+}
+
+/**
  * Transform a Prisma Property (with images) to the frontend summary shape.
  * Used for list / card views — never carries masked PII fields.
  */
 export function transformPropertyToSummary(
   property: PropertyWithImages,
-  ownerVerified: boolean,
 ): PropertySummaryResponse {
   return {
     id: property.id,
@@ -99,7 +113,7 @@ export function transformPropertyToSummary(
     isBoosted: property.isBoosted,
     status: property.status,
     coverImage: extractCoverImage(property.propertyImages),
-    ownerVerified,
+    ownerVerified: isOwnerVerified(property.owner),
   };
 }
 
@@ -108,18 +122,20 @@ export function transformPropertyToSummary(
  *
  * PII gate: `contactRevealed` controls whether the owner's name, phone, and
  * manual address are included. The caller decides based on match/offer status.
+ *
+ * `ownerVerified` is derived directly from the owner's identityVerification
+ * relation — the single source of truth, no extra query needed.
  */
 export function transformPropertyToDetail(
   property: PropertyWithImages,
   options: {
-    ownerVerified: boolean;
     contactRevealed: boolean;
   },
 ): PropertyDetailResponse {
-  const { ownerVerified, contactRevealed } = options;
+  const { contactRevealed } = options;
 
   return {
-    ...transformPropertyToSummary(property, ownerVerified),
+    ...transformPropertyToSummary(property),
     description: property.description,
     propertyAroundServices: property.propertyAroundServices,
     hasElevator: property.hasElevator,

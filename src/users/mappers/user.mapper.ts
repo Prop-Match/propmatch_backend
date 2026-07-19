@@ -1,32 +1,34 @@
 import { IdentityVerification, User } from 'generated/prisma/client';
 
+/**
+ * Matches the frontend's `UserSchema` (propmatch_frontend/src/lib/api/contracts/auth.ts)
+ * exactly — field names and the verificationStatus enum must stay in sync
+ * with that contract.
+ */
 export interface TransformedUser {
   id: string;
   fullName: string;
   email: string;
-  phone: string;
+  phoneNumber: string;
   role: 'tenant' | 'landlord' | 'admin';
-  verificationStatus: 'unverified' | 'pending_review' | 'verified' | 'rejected';
-  verificationRejectedAt: string | null;
-  verificationResubmitAfter: string | null;
-  verificationRejectionReason: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
   createdAt: string;
+  updatedAt: string;
+  verificationStatus:
+    | 'NOT_SUBMITTED'
+    | 'PENDING'
+    | 'APPROVED'
+    | 'REJECTED'
+    | 'RESUBMISSION_REQUIRED';
 }
 
 export function transformUserToFrontend(
   user: User & { identityVerification?: IdentityVerification | null },
 ): TransformedUser {
-  let verificationStatus:
-    'unverified' | 'pending_review' | 'verified' | 'rejected' = 'unverified';
-
   const dbStatus = user.identityVerification?.status;
-  if (dbStatus === 'PENDING') {
-    verificationStatus = 'pending_review';
-  } else if (dbStatus === 'APPROVED') {
-    verificationStatus = 'verified';
-  } else if (dbStatus === 'REJECTED') {
-    verificationStatus = 'rejected';
-  }
+  const verificationStatus: TransformedUser['verificationStatus'] =
+    dbStatus ?? 'NOT_SUBMITTED';
 
   const mappedRole: 'tenant' | 'landlord' | 'admin' =
     user.role === 'ADMIN'
@@ -39,17 +41,14 @@ export function transformUserToFrontend(
     id: user.id,
     fullName: user.fullName,
     email: user.email,
-    phone: user.phoneNumber, // Map phoneNumber -> phone
+    phoneNumber: user.phoneNumber,
     role: mappedRole,
-    verificationStatus,
-    verificationRejectedAt:
-      user.identityVerification?.reviewedAt &&
-      user.identityVerification.status === 'REJECTED'
-        ? new Date(user.identityVerification.reviewedAt).toISOString()
-        : null,
-    verificationResubmitAfter: null,
-    verificationRejectionReason:
-      user.identityVerification?.rejectionReason || null,
+    isActive: user.isActive,
+    lastLoginAt: user.lastLoginAt
+      ? new Date(user.lastLoginAt).toISOString()
+      : null,
     createdAt: new Date(user.createdAt).toISOString(),
+    updatedAt: new Date(user.updatedAt).toISOString(),
+    verificationStatus,
   };
 }
