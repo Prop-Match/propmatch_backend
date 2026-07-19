@@ -125,9 +125,12 @@ export class AdminService {
       userId: v.userId,
       userName: v.user.fullName,
       nationalId: v.nationalId,
-      nationalIdFrontUrl: v.nationalIdFrontUrl,
-      nationalIdBackUrl: v.nationalIdBackUrl,
-      selfieUrl: v.selfieUrl,
+      // Stored as private object keys (verification module); no signed-URL
+      // resolution service exists yet, so the raw key is passed through
+      // under the URL-shaped field name the frontend contract expects.
+      nationalIdFrontUrl: v.nationalIdFrontObjectKey,
+      nationalIdBackUrl: v.nationalIdBackObjectKey,
+      selfieUrl: v.selfieObjectKey,
       submittedAt: v.submittedAt.toISOString(),
     };
   }
