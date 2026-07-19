@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Request,
   UseGuards,
@@ -38,6 +39,11 @@ export class PropertiesController {
   @Get('properties')
   async getAllProperties() {
     return this.propertiesService.getAll();
+  }
+
+  @Get('properties/:id')
+  async getPropertyById(@Param('id') id: string) {
+    return this.propertiesService.getPropertyById(id);
   }
 
 }
