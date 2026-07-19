@@ -7,9 +7,9 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import { Roles } from 'src/auth/decorators/roles.decorator';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminService } from './admin.service';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
 
@@ -18,7 +18,12 @@ import { ReviewDecisionDto } from './dto/review-decision.dto';
 @Roles('ADMIN')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
-  @Get('queue')
+  @Get('session')
+  async getSession(@Request() req: { user: { userId: string } }) {
+    return this.adminService.getSession(req.user.userId);
+  }
+
+  @Get('queues')
   async getQueues() {
     return this.adminService.getQueues();
   }

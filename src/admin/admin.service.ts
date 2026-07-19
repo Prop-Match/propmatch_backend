@@ -1,5 +1,5 @@
 import { NotificationType } from '@generated/prisma/enums';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
@@ -90,16 +90,56 @@ export class AdminService {
       submittedAt: identityVerification.submittedAt.toISOString(),
     };
   }
+  async getSession(userId: string) {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) throw new NotFoundException('User not found.');
+    return {
+      id: userId,
+      fullName: user.fullName,
+      role: 'super-admin',
+      roleName: 'مشرف عام',
+      capabilities: [
+        'property:approve',
+        'property:reject',
+        'kyc:review',
+        'request:approve',
+        'request:reject',
+        'review:moderate',
+        'payment:view',
+        'partner_lead:view',
+        'report:export',
+        'ticket:reply',
+        'audit:view',
+        'admin:create',
+        'admin:manage',
+      ],
+    };
+  }
+
   async reviewKyc(
     adminId: string,
     userId: string,
     reviewDecisionDto: ReviewDecisionDto,
   ) {
     const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException('A rejection reason is required.');
+    }
+    const v = await this.prismaService.identityVerification.findUnique({
+      where: { userId },
+    });
+    if (!v) throw new NotFoundException('Not found.');
+    if (v.status !== 'PENDING') {
+      throw new ConflictException('This item has already been reviewed.');
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
     await this.prismaService.identityVerification.update({
       where: { userId },
       data: {
-        status: isApproved ? 'APPROVED' : 'REJECTED',
+        status,
         reviewedBy: adminId,
         reviewedAt: new Date(),
         rejectionReason: !isApproved ? reviewDecisionDto.reason : null,
@@ -115,7 +155,7 @@ export class AdminService {
         : `Your identity verification has been rejected. Reason: ${reviewDecisionDto.reason}`,
       link: '/profile',
     });
-    return { ok: true };
+    return { ok: true, status };
   }
   async reviewProperty(
     adminId: string,
@@ -123,17 +163,26 @@ export class AdminService {
     reviewDecisionDto: ReviewDecisionDto,
   ) {
     const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException('A rejection reason is required.');
+    }
+    const p = await this.prismaService.property.findUnique({
+      where: { id: propertyId },
+    });
+    if (!p) throw new NotFoundException('PROPERTY_NOT_FOUND');
+    if (p.status !== 'PENDING') {
+      throw new ConflictException('This item has already been reviewed.');
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
     const property = await this.prismaService.property.update({
       where: { id: propertyId },
       data: {
-        status: isApproved ? 'APPROVED' : 'REJECTED',
+        status,
         approvedBy: adminId,
         approvedAt: new Date(),
       },
     });
-    if (!property) {
-      throw new NotFoundException('PROPERTY_NOT_FOUND');
-    }
     await this.realtimeService.notifyUser(property.ownerId, {
       type: 'PROPERTY_APPROVED',
       title: isApproved ? 'تم قبول عقارك الجديد' : 'تم رفض إعلان العقار',
@@ -143,7 +192,7 @@ export class AdminService {
       link: `/landlord/properties/${property.id}`,
     });
 
-    return { ok: true };
+    return { status };
   }
   async reviewRequest(
     adminId: string,
@@ -151,11 +200,23 @@ export class AdminService {
     reviewDecisionDto: ReviewDecisionDto,
   ) {
     const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException('A rejection reason is required.');
+    }
+    const r = await this.prismaService.tenantRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!r) throw new NotFoundException('Not found.');
+    if (r.status !== 'PENDING') {
+      throw new ConflictException('This item has already been reviewed.');
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
     const request = await this.prismaService.tenantRequest.update({
       where: { id: requestId },
       data: {
         approvedBy: adminId,
-        status: isApproved ? 'APPROVED' : 'REJECTED',
+        status,
       },
     });
     await this.realtimeService.notifyUser(request.tenantId, {
@@ -166,7 +227,7 @@ export class AdminService {
         : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason}`,
       link: '/tenant/requests',
     });
-    return { ok: true };
+    return { status };
   }
   async reviewUserReview(
     adminId: string,
@@ -174,10 +235,22 @@ export class AdminService {
     reviewId: string,
   ) {
     const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException('A rejection reason is required.');
+    }
+    const ur = await this.prismaService.propertyReview.findUnique({
+      where: { id: reviewId },
+    });
+    if (!ur) throw new NotFoundException('Not found.');
+    if (ur.status !== 'PENDING') {
+      throw new ConflictException('This item has already been reviewed.');
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
     const userReview = await this.prismaService.propertyReview.update({
       where: { id: reviewId },
       data: {
-        status: isApproved ? 'APPROVED' : 'REJECTED',
+        status,
         reviewedBy: adminId,
       },
     });
@@ -189,6 +262,6 @@ export class AdminService {
         : `لم نتمكن من نشر تقييمك. السبب: ${reviewDecisionDto.reason}`,
       link: `/tenant/properties/${userReview.propertyId}`,
     });
-    return { ok: true };
+    return { status };
   }
 }

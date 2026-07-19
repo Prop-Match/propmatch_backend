@@ -82,6 +82,9 @@ describe('AdminController (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.notification.deleteMany({
+      where: { userId: { in: [adminId, landlordId] } },
+    });
     await prisma.property.deleteMany({ where: { id: propertyId } });
     await prisma.user.deleteMany({
       where: { id: { in: [adminId, landlordId] } },
