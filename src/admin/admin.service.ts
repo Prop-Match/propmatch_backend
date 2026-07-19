@@ -1,7 +1,17 @@
 import { NotificationType } from '@generated/prisma/enums';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
+import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
+import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
 
 @Injectable()
@@ -263,5 +273,121 @@ export class AdminService {
       link: `/tenant/properties/${userReview.propertyId}`,
     });
     return { status };
+  }
+  async createAdmin(
+    creatorId: string | undefined,
+    createAdminDto: CreateAdminDto,
+  ) {
+    // 1. Check if there are already any admins in the system
+    const adminCount = await this.prismaService.user.count({
+      where: { role: 'ADMIN' },
+    });
+
+    if (adminCount > 0) {
+      if (!creatorId) {
+        throw new UnauthorizedException(
+          'Only super-admins can create new admins.',
+        );
+      }
+      const superAdmin = await this.prismaService.user.findUnique({
+        where: { id: creatorId },
+      });
+      if (!superAdmin || superAdmin.role === 'ADMIN') {
+        throw new ForbiddenException(
+          'Only super-admins can create new admins.',
+        );
+      }
+    }
+    // 2. Prevent duplicate emails
+    const existingUser = await this.prismaService.user.findUnique({
+      where: { email: createAdminDto.email },
+    });
+    if (existingUser) {
+      throw new ConflictException('Email already exists');
+    }
+    // 3. Hash password and persist new Admin
+    const salt = 10;
+    const hashedPassword = await bcrypt.hash(createAdminDto.password, salt);
+    const admin = await this.prismaService.user.create({
+      data: {
+        fullName: createAdminDto.fullName,
+        email: createAdminDto.email,
+        passwordHash: hashedPassword,
+        phoneNumber: createAdminDto.phoneNumber,
+        role: 'ADMIN',
+      },
+    });
+    return transformUserToFrontend(admin);
+  }
+
+  async getTeam() {
+    const admins = await this.prismaService.user.findMany({
+      where: { role: 'ADMIN' },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      items: admins.map((admin) => ({
+        id: admin.id,
+        fullName: admin.fullName,
+        email: admin.email,
+        role: 'super-admin',
+        capabilities: [
+          'property:approve',
+          'property:reject',
+          'kyc:review',
+          'request:approve',
+          'request:reject',
+          'review:moderate',
+          'payment:view',
+          'partner_lead:view',
+          'report:export',
+          'ticket:reply',
+          'audit:view',
+          'admin:create',
+          'admin:manage',
+        ],
+        disabled: !admin.isActive,
+        lastLoginAt: admin.lastLoginAt?.toISOString() || null,
+        createdAt: admin.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  async updateTeamMember(
+    id: string,
+    dto: { role?: string; disabled?: boolean },
+  ) {
+    const data: any = {};
+    if (dto.disabled !== undefined) {
+      data.isActive = !dto.disabled;
+    }
+    const admin = await this.prismaService.user.update({
+      where: { id },
+      data,
+    });
+    return {
+      id: admin.id,
+      fullName: admin.fullName,
+      email: admin.email,
+      role: dto.role || 'super-admin',
+      capabilities: [
+        'property:approve',
+        'property:reject',
+        'kyc:review',
+        'request:approve',
+        'request:reject',
+        'review:moderate',
+        'payment:view',
+        'partner_lead:view',
+        'report:export',
+        'ticket:reply',
+        'audit:view',
+        'admin:create',
+        'admin:manage',
+      ],
+      disabled: !admin.isActive,
+      lastLoginAt: admin.lastLoginAt?.toISOString() || null,
+      createdAt: admin.createdAt.toISOString(),
+    };
   }
 }
