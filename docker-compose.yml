@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: propmatch_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: propmatch
+      POSTGRES_PASSWORD: propmatch
+      POSTGRES_DB: propmatch
+    ports:
+      - "5433:5432"
+    volumes:
+      - propmatch_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U propmatch -d propmatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  propmatch_pgdata:
