@@ -23,6 +23,8 @@ export class PropertiesService {
       select: {
         fullName: true,
         phoneNumber: true,
+        // Included so the mapper can derive ownerVerified without an extra query.
+        identityVerification: { select: { status: true } },
       },
     },
   };
@@ -31,27 +33,14 @@ export class PropertiesService {
    * Create a new property listing.
    *
    * Business rules (mirrors the mock router / SRS):
-   *  1. Owner must have an APPROVED identity verification.
+   *  1. Owner verification is enforced by VerifiedGuard.
    *  2. Owner must have freeListingsLeft > 0 in their quota.
    *  3. Property starts in PENDING status — admin must approve.
    *  4. First image in the array becomes the cover image.
    *  5. Quota is decremented after successful creation.
    */
   async create(ownerId: string, dto: CreatePropertyDto) {
-    // ── 1. Verification gate ──────────────────────────────────────────
-    const verification = await this.prisma.identityVerification.findUnique({
-      where: { userId: ownerId },
-    });
-
-    if (!verification || verification.status !== 'APPROVED') {
-      throw new ForbiddenException({
-        statusCode: 403,
-        code: 'VERIFICATION_REQUIRED',
-        message: 'وثّق هويتك أولًا لإتمام هذا الإجراء',
-      });
-    }
-
-    // ── 2. Quota gate ─────────────────────────────────────────────────
+    // ── 1. Quota gate ─────────────────────────────────────────────────
     const quota = await this.prisma.userQuota.findUnique({
       where: { userId: ownerId },
     });
@@ -122,9 +111,49 @@ export class PropertiesService {
 
     return {
       property: transformPropertyToDetail(property, {
-        ownerVerified: true, // already checked verification above
         contactRevealed: true, // owner always sees their own contact info
       }),
     };
+  }
+
+  async getAll(){
+    const properties = await this.prisma.property.findMany({
+      where: {
+        status: 'APPROVED',
+      },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+
+    return properties.map((p) => {
+      return transformPropertyToDetail(p, {
+        contactRevealed: true,
+      });
+    });
+  }
+
+  async getPropertyById(id: string) {
+    const property = await this.prisma.property.findUniqueOrThrow({
+      where: { id },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+
+    return transformPropertyToDetail(property, {
+      contactRevealed: true,
+    });
+  }
+
+  async getPendingProperties(){
+    const properties = await this.prisma.property.findMany({
+      where: {
+        status: 'PENDING',
+      },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+
+    return properties.map((p) => {
+      return transformPropertyToDetail(p, {
+        contactRevealed: true,
+      });
+    });
   }
 }
