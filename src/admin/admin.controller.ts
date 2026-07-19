@@ -24,7 +24,7 @@ interface RequestWithUser {
 
 @Injectable()
 export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
-  override handleRequest(err: any, user: any) {
+  override handleRequest(err: any, user: any): any {
     return user || null;
   }
 }
@@ -128,6 +128,7 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
   async resetPassword(@Param('id') id: string) {
+    //Todo: create reset password implementation
     return { sent: true };
   }
 }
