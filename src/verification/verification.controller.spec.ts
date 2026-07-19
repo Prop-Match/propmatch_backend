@@ -1,8 +1,4 @@
-import {
-  NotImplementedException,
-  UnauthorizedException,
-  ValidationPipe,
-} from '@nestjs/common';
+import { UnauthorizedException, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
@@ -28,8 +24,12 @@ describe('VerificationController multipart submission', () => {
 
   beforeEach(async () => {
     submit.mockReset();
-    submit.mockImplementation(() => {
-      throw new NotImplementedException();
+    submit.mockReturnValue({
+      status: 'PENDING',
+      rejectionReason: null,
+      submittedAt: new Date('2026-07-19T10:00:00.000Z'),
+      reviewedAt: null,
+      canSubmit: false,
     });
     const moduleRef = await Test.createTestingModule({
       controllers: [VerificationController],
@@ -126,17 +126,43 @@ describe('VerificationController multipart submission', () => {
       .expect(400);
   });
 
-  it('validates three files then reaches the intentional 501 stub without storage', async () => {
+  it('passes normalized files to persistence and returns the safe response', async () => {
     await multipartRequest(app)
       .field('nationalId', 'optional-national-id')
       .attach('nationalIdFront', jpeg, imageOptions('image/jpeg', 'front.jpg'))
       .attach('nationalIdBack', png, imageOptions('image/png', 'back.png'))
       .attach('selfie', webp, imageOptions('image/webp', 'selfie.webp'))
-      .expect(501);
+      .expect(200)
+      .expect({
+        status: 'PENDING',
+        rejectionReason: null,
+        submittedAt: '2026-07-19T10:00:00.000Z',
+        reviewedAt: null,
+        canSubmit: false,
+      });
 
-    expect(submit).toHaveBeenCalledWith('authenticated-user', {
-      nationalId: 'optional-national-id',
-    });
+    expect(submit).toHaveBeenCalledWith(
+      'authenticated-user',
+      { nationalId: 'optional-national-id' },
+      expect.any(Object),
+    );
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    const forwardedFiles = submit.mock.calls[0]?.[2] as unknown as Record<
+      string,
+      { fieldname: string; mimetype: string; size: number; buffer: Buffer }
+    >;
+    expect(Object.keys(forwardedFiles).sort()).toEqual([
+      'nationalIdBack',
+      'nationalIdFront',
+      'selfie',
+    ]);
+    for (const [fieldname, file] of Object.entries(forwardedFiles)) {
+      expect(file.fieldname).toBe(fieldname);
+      expect(typeof file.mimetype).toBe('string');
+      expect(typeof file.size).toBe('number');
+      expect(Buffer.isBuffer(file.buffer)).toBe(true);
+      expect(file).not.toHaveProperty('originalname');
+    }
   });
 });
 

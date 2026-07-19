@@ -179,4 +179,52 @@ describe('VerificationDocumentUploadService', () => {
       log.mockRestore();
     }
   });
+
+  it('deletes documents in reverse order and continues after failures', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation();
+    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    const error = jest.spyOn(console, 'error').mockImplementation();
+    remove.mockRejectedValueOnce(new Error('selfie cleanup failed'));
+
+    try {
+      await expect(
+        service.deleteVerificationDocuments({
+          nationalIdFrontObjectKey: 'front-key',
+          nationalIdBackObjectKey: 'back-key',
+          selfieObjectKey: 'selfie-key',
+        }),
+      ).resolves.toBeUndefined();
+      expect(remove.mock.calls).toEqual([
+        ['selfie-key'],
+        ['back-key'],
+        ['front-key'],
+      ]);
+      expect(log).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it('continues cleanup when the middle deletion fails', async () => {
+    remove
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('back failed'))
+      .mockResolvedValueOnce(undefined);
+    await expect(
+      service.deleteVerificationDocuments({
+        nationalIdFrontObjectKey: 'front-key',
+        nationalIdBackObjectKey: 'back-key',
+        selfieObjectKey: 'selfie-key',
+      }),
+    ).resolves.toBeUndefined();
+    expect(remove.mock.calls).toEqual([
+      ['selfie-key'],
+      ['back-key'],
+      ['front-key'],
+    ]);
+  });
 });

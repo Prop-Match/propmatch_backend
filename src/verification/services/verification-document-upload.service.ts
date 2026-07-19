@@ -54,6 +54,22 @@ export class VerificationDocumentUploadService {
     }
   }
 
+  async deleteVerificationDocuments(
+    keys: UploadedVerificationDocumentKeys,
+  ): Promise<void> {
+    for (const objectKey of [
+      keys.selfieObjectKey,
+      keys.nationalIdBackObjectKey,
+      keys.nationalIdFrontObjectKey,
+    ]) {
+      try {
+        await this.privateObjectStorage.delete(objectKey);
+      } catch {
+        // Cleanup is best-effort and must not expose storage details.
+      }
+    }
+  }
+
   private async upload(
     file: ValidatedVerificationFiles[keyof ValidatedVerificationFiles],
     uploadedKeys: string[],

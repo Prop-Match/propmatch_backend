@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Post,
   Request,
   UseGuards,
@@ -29,6 +31,7 @@ export class VerificationController {
   }
 
   @Post('submit')
+  @HttpCode(HttpStatus.OK)
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -48,9 +51,8 @@ export class VerificationController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: SubmitVerificationDto,
     @UploadedFiles(VerificationFilesPipe)
-    _files: ValidatedVerificationFiles,
+    files: ValidatedVerificationFiles,
   ) {
-    void _files;
-    return this.verificationService.submit(req.user.userId, dto);
+    return this.verificationService.submit(req.user.userId, dto, files);
   }
 }
