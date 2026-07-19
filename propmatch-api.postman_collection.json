@@ -386,6 +386,50 @@
 			"name": "Admin",
 			"item": [
 				{
+					"name": "Register Admin",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fullName\": \"مشرف جديد\",\n    \"email\": \"admin.new@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01012345678\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"admin",
+								"register"
+							]
+						},
+						"description": "Registers a new admin user. Only accessible by super-admins (if admins exist), or anyone (if no admins exist in system)."
+					},
+					"response": []
+				},
+				{
 					"name": "Get Queues",
 					"request": {
 						"method": "GET",
@@ -777,7 +821,7 @@
 	"variable": [
 		{
 			"key": "baseUrl",
-			"value": "http://localhost:3001",
+			"value": "http://localhost:3001/api",
 			"type": "string"
 		},
 		{
