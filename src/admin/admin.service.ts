@@ -323,7 +323,8 @@ export class AdminService {
       const superAdmin = await this.prismaService.user.findUnique({
         where: { id: creatorId },
       });
-      if (!superAdmin || superAdmin.role === 'ADMIN') {
+
+      if (!superAdmin || superAdmin.role !== 'ADMIN') {
         throw new ForbiddenException(
           I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
