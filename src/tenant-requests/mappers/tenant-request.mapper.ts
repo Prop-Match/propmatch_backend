@@ -30,7 +30,7 @@ export interface TenantRequestResponse {
  *  - `createdAt` as ISO string
  */
 export function transformTenantRequest(
-  request: TenantRequest,
+  request,
   offersCount: number,
 ): TenantRequestResponse {
   return {
