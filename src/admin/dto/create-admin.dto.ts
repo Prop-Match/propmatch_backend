@@ -1,6 +1,7 @@
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   IsStrongPassword,
   Matches,
@@ -34,4 +35,14 @@ export class CreateAdminDto {
     message: i18nValidationMessage('validation.MIN_LENGTH', { value: 2 }),
   })
   fullName!: string;
+
+  /**
+   * Accepted but ignored: the frontend's admin sub-roles (super-admin,
+   * kyc-reviewer, etc.) have no backing Prisma model yet — every admin is
+   * created flat as ADMIN (see AdminService.createAdmin). Declared here only
+   * so the global ValidationPipe's forbidNonWhitelisted doesn't 400 on it.
+   */
+  @IsOptional()
+  @IsString({ message: i18nValidationMessage('validation.INVALID_STRING') })
+  role?: string;
 }
