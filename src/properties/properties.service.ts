@@ -8,6 +8,7 @@ import {
   transformPropertyToSummary,
 } from './mappers/property.mapper';
 import { RealtimeService } from '../realtime/realtime.service';
+import { SearchPropertiesDto } from './dto/search-properties.dto';
 
 @Injectable()
 export class PropertiesService {
@@ -32,6 +33,55 @@ export class PropertiesService {
       },
     },
   };
+
+  /**
+   * Hybrid search (PRO-11) — the tenant browse endpoint.
+   *
+   * Hard SQL filters (city / type / rent range / min bedrooms / furnished) are
+   * the WHERE clause here. `q` is the semantic half: a naive case-insensitive
+   * text match today, to be replaced by Samer's ChromaDB embedding ranking.
+   *
+   * Returns SUMMARIES only — no owner phone / name / address. Contact is gated
+   * behind an ACCEPTED offer / CONNECTED match and is never exposed on browse.
+   */
+  async search(query: SearchPropertiesDto) {
+    const where: Prisma.PropertyWhereInput = { status: 'APPROVED' };
+
+    if (query.city) where.city = query.city;
+    if (query.propertyType) where.propertyType = query.propertyType;
+    if (query.bedrooms !== undefined) where.bedrooms = { gte: query.bedrooms };
+    if (query.isFurnished) where.isFurnished = true;
+    if (query.minRent !== undefined || query.maxRent !== undefined) {
+      where.rentAmount = {
+        ...(query.minRent !== undefined ? { gte: query.minRent } : {}),
+        ...(query.maxRent !== undefined ? { lte: query.maxRent } : {}),
+      };
+    }
+
+    // Semantic seam: until ChromaDB, match the free text across the searchable
+    // fields. Replace this OR block with the vector-ranked id set later.
+    const q = query.q?.trim();
+    if (q) {
+      where.OR = [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { district: { contains: q, mode: 'insensitive' } },
+        { propertyAroundServices: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const properties = await this.prisma.property.findMany({
+      where,
+      include: PropertiesService.DETAIL_INCLUDE,
+      // Boosted listings first (PRO-14), then newest.
+      orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    // Summary mapper omits all PII (phone/name/address) — only ownerVerified
+    // is derived from the owner relation, so nothing sensitive is serialised.
+    const items = properties.map(transformPropertyToSummary);
+    return { items, total: items.length, page: 1, pageSize: items.length };
+  }
 
   /**
    * Create a new property listing.

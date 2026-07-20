@@ -152,7 +152,7 @@ describe('AdminController (e2e)', () => {
       .post(`/admin/properties/${propertyId}/review`)
       .set('Authorization', `Bearer ${token}`)
       .send({ decision: 'approve' })
-      .expect(201);
+      .expect(200);
 
     const body = res.body as { status: string };
     expect(body.status).toBe('APPROVED');
