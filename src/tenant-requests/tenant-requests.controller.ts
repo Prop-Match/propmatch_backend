@@ -32,7 +32,7 @@ export class TenantRequestsController {
     return this.tenantRequestsService.findMine(req.user.userId);
   }
 
-  @Post('tenant/requests')
+  @Post()
   @Roles('TENANT')
   @UseGuards(VerifiedGuard)
   async create(

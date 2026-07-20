@@ -36,19 +36,6 @@ export class TenantRequestsService {
     return transformTenantRequest(request);
   }
 
-  async getAllRequests(){
-    const requests = await this.prisma.tenantRequest.findMany({
-      include:{
-        tenant:{select:{fullName:true,phoneNumber:true, identityVerification:{select:{status:true}}}},
-        _count:{
-          select:{ownerOffers:true}
-        }
-      }
-    });
-
-    return requests.map(r => transformTenantRequest(r));
-  }
-
   /** GET /tenant/requests — the tenant's own requests, each with its offer count. */
   async findMine(tenantId: string) {
     const requests = await this.prisma.tenantRequest.findMany({
@@ -58,9 +45,7 @@ export class TenantRequestsService {
     });
 
     return {
-      items: requests.map((r) =>
-        transformTenantRequest(r),
-      ),
+      items: requests.map((r) => transformTenantRequest(r)),
     };
   }
 
