@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Request,
   UseGuards,
@@ -20,15 +21,20 @@ import { Roles } from '../auth/decorators/roles.decorator';
  * The frontend calls `api.post("tenant/requests", body)` →
  * BFF proxy → NestJS `POST /api/tenant/requests`.
  */
-@Controller()
-@UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
+@Controller('tenant/requests')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class TenantRequestsController {
-  constructor(
-    private readonly tenantRequestsService: TenantRequestsService,
-  ) {}
+  constructor(private readonly tenantRequestsService: TenantRequestsService) {}
+
+  @Get()
+  @Roles('TENANT')
+  async findMine(@Request() req: { user: { userId: string } }) {
+    return this.tenantRequestsService.findMine(req.user.userId);
+  }
 
   @Post('tenant/requests')
   @Roles('TENANT')
+  @UseGuards(VerifiedGuard)
   async create(
     @Request() req: { user: { userId: string } },
     @Body() dto: CreateTenantRequestDto,
@@ -36,4 +42,12 @@ export class TenantRequestsController {
     return this.tenantRequestsService.create(req.user.userId, dto);
   }
 
+  @Post(':id/close')
+  @Roles('TENANT')
+  async close(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.tenantRequestsService.close(req.user.userId, id);
+  }
 }
