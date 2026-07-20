@@ -77,9 +77,9 @@ async function main() {
     create: {
       userId: tenant.id,
       nationalId: '29901010112345',
-      nationalIdFrontObjectKey: 'demo/id-front.jpg',
-      nationalIdBackObjectKey: 'demo/id-back.jpg',
-      selfieObjectKey: 'demo/selfie.jpg',
+      nationalIdFrontUrl: 'https://cdn.example.com/id-front.jpg',
+      nationalIdBackUrl: 'https://cdn.example.com/id-back.jpg',
+      selfieUrl: 'https://cdn.example.com/selfie.jpg',
       status: 'PENDING',
     },
   });
