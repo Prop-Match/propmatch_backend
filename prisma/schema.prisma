@@ -21,6 +21,7 @@ enum VerificationStatus {
   PENDING
   APPROVED
   REJECTED
+  RESUBMISSION_REQUIRED
 }
 
 enum PropertyType {
@@ -139,14 +140,19 @@ model User {
 }
 
 model IdentityVerification {
-  id                 String             @id @default(uuid()) @db.Uuid
-  userId             String             @unique @map("user_id") @db.Uuid
-  user               User               @relation(fields: [userId], references: [id])
-  nationalId         String             @map("national_id")
-  nationalIdFrontUrl String             @map("national_id_front_url")
-  nationalIdBackUrl  String             @map("national_id_back_url")
-  selfieUrl          String             @map("selfie_url")
-  status             VerificationStatus @default(PENDING)
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Transitional private field retained for compatibility.
+  // Never expose through ordinary APIs or logs.
+  nationalId String? @map("national_id")
+
+  nationalIdFrontUrl String @map("national_id_front_url")
+  nationalIdBackUrl  String @map("national_id_back_url")
+  selfieUrl          String @map("selfie_url")
+
+  status VerificationStatus @default(PENDING)
 
   // Admin Approval
   reviewedBy      String?   @map("reviewed_by") @db.Uuid
@@ -154,6 +160,8 @@ model IdentityVerification {
   rejectionReason String?   @map("rejection_reason")
   submittedAt     DateTime  @default(now()) @map("submitted_at")
   reviewedAt      DateTime? @map("reviewed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@map("identity_verification")
 }
