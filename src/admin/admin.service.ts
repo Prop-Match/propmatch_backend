@@ -140,10 +140,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const v = await this.prismaService.identityVerification.findUnique({
@@ -154,10 +151,7 @@ export class AdminService {
     }
     if (v.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -199,10 +193,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const p = await this.prismaService.property.findUnique({
@@ -215,10 +206,7 @@ export class AdminService {
     }
     if (p.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -264,10 +252,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const r = await this.prismaService.tenantRequest.findUnique({
@@ -280,10 +265,7 @@ export class AdminService {
     }
     if (r.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -327,10 +309,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const ur = await this.prismaService.propertyReview.findUnique({
@@ -343,10 +322,7 @@ export class AdminService {
     }
     if (ur.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -394,10 +370,7 @@ export class AdminService {
     if (adminCount > 0) {
       if (!creatorId) {
         throw new UnauthorizedException(
-          this.getTranslation(
-            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
-            'Only super-admins can create new admins.',
-          ),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
       const superAdmin = await this.prismaService.user.findUnique({
@@ -406,10 +379,7 @@ export class AdminService {
 
       if (!superAdmin || superAdmin.role !== 'ADMIN') {
         throw new ForbiddenException(
-          this.getTranslation(
-            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
-            'Only super-admins can create new admins.',
-          ),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
     }
