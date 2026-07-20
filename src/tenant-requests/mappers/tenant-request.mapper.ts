@@ -29,10 +29,7 @@ export interface TenantRequestResponse {
  *  - `offersCount` (derived from the OwnerOffer relation count)
  *  - `createdAt` as ISO string
  */
-export function transformTenantRequest(
-  request: TenantRequest,
-  offersCount: number,
-): TenantRequestResponse {
+export function transformTenantRequest(request): TenantRequestResponse {
   return {
     id: request.id,
     tenantId: request.tenantId,
@@ -46,7 +43,7 @@ export function transformTenantRequest(
     lifestyleRequirements: request.lifestyleRequirements,
     status: request.status,
     rejectionReason: null, // Not in Prisma schema yet
-    offersCount,
+    offersCount:request._count?.ownerOffers,
     createdAt: request.createdAt.toISOString(),
   };
 }
