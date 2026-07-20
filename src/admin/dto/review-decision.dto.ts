@@ -1,13 +1,10 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
-import { i18nValidationMessage } from 'nestjs-i18n';
+import { IsEnum, IsOptional, MinLength } from 'class-validator';
 
 export class ReviewDecisionDto {
-  @IsIn(['approve', 'reject'], {
-    message: i18nValidationMessage('validation.INVALID_STRING'),
-  })
+  @IsEnum(['approve', 'reject'])
   decision!: 'approve' | 'reject';
 
   @IsOptional()
-  @IsString({ message: i18nValidationMessage('validation.INVALID_STRING') })
+  @MinLength(3, { message: 'reason_too_short' })
   reason?: string;
 }

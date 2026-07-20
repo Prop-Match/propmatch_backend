@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { transformPropertyToDetail } from './mappers/property.mapper';
-import { RealtimeService } from 'src/realtime/realtime.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class PropertiesService {

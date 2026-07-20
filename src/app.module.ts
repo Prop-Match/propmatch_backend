@@ -7,8 +7,11 @@ import { PrismaModule } from 'prisma/prisma.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { PropertiesModule } from './properties/properties.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { UsersModule } from './users/users.module';
+import { VerificationModule } from './verification/verification.module';
+import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 import { AdminModule } from './admin/admin.module';
 
 /**
@@ -20,9 +23,6 @@ import { AdminModule } from './admin/admin.module';
 const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
   ? path.join(__dirname, '../i18n/')
   : path.join(__dirname, 'i18n/');
-import { PropertiesModule } from './properties/properties.module';
-import { VerificationModule } from './verification/verification.module';
-import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 
 @Module({
   imports: [
