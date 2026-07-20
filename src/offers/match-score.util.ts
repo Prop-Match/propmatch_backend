@@ -4,7 +4,9 @@ import { Property, TenantRequest } from 'generated/prisma/client';
  * Rule-based stand-in for the real semantic/embeddings matching engine
  * (mirrors src/mocks/router.ts's scoreRequestAgainstProperty on the frontend,
  * so browse ordering and displayed scores stay consistent whichever backend
- * is running against).
+ * is running against). This is the placeholder for Samer's ChromaDB embedding
+ * similarity — swap the lifestyle-overlap block for the vector score when it
+ * lands, keep the rest. Clamped 5–98.
  */
 export function scoreRequestAgainstProperty(
   request: TenantRequest,
