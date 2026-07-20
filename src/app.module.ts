@@ -7,6 +7,8 @@ import { PrismaModule } from 'prisma/prisma.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { MatchingModule } from './matching/matching.module';
+import { OffersModule } from './offers/offers.module';
 import { PropertiesModule } from './properties/properties.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { UsersModule } from './users/users.module';
@@ -46,6 +48,8 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
     PropertiesModule,
     VerificationModule,
     TenantRequestsModule,
+    MatchingModule,
+    OffersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

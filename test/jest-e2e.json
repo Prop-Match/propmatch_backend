@@ -9,7 +9,9 @@
   "moduleNameMapper": {
     "^@generated/(.*)$": "<rootDir>/../generated/$1",
     "^generated/(.*)$": "<rootDir>/../generated/$1",
+    "^@generated/(.*)$": "<rootDir>/../generated/$1",
     "^prisma/(.*)$": "<rootDir>/../prisma/$1",
+    "^src/(.*)$": "<rootDir>/../src/$1",
     "^(\\.{1,2}/.*)\\.js$": "$1"
   }
 }
