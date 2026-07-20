@@ -34,6 +34,7 @@ describe('VerificationDocumentUploadService', () => {
   const storage: jest.Mocked<PrivateObjectStorage> = {
     upload,
     createTemporaryReadUrl: jest.fn(),
+    readTemporaryObject: jest.fn(),
     delete: remove,
   };
   let service: VerificationDocumentUploadService;

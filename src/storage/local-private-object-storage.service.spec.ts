@@ -85,9 +85,13 @@ describe('LocalPrivateObjectStorageService', () => {
     });
     const reference = await service.createTemporaryReadUrl(objectKey, 60);
 
-    expect(reference).toMatch(/^private-local:\/\/read\/[\w-]+$/);
+    expect(reference).toMatch(/^\/api\/storage\/private\//);
+    expect(reference.split('/').at(-1)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     expect(reference).not.toContain(objectKey);
     expect(reference).not.toContain(storageRoot);
+    expect(reference).not.toMatch(/^(?:private-local|file):/);
   });
 
   it('accepts a current-environment identity key', async () => {
@@ -98,7 +102,9 @@ describe('LocalPrivateObjectStorageService', () => {
 
     await expect(
       service.createTemporaryReadUrl(objectKey, 60),
-    ).resolves.toMatch(/^private-local:\/\/read\//);
+    ).resolves.toMatch(
+      /^\/api\/storage\/private\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
   });
 
   it('rejects cross-environment and non-identity object keys', async () => {
