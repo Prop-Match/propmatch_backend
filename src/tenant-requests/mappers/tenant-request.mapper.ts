@@ -29,7 +29,9 @@ export interface TenantRequestResponse {
  *  - `offersCount` (derived from the OwnerOffer relation count)
  *  - `createdAt` as ISO string
  */
-export function transformTenantRequest(request): TenantRequestResponse {
+export function transformTenantRequest(
+  request,
+): TenantRequestResponse {
   return {
     id: request.id,
     tenantId: request.tenantId,
