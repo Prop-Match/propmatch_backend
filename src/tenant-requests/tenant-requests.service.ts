@@ -78,8 +78,4 @@ export class TenantRequestsService {
 
     return { ok: true };
   }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 1bb7f30160a821e9367eed28443a5de59e92b9ba
