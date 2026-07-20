@@ -7,7 +7,6 @@ import { PrismaModule } from 'prisma/prisma.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { MatchingModule } from './matching/matching.module';
 import { OffersModule } from './offers/offers.module';
 import { PropertiesModule } from './properties/properties.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -15,7 +14,6 @@ import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
 import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 import { AdminModule } from './admin/admin.module';
-import { OffersModule } from './offers/offers.module';
 
 /**
  * `nest build` nests compiled output under dist/src, so `../i18n/` resolves
