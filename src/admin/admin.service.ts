@@ -8,12 +8,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { I18nContext } from 'nestjs-i18n';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
-import { I18nContext } from 'nestjs-i18n';
 
 @Injectable()
 export class AdminService {
@@ -140,26 +140,18 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const v = await this.prismaService.identityVerification.findUnique({
       where: { userId },
     });
     if (!v) {
-      throw new NotFoundException(
-        this.getTranslation('admin.NOT_FOUND', 'Not found.'),
-      );
+      throw new NotFoundException(I18nContext.current()?.t('admin.NOT_FOUND'));
     }
     if (v.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -175,15 +167,23 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(userId, {
       type: NotificationType.EKYC_APPROVED,
-      title: isApproved
-        ? 'Identity Verification Approved'
-        : 'Identity Verification Rejected',
-      message: isApproved
-        ? 'Your identity verification has been approved.'
-        : `Your identity verification has been rejected. Reason: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved ? 'admin.TITLE_KYC_APPROVED' : 'admin.TITLE_KYC_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved ? 'admin.MSG_KYC_APPROVED' : 'admin.MSG_KYC_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) || '',
       link: '/profile',
     });
-    return { ok: true, status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async reviewProperty(
     adminId: string,
@@ -193,10 +193,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const p = await this.prismaService.property.findUnique({
@@ -204,15 +201,12 @@ export class AdminService {
     });
     if (!p) {
       throw new NotFoundException(
-        this.getTranslation('admin.PROPERTY_NOT_FOUND', 'PROPERTY_NOT_FOUND'),
+        I18nContext.current()?.t('admin.PROPERTY_NOT_FOUND'),
       );
     }
     if (p.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -227,14 +221,28 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(property.ownerId, {
       type: 'PROPERTY_APPROVED',
-      title: isApproved ? 'تم قبول عقارك الجديد' : 'تم رفض إعلان العقار',
-      message: isApproved
-        ? `تمت الموافقة على نشر عقارك "${property.title}" وهو متاح للمستأجرين الآن.`
-        : `لم نتمكن من الموافقة على عقارك. السبب: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_PROPERTY_APPROVED'
+            : 'admin.TITLE_PROPERTY_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_PROPERTY_APPROVED'
+            : 'admin.MSG_PROPERTY_REJECTED',
+          { args: { title: property.title, reason: reviewDecisionDto.reason } },
+        ) || '',
       link: `/landlord/properties/${property.id}`,
     });
 
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async reviewRequest(
     adminId: string,
@@ -244,10 +252,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const r = await this.prismaService.tenantRequest.findUnique({
@@ -255,15 +260,12 @@ export class AdminService {
     });
     if (!r) {
       throw new NotFoundException(
-        this.getTranslation('admin.REQUEST_NOT_FOUND', 'REQUEST_NOT_FOUND'),
+        I18nContext.current()?.t('admin.REQUEST_NOT_FOUND'),
       );
     }
     if (r.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -277,13 +279,27 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(request.tenantId, {
       type: 'NEW_TENANT_REQUEST',
-      title: isApproved ? 'تم قبول طلبك' : 'تم رفض طلبك',
-      message: isApproved
-        ? 'تمت الموافقة على طلبك.'
-        : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_REQUEST_APPROVED'
+            : 'admin.TITLE_REQUEST_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_REQUEST_APPROVED'
+            : 'admin.MSG_REQUEST_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) || '',
       link: '/tenant/requests',
     });
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async reviewUserReview(
     adminId: string,
@@ -293,10 +309,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const ur = await this.prismaService.propertyReview.findUnique({
@@ -304,15 +317,12 @@ export class AdminService {
     });
     if (!ur) {
       throw new NotFoundException(
-        this.getTranslation('admin.REVIEW_NOT_FOUND', 'REVIEW_NOT_FOUND'),
+        I18nContext.current()?.t('admin.REVIEW_NOT_FOUND'),
       );
     }
     if (ur.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -326,13 +336,27 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(userReview.reviewerId, {
       type: 'REVIEW_APPROVED',
-      title: isApproved ? 'تم قبول ونشر تقييمك' : 'تم رفض نشر تقييمك',
-      message: isApproved
-        ? 'تقييمك العقاري أصبح مرئيًا الآن على صفحة تفاصيل العقار.'
-        : `لم نتمكن من نشر تقييمك. السبب: ${reviewDecisionDto.reason}`,
-      link: `/tenant/properties/${userReview.propertyId}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_REVIEW_APPROVED'
+            : 'admin.TITLE_REVIEW_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_REVIEW_APPROVED'
+            : 'admin.MSG_REVIEW_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) || '',
+      link: `/properties/${userReview.propertyId}`,
     });
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async createAdmin(
     creatorId: string | undefined,
@@ -346,21 +370,16 @@ export class AdminService {
     if (adminCount > 0) {
       if (!creatorId) {
         throw new UnauthorizedException(
-          this.getTranslation(
-            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
-            'Only super-admins can create new admins.',
-          ),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
       const superAdmin = await this.prismaService.user.findUnique({
         where: { id: creatorId },
       });
-      if (!superAdmin || superAdmin.role === 'ADMIN') {
+
+      if (!superAdmin || superAdmin.role !== 'ADMIN') {
         throw new ForbiddenException(
-          this.getTranslation(
-            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
-            'Only super-admins can create new admins.',
-          ),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
     }
@@ -370,7 +389,7 @@ export class AdminService {
     });
     if (existingUser) {
       throw new ConflictException(
-        this.getTranslation('auth.EMAIL_EXISTS', 'Email already exists.'),
+        I18nContext.current()?.t('auth.EMAIL_EXISTS'),
       );
     }
     // 3. Hash password and persist new Admin
