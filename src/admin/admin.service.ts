@@ -140,7 +140,10 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        this.getTranslation(
+          'admin.REASON_REQUIRED',
+          'A rejection reason is required.',
+        ),
       );
     }
     const v = await this.prismaService.identityVerification.findUnique({
@@ -153,7 +156,10 @@ export class AdminService {
     }
     if (v.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        this.getTranslation(
+          'admin.ALREADY_REVIEWED',
+          'This item has already been reviewed.',
+        ),
       );
     }
 
@@ -187,7 +193,10 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        this.getTranslation(
+          'admin.REASON_REQUIRED',
+          'A rejection reason is required.',
+        ),
       );
     }
     const p = await this.prismaService.property.findUnique({
@@ -200,7 +209,10 @@ export class AdminService {
     }
     if (p.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        this.getTranslation(
+          'admin.ALREADY_REVIEWED',
+          'This item has already been reviewed.',
+        ),
       );
     }
 
@@ -232,7 +244,10 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        this.getTranslation(
+          'admin.REASON_REQUIRED',
+          'A rejection reason is required.',
+        ),
       );
     }
     const r = await this.prismaService.tenantRequest.findUnique({
@@ -245,7 +260,10 @@ export class AdminService {
     }
     if (r.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        this.getTranslation(
+          'admin.ALREADY_REVIEWED',
+          'This item has already been reviewed.',
+        ),
       );
     }
 
@@ -275,7 +293,10 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+        this.getTranslation(
+          'admin.REASON_REQUIRED',
+          'A rejection reason is required.',
+        ),
       );
     }
     const ur = await this.prismaService.propertyReview.findUnique({
@@ -288,7 +309,10 @@ export class AdminService {
     }
     if (ur.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+        this.getTranslation(
+          'admin.ALREADY_REVIEWED',
+          'This item has already been reviewed.',
+        ),
       );
     }
 
@@ -322,7 +346,10 @@ export class AdminService {
     if (adminCount > 0) {
       if (!creatorId) {
         throw new UnauthorizedException(
-          this.getTranslation('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN', 'Only super-admins can create new admins.'),
+          this.getTranslation(
+            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
+            'Only super-admins can create new admins.',
+          ),
         );
       }
       const superAdmin = await this.prismaService.user.findUnique({
@@ -330,7 +357,10 @@ export class AdminService {
       });
       if (!superAdmin || superAdmin.role === 'ADMIN') {
         throw new ForbiddenException(
-          this.getTranslation('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN', 'Only super-admins can create new admins.'),
+          this.getTranslation(
+            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
+            'Only super-admins can create new admins.',
+          ),
         );
       }
     }
