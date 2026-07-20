@@ -53,4 +53,14 @@ export class PropertiesController {
   async getPropertyById(@Param('id') id: string) {
     return this.propertiesService.getPropertyById(id);
   }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
+  @Roles('LANDLORD')
+  @Post('landlord/properties/draft/optimize-description/stream')
+  async optimizeDescription(
+    @Request() req: { user: { userId: string } },
+    @Body() dto: { description: string },
+  ) {
+    // return this.propertiesService.optimizeDescription(req.user.userId, dto);
+  }
 }
