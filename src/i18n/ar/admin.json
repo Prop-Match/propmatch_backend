@@ -7,5 +7,22 @@
   "REASON_REQUIRED": "سبب الرفض مطلوب.",
   "ALREADY_REVIEWED": "تمت مراجعة هذا الطلب بالفعل.",
   "NOT_FOUND": "غير موجود.",
-  "ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN": "يمكن للمشرفين العامين فقط إنشاء مشرفين جدد."
+  "ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN": "يمكن للمشرفين العامين فقط إنشاء مشرفين جدد.",
+  "TITLE_KYC_APPROVED": "تم قبول توثيق الهوية",
+  "TITLE_KYC_REJECTED": "تم رفض توثيق الهوية",
+  "MSG_KYC_APPROVED": "تمت الموافقة على توثيق هويتك بنجاح.",
+  "MSG_KYC_REJECTED": "تم رفض توثيق هويتك. السبب: {reason}",
+  "TITLE_PROPERTY_APPROVED": "تم قبول عقارك الجديد",
+  "TITLE_PROPERTY_REJECTED": "تم رفض إعلان العقار",
+  "MSG_PROPERTY_APPROVED": "تمت الموافقة على نشر عقارك \"{title}\" وهو متاح للمستأجرين الآن.",
+  "MSG_PROPERTY_REJECTED": "لم نتمكن من الموافقة على عقارك. السبب: {reason}",
+  "TITLE_REQUEST_APPROVED": "تم قبول طلبك",
+  "TITLE_REQUEST_REJECTED": "تم رفض طلبك",
+  "MSG_REQUEST_APPROVED": "تمت الموافقة على طلبك بنجاح.",
+  "MSG_REQUEST_REJECTED": "تم رفض طلبك. السبب: {reason}",
+  "TITLE_REVIEW_APPROVED": "تم قبول ونشر تقييمك",
+  "TITLE_REVIEW_REJECTED": "تم رفض نشر تقييمك",
+  "MSG_REVIEW_APPROVED": "تمت الموافقة على تقييمك وهو منشور الآن.",
+  "MSG_REVIEW_REJECTED": "تم رفض تقييمك. السبب: {reason}",
+  "REVIEW_SUCCESS_MESSAGE": "تمت عملية المراجعة بنجاح. الحالة: {status}"
 }
