@@ -101,13 +101,28 @@ export class AdminService {
         'IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER',
       );
     }
+    const [nationalIdFrontUrl, nationalIdBackUrl, selfieUrl] =
+      await Promise.all([
+        this.privateObjectStorage.createTemporaryReadUrl(
+          identityVerification.nationalIdFrontUrl,
+          KYC_DOCUMENT_READ_TTL_SECONDS,
+        ),
+        this.privateObjectStorage.createTemporaryReadUrl(
+          identityVerification.nationalIdBackUrl,
+          KYC_DOCUMENT_READ_TTL_SECONDS,
+        ),
+        this.privateObjectStorage.createTemporaryReadUrl(
+          identityVerification.selfieUrl,
+          KYC_DOCUMENT_READ_TTL_SECONDS,
+        ),
+      ]);
     return {
       userId: identityVerification.userId,
       userName: identityVerification.user.fullName,
       nationalId: identityVerification.nationalId,
-      nationalIdFrontUrl: identityVerification.nationalIdFrontUrl,
-      nationalIdBackUrl: identityVerification.nationalIdBackUrl,
-      selfieUrl: identityVerification.selfieUrl,
+      nationalIdFrontUrl,
+      nationalIdBackUrl,
+      selfieUrl,
       submittedAt: identityVerification.submittedAt.toISOString(),
     };
   }
@@ -162,7 +177,7 @@ export class AdminService {
       );
     }
 
-    const status = isApproved ? 'APPROVED' : 'REJECTED';
+    const status = isApproved ? 'APPROVED' : 'RESUBMISSION_REQUIRED';
     await this.prismaService.identityVerification.update({
       where: { userId },
       data: {
@@ -172,19 +187,17 @@ export class AdminService {
         rejectionReason: !isApproved ? reviewDecisionDto.reason : null,
       },
     });
-    await this.realtimeService.notifyUser(userId, {
-      type: NotificationType.EKYC_APPROVED,
-      title:
-        I18nContext.current()?.t(
-          isApproved ? 'admin.TITLE_KYC_APPROVED' : 'admin.TITLE_KYC_REJECTED',
-        ) || '',
-      message:
-        I18nContext.current()?.t(
-          isApproved ? 'admin.MSG_KYC_APPROVED' : 'admin.MSG_KYC_REJECTED',
-          { args: { reason: reviewDecisionDto.reason } },
-        ) || '',
-      link: '/profile',
-    });
+    // There is no correction-required notification type yet. Do not label a
+    // resubmission request as an approval; the persisted verification state is
+    // the source of truth until a suitable notification type is introduced.
+    if (isApproved) {
+      await this.realtimeService.notifyUser(userId, {
+        type: NotificationType.EKYC_APPROVED,
+        title: I18nContext.current()?.t('admin.TITLE_KYC_APPROVED') || '',
+        message: I18nContext.current()?.t('admin.MSG_KYC_APPROVED') || '',
+        link: '/profile',
+      });
+    }
     return {
       message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
         args: { status },
