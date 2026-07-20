@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -33,7 +34,10 @@ export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
 
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Get('session')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -53,7 +57,24 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
   async getKyc(@Param('id') id: string) {
-    return await this.adminService.getKyc(id);
+    const kyc = await this.adminService.getKyc(id);
+    const origin = this.publicBackendOrigin();
+    return {
+      ...kyc,
+      nationalIdFrontUrl: new URL(kyc.nationalIdFrontUrl, origin).toString(),
+      nationalIdBackUrl: new URL(kyc.nationalIdBackUrl, origin).toString(),
+      selfieUrl: new URL(kyc.selfieUrl, origin).toString(),
+    };
+  }
+
+  private publicBackendOrigin(): string {
+    const value = this.configService.get<string>('BACKEND_PUBLIC_URL')?.trim();
+    if (!value) throw new Error('BACKEND_PUBLIC_URL must be configured');
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('BACKEND_PUBLIC_URL must use http or https');
+    }
+    return url.toString().replace(/\/$/, '');
   }
 
   @HttpCode(HttpStatus.OK)
