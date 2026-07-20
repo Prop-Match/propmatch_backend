@@ -7,6 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Inject } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { I18nContext } from 'nestjs-i18n';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
@@ -14,12 +15,18 @@ import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
+import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
+import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
+
+const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly realtimeService: RealtimeService,
+    @Inject(PRIVATE_OBJECT_STORAGE)
+    private readonly privateObjectStorage: PrivateObjectStorage,
   ) {}
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
