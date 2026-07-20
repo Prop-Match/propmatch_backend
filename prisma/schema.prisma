@@ -148,9 +148,9 @@ model IdentityVerification {
   // Never expose through ordinary APIs or logs.
   nationalId String? @map("national_id")
 
-  nationalIdFrontObjectKey String @map("national_id_front_object_key")
-  nationalIdBackObjectKey  String @map("national_id_back_object_key")
-  selfieObjectKey          String @map("selfie_object_key")
+  nationalIdFrontUrl String @map("national_id_front_url")
+  nationalIdBackUrl  String @map("national_id_back_url")
+  selfieUrl          String @map("selfie_url")
 
   status VerificationStatus @default(PENDING)
 

@@ -38,6 +38,16 @@ const oldKeys = {
   nationalIdBackObjectKey: 'old-back',
   selfieObjectKey: 'old-selfie',
 };
+const databaseOldKeys = {
+  nationalIdFrontUrl: 'old-front',
+  nationalIdBackUrl: 'old-back',
+  selfieUrl: 'old-selfie',
+};
+const databaseNewKeys = {
+  nationalIdFrontUrl: 'new-front',
+  nationalIdBackUrl: 'new-back',
+  selfieUrl: 'new-selfie',
+};
 
 describe('VerificationService submission lifecycle', () => {
   const findUser = jest.fn();
@@ -68,7 +78,7 @@ describe('VerificationService submission lifecycle', () => {
   };
   const resubmissionUser = {
     fullName: 'Test User',
-    identityVerification: { status: 'RESUBMISSION_REQUIRED', ...oldKeys },
+    identityVerification: { status: 'RESUBMISSION_REQUIRED', ...databaseOldKeys },
   };
 
   beforeEach(() => {
@@ -125,7 +135,7 @@ describe('VerificationService submission lifecycle', () => {
           data: expect.objectContaining({
             userId: 'user-1',
             nationalId: id ?? null,
-            ...newKeys,
+            ...databaseNewKeys,
             status: 'PENDING',
             rejectionReason: null,
             reviewedAt: null,
@@ -142,7 +152,7 @@ describe('VerificationService submission lifecycle', () => {
         reviewedAt: null,
         canSubmit: false,
       });
-      expect(response).not.toHaveProperty('nationalIdFrontObjectKey');
+      expect(response).not.toHaveProperty('nationalIdFrontUrl');
     },
   );
 
@@ -187,7 +197,7 @@ describe('VerificationService submission lifecycle', () => {
         status: 'RESUBMISSION_REQUIRED',
       });
       expect(update.data).toMatchObject({
-        ...newKeys,
+        ...databaseNewKeys,
         status: 'PENDING',
         rejectionReason: null,
         reviewedAt: null,
@@ -293,9 +303,9 @@ describe('VerificationService submission lifecycle', () => {
       'userId',
       'nationalId',
       'reviewedBy',
-      'nationalIdFrontObjectKey',
-      'nationalIdBackObjectKey',
-      'selfieObjectKey',
+      'nationalIdFrontUrl',
+      'nationalIdBackUrl',
+      'selfieUrl',
     ])
       expect(response).not.toHaveProperty(key);
   });

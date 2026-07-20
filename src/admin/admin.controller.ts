@@ -2,88 +2,133 @@ import {
   Body,
   Controller,
   Get,
+  Injectable,
   Param,
+  Patch,
   Post,
+  Req,
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminService } from './admin.service';
+import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
 
-type AuthedRequest = { user: { userId: string; email: string; role: string } };
+interface RequestWithUser {
+  user?: { userId: string };
+}
 
-/**
- * Pending-entity moderation queues (properties, eKYC, tenant requests,
- * reviews) for the admin dashboard. Scoped to Week 1 — team/audit/stats
- * surfaces are out of scope until an admin sub-role model exists.
- */
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Injectable()
+export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
+  override handleRequest(err: any, user: any): any {
+    return user || null;
+  }
+}
+
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('session')
-  getSession(@Request() req: AuthedRequest) {
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getSession(@Request() req: { user: { userId: string } }) {
     return this.adminService.getSession(req.user.userId);
   }
 
   @Get('queues')
-  getQueues() {
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getQueues() {
     return this.adminService.getQueues();
   }
 
-  @Get('kyc/:userId')
-  getKycDetail(@Param('userId') userId: string) {
-    return this.adminService.getKycDetail(userId);
+  @Get('kyc/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getKyc(@Param('id') id: string) {
+    return await this.adminService.getKyc(id);
   }
 
   @Post('kyc/:userId/review')
-  reviewKyc(
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async reviewKyc(
+    @Request() req: { user: { userId: string } },
     @Param('userId') userId: string,
-    @Request() req: AuthedRequest,
-    @Body() decision: ReviewDecisionDto,
+    @Body() dto: ReviewDecisionDto,
   ) {
-    return this.adminService.reviewKyc(userId, req.user.userId, decision);
+    return this.adminService.reviewKyc(req.user.userId, userId, dto);
   }
 
-  @Post('properties/:id/review')
-  reviewProperty(
+  @Post('properties/:propertyId/review')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async reviewProperty(
+    @Request() req: { user: { userId: string } },
+    @Param('propertyId') propertyId: string,
+    @Body() dto: ReviewDecisionDto,
+  ) {
+    return this.adminService.reviewProperty(req.user.userId, propertyId, dto);
+  }
+
+  @Post('requests/:requestId/review')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async reviewRequest(
+    @Request() req: { user: { userId: string } },
+    @Param('requestId') requestId: string,
+    @Body() dto: ReviewDecisionDto,
+  ) {
+    return this.adminService.reviewRequest(req.user.userId, requestId, dto);
+  }
+
+  @Post('reviews/:reviewId/review')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async reviewUserReview(
+    @Request() req: { user: { userId: string } },
+    @Param('reviewId') reviewId: string,
+    @Body() dto: ReviewDecisionDto,
+  ) {
+    return this.adminService.reviewUserReview(req.user.userId, dto, reviewId);
+  }
+
+  @Post('register')
+  @UseGuards(OptionalJwtAuthGuard)
+  async registerAdmin(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateAdminDto,
+  ) {
+    return this.adminService.createAdmin(req.user?.userId, dto);
+  }
+
+  @Get('team')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getTeam() {
+    return this.adminService.getTeam();
+  }
+
+  @Patch('team/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async updateTeamMember(
     @Param('id') id: string,
-    @Request() req: AuthedRequest,
-    @Body() decision: ReviewDecisionDto,
+    @Body() dto: { role?: string; disabled?: boolean },
   ) {
-    return this.adminService.reviewProperty(id, req.user.userId, decision);
+    return this.adminService.updateTeamMember(id, dto);
   }
 
-  @Get('requests/:id')
-  getRequestDetail(@Param('id') id: string) {
-    return this.adminService.getRequestDetail(id);
-  }
-
-  @Post('requests/:id/review')
-  reviewRequest(
-    @Param('id') id: string,
-    @Request() req: AuthedRequest,
-    @Body() decision: ReviewDecisionDto,
-  ) {
-    return this.adminService.reviewRequest(id, req.user.userId, decision);
-  }
-
-  @Get('reviews/:id')
-  getReviewDetail(@Param('id') id: string) {
-    return this.adminService.getReviewDetail(id);
-  }
-
-  @Post('reviews/:id/review')
-  reviewReview(
-    @Param('id') id: string,
-    @Request() req: AuthedRequest,
-    @Body() decision: ReviewDecisionDto,
-  ) {
-    return this.adminService.reviewReview(id, req.user.userId, decision);
+  @Post('team/:id/reset-password')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async resetPassword(@Param('id') id: string) {
+    //Todo: create reset password implementation
+    return { sent: true };
   }
 }

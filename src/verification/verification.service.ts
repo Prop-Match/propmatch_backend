@@ -48,9 +48,9 @@ export class VerificationService {
         identityVerification: {
           select: {
             status: true,
-            nationalIdFrontObjectKey: true,
-            nationalIdBackObjectKey: true,
-            selfieObjectKey: true,
+            nationalIdFrontUrl: true,
+            nationalIdBackUrl: true,
+            selfieUrl: true,
           },
         },
       },
@@ -71,7 +71,9 @@ export class VerificationService {
           data: {
             userId,
             nationalId: dto.nationalId ?? null,
-            ...uploaded,
+            nationalIdFrontUrl: uploaded.nationalIdFrontObjectKey,
+            nationalIdBackUrl: uploaded.nationalIdBackObjectKey,
+            selfieUrl: uploaded.selfieObjectKey,
             status: 'PENDING',
             submittedAt,
             rejectionReason: null,
@@ -83,7 +85,9 @@ export class VerificationService {
         const update = await this.prisma.identityVerification.updateMany({
           where: { userId, status: 'RESUBMISSION_REQUIRED' },
           data: {
-            ...uploaded,
+            nationalIdFrontUrl: uploaded.nationalIdFrontObjectKey,
+            nationalIdBackUrl: uploaded.nationalIdBackObjectKey,
+            selfieUrl: uploaded.selfieObjectKey,
             status: 'PENDING',
             submittedAt,
             rejectionReason: null,
@@ -133,14 +137,14 @@ export class VerificationService {
   }
 
   private oldDocumentKeys(existing: {
-    nationalIdFrontObjectKey: string;
-    nationalIdBackObjectKey: string;
-    selfieObjectKey: string;
+    nationalIdFrontUrl: string;
+    nationalIdBackUrl: string;
+    selfieUrl: string;
   }): UploadedVerificationDocumentKeys {
     return {
-      nationalIdFrontObjectKey: existing.nationalIdFrontObjectKey,
-      nationalIdBackObjectKey: existing.nationalIdBackObjectKey,
-      selfieObjectKey: existing.selfieObjectKey,
+      nationalIdFrontObjectKey: existing.nationalIdFrontUrl,
+      nationalIdBackObjectKey: existing.nationalIdBackUrl,
+      selfieObjectKey: existing.selfieUrl,
     };
   }
 

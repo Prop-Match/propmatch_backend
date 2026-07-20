@@ -1,265 +1,431 @@
+import { NotificationType } from '@generated/prisma/enums';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { I18nContext } from 'nestjs-i18n';
-import { PrismaService } from '../../prisma/prisma.service';
-import { UsersService } from '../users/users.service';
+import * as bcrypt from 'bcrypt';
+import { transformUserToFrontend } from '../users/mappers/user.mapper';
+import { PrismaService } from './../../prisma/prisma.service';
+import { RealtimeService } from './../realtime/realtime.service';
+import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
-
-/** No admin-sub-role table exists yet (frontend's ASSUMPTIONS.md #26) — every
- * ADMIN user currently holds the full capability set. */
-const SUPER_ADMIN_CAPABILITIES = [
-  'property:approve',
-  'property:reject',
-  'kyc:review',
-  'request:approve',
-  'request:reject',
-  'review:moderate',
-  'payment:view',
-  'partner_lead:view',
-  'report:export',
-  'ticket:reply',
-  'audit:view',
-  'admin:create',
-  'admin:manage',
-];
-
-type QueueItem = {
-  id: string;
-  type: 'kyc' | 'property' | 'request' | 'review';
-  subjectId: string;
-  title: string;
-  subtitle: string;
-  submittedAt: string;
-};
+import { I18nContext } from 'nestjs-i18n';
 
 @Injectable()
 export class AdminService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly usersService: UsersService,
+    private readonly prismaService: PrismaService,
+    private readonly realtimeService: RealtimeService,
   ) {}
+  private getTranslation(key: string, fallback: string): string {
+    return I18nContext.current()?.t(key) ?? fallback;
+  }
+  async getQueues() {
+    const [kyc, properties, requests, reviews] = await Promise.all([
+      this.prismaService.identityVerification.findMany({
+        where: { status: 'PENDING' },
+        include: { user: true },
+        orderBy: { submittedAt: 'desc' },
+      }),
+      this.prismaService.property.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prismaService.tenantRequest.findMany({
+        where: { status: 'PENDING' },
+        include: { tenant: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prismaService.propertyReview.findMany({
+        where: { status: 'PENDING' },
+        include: { reviewer: true, property: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    return {
+      kycQueue: kyc.map((k) => ({
+        id: `q_kyc_${k.id}`,
+        type: 'kyc',
+        subjectId: k.userId,
+        title: k.user.fullName,
+        subtitle: k.user.email,
+        submittedAt: k.submittedAt.toISOString(),
+      })),
+      propertyQueue: properties.map((p) => ({
+        id: `q_prop_${p.id}`,
+        type: 'property',
+        subjectId: p.id,
+        title: p.title,
+        subtitle: `Rent Amount: EGP ${p.rentAmount}`,
+        submittedAt: p.createdAt.toISOString(),
+      })),
+      requestQueue: requests.map((r) => ({
+        id: `q_req_${r.id}`,
+        type: 'request',
+        subjectId: r.id,
+        title: `Request for ${r.propertyType}`,
+        subtitle: `Budget: EGP ${r.minBudget} - ${r.maxBudget}`,
+        submittedAt: r.createdAt.toISOString(),
+      })),
+      reviewQueue: reviews.map((rev) => ({
+        id: `q_rev_${rev.id}`,
+        type: 'review',
+        subjectId: rev.id,
+        title: `Review on ${rev.property.title} by ${rev.reviewer.fullName}`,
+        subtitle: `Rating: ${rev.rating}/5. ${rev.comment ?? ''}`,
+        submittedAt: rev.createdAt.toISOString(),
+      })),
+    };
+  }
 
-  private reasonRequired() {
-    return I18nContext.current()?.t('admin.REASON_REQUIRED');
+  // retrieves national ID & selfie keys for verification review.
+  async getKyc(id: string) {
+    const identityVerification =
+      await this.prismaService.identityVerification.findUnique({
+        where: { userId: id },
+        include: { user: true },
+      });
+    if (!identityVerification) {
+      throw new NotFoundException(
+        'IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER',
+      );
+    }
+    return {
+      userId: identityVerification.userId,
+      userName: identityVerification.user.fullName,
+      nationalId: identityVerification.nationalId,
+      nationalIdFrontUrl: identityVerification.nationalIdFrontUrl,
+      nationalIdBackUrl: identityVerification.nationalIdBackUrl,
+      selfieUrl: identityVerification.selfieUrl,
+      submittedAt: identityVerification.submittedAt.toISOString(),
+    };
   }
-  private alreadyReviewed() {
-    return I18nContext.current()?.t('admin.ALREADY_REVIEWED');
-  }
-  private notFound() {
-    return I18nContext.current()?.t('admin.NOT_FOUND');
-  }
-
   async getSession(userId: string) {
-    const user = await this.usersService.findById(userId);
-    if (!user) throw new NotFoundException(this.notFound());
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) throw new NotFoundException('User not found.');
     return {
       id: userId,
       fullName: user.fullName,
       role: 'super-admin',
-      roleName: I18nContext.current()?.t('admin.SUPER_ADMIN_ROLE_NAME'),
-      capabilities: SUPER_ADMIN_CAPABILITIES,
-    };
-  }
-
-  async getQueues() {
-    const [verifications, properties, requests, reviews] = await Promise.all([
-      this.prisma.identityVerification.findMany({
-        where: { status: 'PENDING' },
-        include: { user: true },
-      }),
-      this.prisma.property.findMany({ where: { status: 'PENDING' } }),
-      this.prisma.tenantRequest.findMany({ where: { status: 'PENDING' } }),
-      this.prisma.propertyReview.findMany({ where: { status: 'PENDING' } }),
-    ]);
-
-    const kycQueue: QueueItem[] = verifications.map((v) => ({
-      id: `q_${v.id}`,
-      type: 'kyc',
-      subjectId: v.userId,
-      title: v.user.fullName,
-      subtitle: 'مستخدم جديد بحاجة لمراجعة',
-      submittedAt: v.submittedAt.toISOString(),
-    }));
-
-    const propertyQueue: QueueItem[] = properties.map((p) => ({
-      id: `q_${p.id}`,
-      type: 'property',
-      subjectId: p.id,
-      title: p.title,
-      subtitle: `${p.district} · ${p.rentAmount} ج.م/شهريًا`,
-      submittedAt: p.createdAt.toISOString(),
-    }));
-
-    const requestQueue: QueueItem[] = requests.map((r) => ({
-      id: `q_${r.id}`,
-      type: 'request',
-      subjectId: r.id,
-      title: `طلب سكن في ${r.preferredLocations}`,
-      subtitle: `${r.minBudget}–${r.maxBudget} ج.م`,
-      submittedAt: r.createdAt.toISOString(),
-    }));
-
-    const reviewQueue: QueueItem[] = reviews.map((r) => ({
-      id: `q_${r.id}`,
-      type: 'review',
-      subjectId: r.id,
-      title: `تقييم ${r.rating}★`,
-      subtitle: r.comment?.slice(0, 60) ?? '',
-      submittedAt: r.createdAt.toISOString(),
-    }));
-
-    return { kycQueue, propertyQueue, requestQueue, reviewQueue };
-  }
-
-  async getKycDetail(userId: string) {
-    const v = await this.prisma.identityVerification.findUnique({
-      where: { userId },
-      include: { user: true },
-    });
-    if (!v) throw new NotFoundException(this.notFound());
-    return {
-      userId: v.userId,
-      userName: v.user.fullName,
-      nationalId: v.nationalId,
-      // Stored as private object keys (verification module); no signed-URL
-      // resolution service exists yet, so the raw key is passed through
-      // under the URL-shaped field name the frontend contract expects.
-      nationalIdFrontUrl: v.nationalIdFrontObjectKey,
-      nationalIdBackUrl: v.nationalIdBackObjectKey,
-      selfieUrl: v.selfieObjectKey,
-      submittedAt: v.submittedAt.toISOString(),
+      roleName: 'مشرف عام',
+      capabilities: [
+        'property:approve',
+        'property:reject',
+        'kyc:review',
+        'request:approve',
+        'request:reject',
+        'review:moderate',
+        'payment:view',
+        'partner_lead:view',
+        'report:export',
+        'ticket:reply',
+        'audit:view',
+        'admin:create',
+        'admin:manage',
+      ],
     };
   }
 
   async reviewKyc(
-    userId: string,
     adminId: string,
-    decision: ReviewDecisionDto,
+    userId: string,
+    reviewDecisionDto: ReviewDecisionDto,
   ) {
-    const v = await this.prisma.identityVerification.findUnique({
+    const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException(
+        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+      );
+    }
+    const v = await this.prismaService.identityVerification.findUnique({
       where: { userId },
     });
-    if (!v || v.status !== 'PENDING')
-      throw new ConflictException(this.alreadyReviewed());
-    if (decision.decision === 'reject' && !decision.reason?.trim()) {
-      throw new BadRequestException(this.reasonRequired());
+    if (!v) {
+      throw new NotFoundException(
+        this.getTranslation('admin.NOT_FOUND', 'Not found.'),
+      );
     }
-    await this.prisma.identityVerification.update({
+    if (v.status !== 'PENDING') {
+      throw new ConflictException(
+        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+      );
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
+    await this.prismaService.identityVerification.update({
       where: { userId },
       data: {
-        status: decision.decision === 'approve' ? 'APPROVED' : 'REJECTED',
-        rejectionReason:
-          decision.decision === 'reject' ? decision.reason!.trim() : null,
+        status,
         reviewedBy: adminId,
         reviewedAt: new Date(),
+        rejectionReason: !isApproved ? reviewDecisionDto.reason : null,
       },
     });
-    return { ok: true };
+    await this.realtimeService.notifyUser(userId, {
+      type: NotificationType.EKYC_APPROVED,
+      title: isApproved
+        ? 'Identity Verification Approved'
+        : 'Identity Verification Rejected',
+      message: isApproved
+        ? 'Your identity verification has been approved.'
+        : `Your identity verification has been rejected. Reason: ${reviewDecisionDto.reason}`,
+      link: '/profile',
+    });
+    return { ok: true, status };
   }
-
   async reviewProperty(
-    propertyId: string,
     adminId: string,
-    decision: ReviewDecisionDto,
+    propertyId: string,
+    reviewDecisionDto: ReviewDecisionDto,
   ) {
-    const p = await this.prisma.property.findUnique({
+    const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException(
+        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+      );
+    }
+    const p = await this.prismaService.property.findUnique({
       where: { id: propertyId },
     });
-    if (!p || p.status !== 'PENDING')
-      throw new ConflictException(this.alreadyReviewed());
-    if (decision.decision === 'reject' && !decision.reason?.trim()) {
-      throw new BadRequestException(this.reasonRequired());
+    if (!p) {
+      throw new NotFoundException(
+        this.getTranslation('admin.PROPERTY_NOT_FOUND', 'PROPERTY_NOT_FOUND'),
+      );
     }
-    const status = decision.decision === 'approve' ? 'APPROVED' : 'REJECTED';
-    // Property has no rejection-reason column yet (schema gap — flagged, not fixed here).
-    await this.prisma.property.update({
+    if (p.status !== 'PENDING') {
+      throw new ConflictException(
+        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+      );
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
+    const property = await this.prismaService.property.update({
       where: { id: propertyId },
       data: {
         status,
         approvedBy: adminId,
-        approvedAt: decision.decision === 'approve' ? new Date() : null,
+        approvedAt: new Date(),
       },
     });
+    await this.realtimeService.notifyUser(property.ownerId, {
+      type: 'PROPERTY_APPROVED',
+      title: isApproved ? 'تم قبول عقارك الجديد' : 'تم رفض إعلان العقار',
+      message: isApproved
+        ? `تمت الموافقة على نشر عقارك "${property.title}" وهو متاح للمستأجرين الآن.`
+        : `لم نتمكن من الموافقة على عقارك. السبب: ${reviewDecisionDto.reason}`,
+      link: `/landlord/properties/${property.id}`,
+    });
+
     return { status };
   }
-
-  async getRequestDetail(id: string) {
-    const r = await this.prisma.tenantRequest.findUnique({
-      where: { id },
-      include: { tenant: { include: { identityVerification: true } } },
-    });
-    if (!r) throw new NotFoundException(this.notFound());
-    return {
-      id: r.id,
-      tenantName: r.tenant.fullName,
-      tenantVerified: r.tenant.identityVerification?.status === 'APPROVED',
-      minBudget: r.minBudget,
-      maxBudget: r.maxBudget,
-      preferredLocations: r.preferredLocations,
-      propertyType: r.propertyType,
-      requiredBedrooms: r.requiredBedrooms,
-      needsFurnished: r.needsFurnished,
-      flexibilityScore: r.flexibilityScore,
-      lifestyleRequirements: r.lifestyleRequirements,
-      status: r.status,
-      rejectionReason: null,
-      createdAt: r.createdAt.toISOString(),
-    };
-  }
-
   async reviewRequest(
-    id: string,
     adminId: string,
-    decision: ReviewDecisionDto,
+    requestId: string,
+    reviewDecisionDto: ReviewDecisionDto,
   ) {
-    const r = await this.prisma.tenantRequest.findUnique({ where: { id } });
-    if (!r || r.status !== 'PENDING')
-      throw new ConflictException(this.alreadyReviewed());
-    if (decision.decision === 'reject' && !decision.reason?.trim()) {
-      throw new BadRequestException(this.reasonRequired());
+    const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException(
+        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+      );
     }
-    const status = decision.decision === 'approve' ? 'APPROVED' : 'REJECTED';
-    await this.prisma.tenantRequest.update({
-      where: { id },
-      data: { status, approvedBy: adminId },
+    const r = await this.prismaService.tenantRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!r) {
+      throw new NotFoundException(
+        this.getTranslation('admin.REQUEST_NOT_FOUND', 'REQUEST_NOT_FOUND'),
+      );
+    }
+    if (r.status !== 'PENDING') {
+      throw new ConflictException(
+        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+      );
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
+    const request = await this.prismaService.tenantRequest.update({
+      where: { id: requestId },
+      data: {
+        approvedBy: adminId,
+        status,
+      },
+    });
+    await this.realtimeService.notifyUser(request.tenantId, {
+      type: 'NEW_TENANT_REQUEST',
+      title: isApproved ? 'تم قبول طلبك' : 'تم رفض طلبك',
+      message: isApproved
+        ? 'تمت الموافقة على طلبك.'
+        : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason}`,
+      link: '/tenant/requests',
     });
     return { status };
   }
-
-  async getReviewDetail(id: string) {
-    const r = await this.prisma.propertyReview.findUnique({
-      where: { id },
-      include: { reviewer: true, property: true },
+  async reviewUserReview(
+    adminId: string,
+    reviewDecisionDto: ReviewDecisionDto,
+    reviewId: string,
+  ) {
+    const isApproved = reviewDecisionDto.decision === 'approve';
+    if (!isApproved && !reviewDecisionDto.reason?.trim()) {
+      throw new BadRequestException(
+        this.getTranslation('admin.REASON_REQUIRED', 'A rejection reason is required.'),
+      );
+    }
+    const ur = await this.prismaService.propertyReview.findUnique({
+      where: { id: reviewId },
     });
-    if (!r) throw new NotFoundException(this.notFound());
+    if (!ur) {
+      throw new NotFoundException(
+        this.getTranslation('admin.REVIEW_NOT_FOUND', 'REVIEW_NOT_FOUND'),
+      );
+    }
+    if (ur.status !== 'PENDING') {
+      throw new ConflictException(
+        this.getTranslation('admin.ALREADY_REVIEWED', 'This item has already been reviewed.'),
+      );
+    }
+
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
+    const userReview = await this.prismaService.propertyReview.update({
+      where: { id: reviewId },
+      data: {
+        status,
+        reviewedBy: adminId,
+      },
+    });
+    await this.realtimeService.notifyUser(userReview.reviewerId, {
+      type: 'REVIEW_APPROVED',
+      title: isApproved ? 'تم قبول ونشر تقييمك' : 'تم رفض نشر تقييمك',
+      message: isApproved
+        ? 'تقييمك العقاري أصبح مرئيًا الآن على صفحة تفاصيل العقار.'
+        : `لم نتمكن من نشر تقييمك. السبب: ${reviewDecisionDto.reason}`,
+      link: `/tenant/properties/${userReview.propertyId}`,
+    });
+    return { status };
+  }
+  async createAdmin(
+    creatorId: string | undefined,
+    createAdminDto: CreateAdminDto,
+  ) {
+    // 1. Check if there are already any admins in the system
+    const adminCount = await this.prismaService.user.count({
+      where: { role: 'ADMIN' },
+    });
+
+    if (adminCount > 0) {
+      if (!creatorId) {
+        throw new UnauthorizedException(
+          this.getTranslation('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN', 'Only super-admins can create new admins.'),
+        );
+      }
+      const superAdmin = await this.prismaService.user.findUnique({
+        where: { id: creatorId },
+      });
+      if (!superAdmin || superAdmin.role === 'ADMIN') {
+        throw new ForbiddenException(
+          this.getTranslation('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN', 'Only super-admins can create new admins.'),
+        );
+      }
+    }
+    // 2. Prevent duplicate emails
+    const existingUser = await this.prismaService.user.findUnique({
+      where: { email: createAdminDto.email },
+    });
+    if (existingUser) {
+      throw new ConflictException(
+        this.getTranslation('auth.EMAIL_EXISTS', 'Email already exists.'),
+      );
+    }
+    // 3. Hash password and persist new Admin
+    const salt = 10;
+    const hashedPassword = await bcrypt.hash(createAdminDto.password, salt);
+    const admin = await this.prismaService.user.create({
+      data: {
+        fullName: createAdminDto.fullName,
+        email: createAdminDto.email,
+        passwordHash: hashedPassword,
+        phoneNumber: createAdminDto.phoneNumber,
+        role: 'ADMIN',
+      },
+    });
+    return transformUserToFrontend(admin);
+  }
+
+  async getTeam() {
+    const admins = await this.prismaService.user.findMany({
+      where: { role: 'ADMIN' },
+      orderBy: { createdAt: 'desc' },
+    });
     return {
-      id: r.id,
-      reviewerName: r.reviewer.fullName,
-      propertyId: r.propertyId,
-      propertyTitle: r.property.title,
-      rating: r.rating,
-      comment: r.comment ?? '',
-      status: r.status,
-      createdAt: r.createdAt.toISOString(),
+      items: admins.map((admin) => ({
+        id: admin.id,
+        fullName: admin.fullName,
+        email: admin.email,
+        role: 'super-admin',
+        capabilities: [
+          'property:approve',
+          'property:reject',
+          'kyc:review',
+          'request:approve',
+          'request:reject',
+          'review:moderate',
+          'payment:view',
+          'partner_lead:view',
+          'report:export',
+          'ticket:reply',
+          'audit:view',
+          'admin:create',
+          'admin:manage',
+        ],
+        disabled: !admin.isActive,
+        lastLoginAt: admin.lastLoginAt?.toISOString() || null,
+        createdAt: admin.createdAt.toISOString(),
+      })),
     };
   }
 
-  async reviewReview(id: string, adminId: string, decision: ReviewDecisionDto) {
-    const r = await this.prisma.propertyReview.findUnique({ where: { id } });
-    if (!r || r.status !== 'PENDING')
-      throw new ConflictException(this.alreadyReviewed());
-    if (decision.decision === 'reject' && !decision.reason?.trim()) {
-      throw new BadRequestException(this.reasonRequired());
+  async updateTeamMember(
+    id: string,
+    dto: { role?: string; disabled?: boolean },
+  ) {
+    const data: any = {};
+    if (dto.disabled !== undefined) {
+      data.isActive = !dto.disabled;
     }
-    const status = decision.decision === 'approve' ? 'APPROVED' : 'REJECTED';
-    await this.prisma.propertyReview.update({
+    const admin = await this.prismaService.user.update({
       where: { id },
-      data: { status, reviewedBy: adminId },
+      data,
     });
-    return { status };
+    return {
+      id: admin.id,
+      fullName: admin.fullName,
+      email: admin.email,
+      role: dto.role || 'super-admin',
+      capabilities: [
+        'property:approve',
+        'property:reject',
+        'kyc:review',
+        'request:approve',
+        'request:reject',
+        'review:moderate',
+        'payment:view',
+        'partner_lead:view',
+        'report:export',
+        'ticket:reply',
+        'audit:view',
+        'admin:create',
+        'admin:manage',
+      ],
+      disabled: !admin.isActive,
+      lastLoginAt: admin.lastLoginAt?.toISOString() || null,
+      createdAt: admin.createdAt.toISOString(),
+    };
   }
 }
