@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
-import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
@@ -45,22 +45,21 @@ export class PropertiesController {
    * never owner PII.
    */
   @Get('properties')
-  async search(@Query() query: SearchPropertiesDto) {
-    return this.propertiesService.search(query);
+  async getAllProperties(@Query() query: PropertySearchQueryDto) {
+    return this.propertiesService.getAll(query);
+  }
+
+  @Get('landlord/properties')
+  @Roles('LANDLORD')
+  async getMyProperties(@Request() req: { user: { userId: string } }) {
+    return this.propertiesService.getMyProperties(req.user.userId);
   }
 
   @Get('properties/:id')
-  async getPropertyById(@Param('id') id: string) {
-    return this.propertiesService.getPropertyById(id);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
-  @Roles('LANDLORD')
-  @Post('landlord/properties/draft/optimize-description/stream')
-  async optimizeDescription(
-    @Request() req: { user: { userId: string } },
-    @Body() dto: { description: string },
+  async getPropertyById(
+    @Param('id') id: string,
+    @Request() req: { user: { userId: string; role: string } },
   ) {
-    // return this.propertiesService.optimizeDescription(req.user.userId, dto);
+    return this.propertiesService.getPropertyById(id, req.user);
   }
 }
