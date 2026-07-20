@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Post,
   Request,
   UseGuards,
@@ -15,6 +17,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @HttpCode(HttpStatus.OK)
   @Post('login')
   async signIn(@Body() signInDto: SigninDto) {
     return await this.authService.signIn(signInDto.email, signInDto.password);
@@ -35,6 +38,7 @@ export class AuthController {
     return await this.authService.getMe(req.user.userId);
   }
 
+  @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(@Body() refreshDto: RefreshDto) {
     return await this.authService.refresh(refreshDto);
