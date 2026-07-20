@@ -21,6 +21,9 @@ export class AdminService {
     private readonly prismaService: PrismaService,
     private readonly realtimeService: RealtimeService,
   ) {}
+  private getTranslation(key: string, fallback: string): string {
+    return I18nContext.current()?.t(key) ?? fallback;
+  }
   async getQueues() {
     const [kyc, properties, requests, reviews] = await Promise.all([
       this.prismaService.identityVerification.findMany({
