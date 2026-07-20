@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Injectable,
   Param,
   Patch,
@@ -54,6 +56,7 @@ export class AdminController {
     return await this.adminService.getKyc(id);
   }
 
+  @HttpCode(HttpStatus.OK)
   @Post('kyc/:userId/review')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
@@ -65,6 +68,7 @@ export class AdminController {
     return this.adminService.reviewKyc(req.user.userId, userId, dto);
   }
 
+  @HttpCode(HttpStatus.OK)
   @Post('properties/:propertyId/review')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
@@ -76,6 +80,7 @@ export class AdminController {
     return this.adminService.reviewProperty(req.user.userId, propertyId, dto);
   }
 
+  @HttpCode(HttpStatus.OK)
   @Post('requests/:requestId/review')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
@@ -87,6 +92,7 @@ export class AdminController {
     return this.adminService.reviewRequest(req.user.userId, requestId, dto);
   }
 
+  @HttpCode(HttpStatus.OK)
   @Post('reviews/:reviewId/review')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
@@ -124,6 +130,7 @@ export class AdminController {
     return this.adminService.updateTeamMember(id, dto);
   }
 
+  @HttpCode(HttpStatus.OK)
   @Post('team/:id/reset-password')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
