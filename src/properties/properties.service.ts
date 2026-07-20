@@ -74,7 +74,7 @@ export class PropertiesService {
       where,
       include: PropertiesService.DETAIL_INCLUDE,
       // Boosted listings first (PRO-14), then newest.
-      orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     });
 
     // Summary mapper omits all PII (phone/name/address) — only ownerVerified
