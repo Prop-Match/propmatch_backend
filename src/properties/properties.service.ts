@@ -1,18 +1,22 @@
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
-import { transformPropertyToDetail } from './mappers/property.mapper';
+import { PropertySearchQueryDto } from './dto/property-search-query.dto';
+import {
+  transformPropertyToDetail,
+  transformPropertyToSummary,
+} from './mappers/property.mapper';
 import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly realtimeService: RealtimeService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtimeService: RealtimeService,
+  ) {}
 
   /** Prisma include used whenever we need the full property detail. */
   private static readonly DETAIL_INCLUDE = {
@@ -116,33 +120,99 @@ export class PropertiesService {
     };
   }
 
-  async getAll(){
-    const properties = await this.prisma.property.findMany({
-      where: {
-        status: 'APPROVED',
-      },
-      include: PropertiesService.DETAIL_INCLUDE,
-    });
+  /**
+   * GET /properties — public browse (PRO-11).
+   *
+   * Never carries owner PII: list cards use the summary mapper, which has no
+   * contact fields at all (see property.mapper.ts).
+   */
+  async getAll(query: PropertySearchQueryDto) {
+    const where: Prisma.PropertyWhereInput = {
+      status: 'APPROVED',
+      ...(query.city ? { city: query.city } : {}),
+      ...(query.propertyType ? { propertyType: query.propertyType } : {}),
+      ...(query.bedrooms !== undefined ? { bedrooms: query.bedrooms } : {}),
+      ...(query.isFurnished !== undefined
+        ? { isFurnished: query.isFurnished }
+        : {}),
+      ...(query.minRent !== undefined || query.maxRent !== undefined
+        ? {
+            rentAmount: {
+              ...(query.minRent !== undefined ? { gte: query.minRent } : {}),
+              ...(query.maxRent !== undefined ? { lte: query.maxRent } : {}),
+            },
+          }
+        : {}),
+      ...(query.q
+        ? { title: { contains: query.q, mode: 'insensitive' as const } }
+        : {}),
+    };
 
-    return properties.map((p) => {
-      return transformPropertyToDetail(p, {
-        contactRevealed: true,
-      });
-    });
+    const [properties, total] = await Promise.all([
+      this.prisma.property.findMany({
+        where,
+        include: PropertiesService.DETAIL_INCLUDE,
+      }),
+      this.prisma.property.count({ where }),
+    ]);
+
+    return {
+      items: properties.map(transformPropertyToSummary),
+      total,
+    };
   }
 
-  async getPropertyById(id: string) {
+  /**
+   * GET /landlord/properties — the authenticated landlord's own listings.
+   * Summary shape is enough for their management list; the create/detail
+   * flow already returns the full detail with contact revealed.
+   */
+  async getMyProperties(ownerId: string) {
+    const [properties, total] = await Promise.all([
+      this.prisma.property.findMany({
+        where: { ownerId },
+        include: PropertiesService.DETAIL_INCLUDE,
+      }),
+      this.prisma.property.count({ where: { ownerId } }),
+    ]);
+
+    return {
+      items: properties.map(transformPropertyToSummary),
+      total,
+    };
+  }
+
+  /**
+   * GET /properties/:id.
+   *
+   * PII gate (rbac.md): contact info is per-connection, not per-property —
+   * revealed only to the property's own owner, or a tenant with an ACCEPTED
+   * offer on this property.
+   */
+  async getPropertyById(id: string, viewer?: { userId: string; role: string }) {
     const property = await this.prisma.property.findUniqueOrThrow({
       where: { id },
       include: PropertiesService.DETAIL_INCLUDE,
     });
 
-    return transformPropertyToDetail(property, {
-      contactRevealed: true,
-    });
+    let contactRevealed = false;
+    if (viewer?.userId === property.ownerId) {
+      contactRevealed = true;
+    } else if (viewer) {
+      const acceptedOffer = await this.prisma.ownerOffer.findFirst({
+        where: {
+          propertyId: id,
+          status: 'ACCEPTED',
+          tenantRequest: { tenantId: viewer.userId },
+        },
+      });
+      contactRevealed = acceptedOffer !== null;
+    }
+
+    return transformPropertyToDetail(property, { contactRevealed });
   }
 
-  async getPendingProperties(){
+  async getPendingProperties() {
     const properties = await this.prisma.property.findMany({
       where: {
         status: 'PENDING',
