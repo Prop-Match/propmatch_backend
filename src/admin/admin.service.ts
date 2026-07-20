@@ -164,15 +164,23 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(userId, {
       type: NotificationType.EKYC_APPROVED,
-      title: isApproved
-        ? 'Identity Verification Approved'
-        : 'Identity Verification Rejected',
-      message: isApproved
-        ? 'Your identity verification has been approved.'
-        : `Your identity verification has been rejected. Reason: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved ? 'admin.TITLE_KYC_APPROVED' : 'admin.TITLE_KYC_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved ? 'admin.MSG_KYC_APPROVED' : 'admin.MSG_KYC_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) || '',
       link: '/profile',
     });
-    return { ok: true, status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async reviewProperty(
     adminId: string,
@@ -210,14 +218,28 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(property.ownerId, {
       type: 'PROPERTY_APPROVED',
-      title: isApproved ? 'تم قبول عقارك الجديد' : 'تم رفض إعلان العقار',
-      message: isApproved
-        ? `تمت الموافقة على نشر عقارك "${property.title}" وهو متاح للمستأجرين الآن.`
-        : `لم نتمكن من الموافقة على عقارك. السبب: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_PROPERTY_APPROVED'
+            : 'admin.TITLE_PROPERTY_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_PROPERTY_APPROVED'
+            : 'admin.MSG_PROPERTY_REJECTED',
+          { args: { title: property.title, reason: reviewDecisionDto.reason } },
+        ) || '',
       link: `/landlord/properties/${property.id}`,
     });
 
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async reviewRequest(
     adminId: string,
@@ -254,13 +276,27 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(request.tenantId, {
       type: 'NEW_TENANT_REQUEST',
-      title: isApproved ? 'تم قبول طلبك' : 'تم رفض طلبك',
-      message: isApproved
-        ? 'تمت الموافقة على طلبك.'
-        : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_REQUEST_APPROVED'
+            : 'admin.TITLE_REQUEST_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_REQUEST_APPROVED'
+            : 'admin.MSG_REQUEST_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) || '',
       link: '/tenant/requests',
     });
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async reviewUserReview(
     adminId: string,
@@ -297,13 +333,27 @@ export class AdminService {
     });
     await this.realtimeService.notifyUser(userReview.reviewerId, {
       type: 'REVIEW_APPROVED',
-      title: isApproved ? 'تم قبول ونشر تقييمك' : 'تم رفض نشر تقييمك',
-      message: isApproved
-        ? 'تقييمك العقاري أصبح مرئيًا الآن على صفحة تفاصيل العقار.'
-        : `لم نتمكن من نشر تقييمك. السبب: ${reviewDecisionDto.reason}`,
-      link: `/tenant/properties/${userReview.propertyId}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_REVIEW_APPROVED'
+            : 'admin.TITLE_REVIEW_REJECTED',
+        ) || '',
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_REVIEW_APPROVED'
+            : 'admin.MSG_REVIEW_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) || '',
+      link: `/properties/${userReview.propertyId}`,
     });
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async createAdmin(
     creatorId: string | undefined,
