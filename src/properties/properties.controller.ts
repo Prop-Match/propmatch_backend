@@ -50,12 +50,14 @@ export class PropertiesController {
   }
 
   @Get('landlord/properties')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('LANDLORD')
   async getMyProperties(@Request() req: { user: { userId: string } }) {
     return this.propertiesService.getMyProperties(req.user.userId);
   }
 
   @Get('properties/:id')
+  @UseGuards(JwtAuthGuard)
   async getPropertyById(
     @Param('id') id: string,
     @Request() req: { user: { userId: string; role: string } },
