@@ -36,6 +36,19 @@ export class TenantRequestsService {
     });
 
     // New request has zero offers
-    return transformTenantRequest(request, 0);
+    return transformTenantRequest(request);
+  }
+
+  async getAllRequests(){
+    const requests = await this.prisma.tenantRequest.findMany({
+      include:{
+        tenant:{select:{fullName:true,phoneNumber:true, identityVerification:{select:{status:true}}}},
+        _count:{
+          select:{ownerOffers:true}
+        }
+      }
+    });
+
+    return requests.map(r => transformTenantRequest(r));
   }
 }
