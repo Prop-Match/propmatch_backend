@@ -7,6 +7,11 @@ export type UploadPrivateObjectResult = {
   objectKey: string;
 };
 
+export type TemporaryPrivateObject = {
+  data: Buffer;
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp';
+};
+
 export interface PrivateObjectStorage {
   upload(input: UploadPrivateObjectInput): Promise<UploadPrivateObjectResult>;
 
@@ -14,6 +19,8 @@ export interface PrivateObjectStorage {
     objectKey: string,
     expiresInSeconds: number,
   ): Promise<string>;
+
+  readTemporaryObject(token: string): Promise<TemporaryPrivateObject>;
 
   delete(objectKey: string): Promise<void>;
 }
