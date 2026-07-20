@@ -4,11 +4,13 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
+import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
@@ -37,13 +39,21 @@ export class PropertiesController {
   }
 
   @Get('properties')
-  async getAllProperties() {
-    return this.propertiesService.getAll();
+  async getAllProperties(@Query() query: PropertySearchQueryDto) {
+    return this.propertiesService.getAll(query);
+  }
+
+  @Get('landlord/properties')
+  @Roles('LANDLORD')
+  async getMyProperties(@Request() req: { user: { userId: string } }) {
+    return this.propertiesService.getMyProperties(req.user.userId);
   }
 
   @Get('properties/:id')
-  async getPropertyById(@Param('id') id: string) {
-    return this.propertiesService.getPropertyById(id);
+  async getPropertyById(
+    @Param('id') id: string,
+    @Request() req: { user: { userId: string; role: string } },
+  ) {
+    return this.propertiesService.getPropertyById(id, req.user);
   }
-
 }
