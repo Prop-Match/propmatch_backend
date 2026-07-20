@@ -32,7 +32,7 @@ export class AuthService {
     const payLoad = { sub: user.id, email: user.email, role: user.role };
     const mappedUser = transformUserToFrontend(user);
     return {
-      accesstoken: await this.jwtService.signAsync(payLoad),
+      accessToken: await this.jwtService.signAsync(payLoad),
       refreshToken: await this.jwtService.signAsync(payLoad),
       user: mappedUser,
     };
@@ -96,7 +96,7 @@ export class AuthService {
         I18nContext.current()?.t('auth.USER_NOT_FOUND'),
       );
     }
-    return { user: transformUserToFrontend(user) };
+    return transformUserToFrontend(user);
   }
   async refresh(refreshDto: RefreshDto) {
     try {

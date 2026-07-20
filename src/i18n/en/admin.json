@@ -1,0 +1,11 @@
+{
+  "reason_too_short": "Reason must be at least 3 characters",
+  "IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER": "There is no identity verification for this user",
+  "PROPERTY_NOT_FOUND": "There is no property found",
+  "REQUEST_NOT_FOUND": "There is no housing request found",
+  "REVIEW_NOT_FOUND": "There is no review found",
+  "REASON_REQUIRED": "A rejection reason is required.",
+  "ALREADY_REVIEWED": "This item has already been reviewed.",
+  "NOT_FOUND": "Not found.",
+  "ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN": "Only super-admins can create new admins."
+}
