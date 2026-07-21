@@ -120,6 +120,13 @@ export class AdminController {
     return this.adminService.reviewRequest(req.user.userId, requestId, dto);
   }
 
+  @Get('requests/:requestId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getRequestReviewDetail(@Param('requestId') requestId: string) {
+    return this.adminService.getRequestReviewDetail(requestId);
+  }
+
   @HttpCode(HttpStatus.OK)
   @Post('reviews/:reviewId/review')
   @UseGuards(JwtAuthGuard, RolesGuard)
