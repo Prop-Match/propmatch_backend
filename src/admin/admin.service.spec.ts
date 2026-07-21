@@ -72,3 +72,121 @@ describe('AdminService KYC review', () => {
     );
   });
 });
+
+describe('AdminService property moderation', () => {
+  const findUnique = jest.fn();
+  const update = jest.fn();
+  const notifyUser = jest.fn();
+  const service = new AdminService(
+    { property: { findUnique, update } } as unknown as PrismaService,
+    { notifyUser } as unknown as RealtimeService,
+    {} as PrivateObjectStorage,
+  );
+
+  const property = {
+    id: 'property-1',
+    title: 'Moderated apartment',
+    description: 'A complete listing description.',
+    governorate: 'Cairo',
+    city: 'Cairo',
+    district: 'Maadi',
+    manualAddress: 'Test street',
+    propertyType: 'APARTMENT',
+    rentAmount: 5000,
+    areaM2: 100,
+    bedrooms: 2,
+    bathrooms: 1,
+    isFurnished: true,
+    hasElevator: true,
+    hasParking: false,
+    propertyAroundServices: 'Metro',
+    status: 'PENDING',
+    createdAt: new Date('2026-07-21T12:00:00.000Z'),
+    ownerId: 'owner-1',
+    owner: {
+      fullName: 'Verified landlord',
+      identityVerification: { status: 'APPROVED' },
+    },
+    propertyImages: [
+      {
+        id: 'image-1',
+        imageUrl: 'https://example.test/1.jpg',
+        displayOrder: 0,
+        isCover: true,
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    findUnique.mockResolvedValue(property);
+    update.mockResolvedValue(property);
+    notifyUser.mockResolvedValue({});
+  });
+
+  it('returns a safe, complete property review detail', async () => {
+    const result = await service.getPropertyReviewDetail('property-1');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'property-1',
+        ownerName: 'Verified landlord',
+        ownerVerificationStatus: 'APPROVED',
+        images: property.propertyImages,
+      }),
+    );
+    expect(result).not.toHaveProperty('owner');
+    expect(result).not.toHaveProperty('propertyImages');
+  });
+
+  it('returns not found when the review property does not exist', async () => {
+    findUnique.mockResolvedValueOnce(null);
+    await expect(
+      service.getPropertyReviewDetail('missing'),
+    ).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('approves a pending property', async () => {
+    await expect(
+      service.reviewProperty('admin-1', 'property-1', { decision: 'approve' }),
+    ).resolves.toMatchObject({ status: 'APPROVED' });
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        data: expect.objectContaining({ status: 'APPROVED' }),
+      }),
+    );
+  });
+
+  it('rejects a pending property with a reason', async () => {
+    await expect(
+      service.reviewProperty('admin-1', 'property-1', {
+        decision: 'reject',
+        reason: 'Missing required photos',
+      }),
+    ).resolves.toMatchObject({ status: 'REJECTED' });
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        data: expect.objectContaining({ status: 'REJECTED' }),
+      }),
+    );
+  });
+
+  it('requires a reason to reject a property', async () => {
+    await expect(
+      service.reviewProperty('admin-1', 'property-1', { decision: 'reject' }),
+    ).rejects.toThrow();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('does not review a property that has already been reviewed', async () => {
+    findUnique.mockResolvedValueOnce({ ...property, status: 'APPROVED' });
+    await expect(
+      service.reviewProperty('admin-1', 'property-1', { decision: 'approve' }),
+    ).rejects.toThrow();
+    expect(update).not.toHaveBeenCalled();
+  });
+});
