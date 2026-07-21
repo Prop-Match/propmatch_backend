@@ -379,6 +379,46 @@ export class AdminService {
       status,
     };
   }
+
+  /** Safe moderation projection: tenant identity is restricted to name and
+   * verification status; contact and KYC data never enter this query. */
+  async getRequestReviewDetail(requestId: string) {
+    const request = await this.prismaService.tenantRequest.findUnique({
+      where: { id: requestId },
+      select: {
+        id: true,
+        status: true,
+        minBudget: true,
+        maxBudget: true,
+        preferredLocations: true,
+        propertyType: true,
+        requiredBedrooms: true,
+        needsFurnished: true,
+        flexibilityScore: true,
+        lifestyleRequirements: true,
+        createdAt: true,
+        tenant: {
+          select: {
+            fullName: true,
+            identityVerification: { select: { status: true } },
+          },
+        },
+      },
+    });
+    if (!request) {
+      throw new NotFoundException(
+        I18nContext.current()?.t('admin.REQUEST_NOT_FOUND'),
+      );
+    }
+
+    const { tenant, ...detail } = request;
+    return {
+      ...detail,
+      tenantName: tenant.fullName,
+      tenantVerificationStatus:
+        tenant.identityVerification?.status ?? 'NOT_SUBMITTED',
+    };
+  }
   async reviewUserReview(
     adminId: string,
     reviewDecisionDto: ReviewDecisionDto,
