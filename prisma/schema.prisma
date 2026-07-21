@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider     = "prisma-client"
   output       = "../generated/prisma"
@@ -9,6 +6,274 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  fullName               String                 @map("full_name")
+  email                  String                 @unique
+  phoneNumber            String                 @map("phone_number")
+  passwordHash           String                 @map("password_hash")
+  role                   UserRole               @default(TENANT)
+  isActive               Boolean                @default(true) @map("is_active")
+  lastLoginAt            DateTime?              @map("last_login_at")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  favorites              Favorite[]
+  approvedVerifications  IdentityVerification[] @relation("ApprovedVerifications")
+  identityVerification   IdentityVerification?
+  leaseContracts         LeaseContract[]
+  ownerMatchConnections  MatchConnection[]      @relation("OwnerMatchConnections")
+  tenantMatchConnections MatchConnection[]      @relation("TenantMatchConnections")
+  notifications          Notification[]
+  ownerOffers            OwnerOffer[]
+  partnerLeads           PartnerLead[]
+  paymentTransactions    PaymentTransaction[]
+  approvedProperties     Property[]             @relation("ApprovedProperties")
+  properties             Property[]             @relation("PropertyOwner")
+  approvedReviews        PropertyReview[]       @relation("ApprovedReviews")
+  propertyReviews        PropertyReview[]       @relation("ReviewWriter")
+  approvedRequests       TenantRequest[]        @relation("ApprovedRequests")
+  tenantRequests         TenantRequest[]        @relation("TenantRequests")
+  userQuota              UserQuota?
+
+  @@map("user")
+}
+
+model IdentityVerification {
+  id                 String             @id @default(uuid()) @db.Uuid
+  userId             String             @unique @map("user_id") @db.Uuid
+  nationalId         String?            @map("national_id")
+  nationalIdFrontUrl String             @map("national_id_front_url")
+  nationalIdBackUrl  String             @map("national_id_back_url")
+  selfieUrl          String             @map("selfie_url")
+  status             VerificationStatus @default(PENDING)
+  reviewedBy         String?            @map("reviewed_by") @db.Uuid
+  rejectionReason    String?            @map("rejection_reason")
+  submittedAt        DateTime           @default(now()) @map("submitted_at")
+  reviewedAt         DateTime?          @map("reviewed_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @default(now()) @updatedAt @map("updated_at")
+  reviewer           User?              @relation("ApprovedVerifications", fields: [reviewedBy], references: [id])
+  user               User               @relation(fields: [userId], references: [id])
+
+  @@map("identity_verification")
+}
+
+model UserQuota {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @unique @map("user_id") @db.Uuid
+  freeListingsLeft  Int      @default(1) @map("free_listings_left")
+  optimizerUsesLeft Int      @default(2) @map("optimizer_uses_left")
+  freeOffersLeft    Int      @default(3) @map("free_offers_left")
+  lastResetDate     DateTime @default(now()) @map("last_reset_date")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@map("user_quota")
+}
+
+model Property {
+  id                     String            @id @default(uuid()) @db.Uuid
+  ownerId                String            @map("owner_id") @db.Uuid
+  title                  String
+  description            String
+  governorate            String
+  city                   String
+  district               String
+  manualAddress          String            @map("manual_address")
+  propertyType           PropertyType      @map("property_type")
+  propertyAroundServices String?           @map("property_around_services")
+  rentAmount             Float             @map("rent_amount")
+  areaM2                 Float             @map("area_m2")
+  bedrooms               Int
+  bathrooms              Int
+  isFurnished            Boolean           @map("is_furnished")
+  hasElevator            Boolean           @map("has_elevator")
+  hasParking             Boolean           @map("has_parking")
+  contactRevealed        Boolean           @default(false) @map("contact_revealed")
+  status                 PropertyStatus    @default(PENDING)
+  isBoosted              Boolean           @default(false) @map("is_boosted")
+  approvedBy             String?           @map("approved_by") @db.Uuid
+  approvedAt             DateTime?         @map("approved_at")
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
+  favorites              Favorite[]
+  matchConnections       MatchConnection[]
+  ownerOffers            OwnerOffer[]
+  approvedByUser         User?             @relation("ApprovedProperties", fields: [approvedBy], references: [id])
+  owner                  User              @relation("PropertyOwner", fields: [ownerId], references: [id])
+  propertyImages         PropertyImage[]
+  propertyReviews        PropertyReview[]
+
+  @@map("property")
+}
+
+model PropertyImage {
+  id           String   @id @default(uuid()) @db.Uuid
+  propertyId   String   @map("property_id") @db.Uuid
+  imageUrl     String   @map("image_url")
+  displayOrder Int      @map("display_order")
+  isCover      Boolean  @default(false) @map("is_cover")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  property     Property @relation(fields: [propertyId], references: [id])
+
+  @@map("property_image")
+}
+
+model PropertyReview {
+  id         String             @id @default(uuid()) @db.Uuid
+  reviewerId String             @map("reviewer_id") @db.Uuid
+  propertyId String             @map("property_id") @db.Uuid
+  rating     Int
+  comment    String?
+  status     VerificationStatus @default(PENDING)
+  reviewedBy String?            @map("reviewed_by") @db.Uuid
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+  property   Property           @relation(fields: [propertyId], references: [id])
+  reviewerBy User?              @relation("ApprovedReviews", fields: [reviewedBy], references: [id])
+  reviewer   User               @relation("ReviewWriter", fields: [reviewerId], references: [id])
+
+  @@map("property_review")
+}
+
+model TenantRequest {
+  id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String              @map("tenant_id") @db.Uuid
+  minBudget             Float               @map("min_budget")
+  maxBudget             Float               @map("max_budget")
+  preferredLocations    String              @map("preferred_locations")
+  propertyType          PropertyType        @map("property_type")
+  requiredBedrooms      Int                 @map("required_bedrooms")
+  needsFurnished        Boolean             @map("needs_furnished")
+  flexibilityScore      Int                 @map("flexibility_score")
+  lifestyleRequirements String              @map("lifestyle_requirements")
+  status                TenantRequestStatus @default(PENDING)
+  approvedBy            String?             @map("approved_by") @db.Uuid
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  ownerOffers           OwnerOffer[]
+  approvedByUser        User?               @relation("ApprovedRequests", fields: [approvedBy], references: [id])
+  tenant                User                @relation("TenantRequests", fields: [tenantId], references: [id])
+
+  @@map("tenant_request")
+}
+
+model OwnerOffer {
+  id              String           @id @default(uuid()) @db.Uuid
+  ownerId         String           @map("owner_id") @db.Uuid
+  tenantRequestId String           @map("tenant_request_id") @db.Uuid
+  propertyId      String?          @map("property_id") @db.Uuid
+  pitchMessage    String           @map("pitch_message")
+  proposedPrice   Float            @map("proposed_price")
+  status          OwnerOfferStatus @default(SENT)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  owner           User             @relation(fields: [ownerId], references: [id])
+  property        Property?        @relation(fields: [propertyId], references: [id])
+  tenantRequest   TenantRequest    @relation(fields: [tenantRequestId], references: [id])
+
+  @@map("owner_offer")
+}
+
+model Favorite {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  property   Property @relation(fields: [propertyId], references: [id])
+  tenant     User     @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, propertyId])
+  @@map("favorite")
+}
+
+model MatchConnection {
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  propertyId String           @map("property_id") @db.Uuid
+  ownerId    String           @map("owner_id") @db.Uuid
+  matchScore Float            @map("match_score")
+  status     ConnectionStatus @default(INTERESTED)
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+  owner      User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
+  property   Property         @relation(fields: [propertyId], references: [id])
+  tenant     User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
+
+  @@map("match_connection")
+}
+
+enum PaymentProvider {
+  PAYMOB
+  STRIPE
+}
+
+model PaymentTransaction {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+
+  provider              PaymentProvider @default(PAYMOB)
+  providerOrderId       String          @unique @map("provider_order_id")
+  providerTransactionId String?         @map("provider_transaction_id")
+
+  amount      Float
+  currency    String        @default("EGP")
+  paymentType PaymentType   @map("payment_type")
+  status      PaymentStatus @default(PENDING)
+  paidAt      DateTime?     @map("paid_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  @@map("payment_transaction")
+}
+
+model LeaseContract {
+  id                String   @id @default(uuid()) @db.Uuid
+  generatedByUserId String   @map("generated_by_user_id") @db.Uuid
+  ownerName         String   @map("owner_name")
+  ownerNationalId   String   @map("owner_national_id")
+  tenantName        String   @map("tenant_name")
+  tenantNationalId  String   @map("tenant_national_id")
+  propertyAddress   String   @map("property_address")
+  customClauses     String?  @map("custom_clauses")
+  pdfUrl            String?  @map("pdf_url")
+  startDate         DateTime @map("start_date")
+  endDate           DateTime @map("end_date")
+  rentAmount        Float    @map("rent_amount")
+  createdAt         DateTime @default(now()) @map("created_at")
+  generatedBy       User     @relation(fields: [generatedByUserId], references: [id])
+
+  @@map("lease_contract")
+}
+
+model PartnerLead {
+  id          String             @id @default(uuid()) @db.Uuid
+  tenantId    String             @map("tenant_id") @db.Uuid
+  serviceType PartnerServiceType @map("service_type")
+  partnerName String             @map("partner_name")
+  status      PartnerLeadStatus  @default(PENDING)
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  tenant      User               @relation(fields: [tenantId], references: [id])
+
+  @@map("partner_lead")
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@map("notification")
 }
 
 enum UserRole {
@@ -91,290 +356,4 @@ enum PartnerLeadStatus {
   PENDING
   SENT
   CONVERTED
-}
-
-model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  fullName     String    @map("full_name")
-  email        String    @unique
-  phoneNumber  String    @map("phone_number")
-  passwordHash String    @map("password_hash")
-  role         UserRole  @default(TENANT)
-  isActive     Boolean   @default(true) @map("is_active")
-  lastLoginAt  DateTime? @map("last_login_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-
-  // Profiles & Settings
-  identityVerification IdentityVerification?
-  userQuota            UserQuota?
-  tenantRequests       TenantRequest[]       @relation("TenantRequests")
-  favorites            Favorite[]
-
-  // Property Ownership & Actions
-  properties Property[] @relation("PropertyOwner")
-
-  // Offers & Partner Strategic Lead Routing
-  ownerOffers  OwnerOffer[]
-  partnerLeads PartnerLead[]
-
-  // Reviews
-  propertyReviews PropertyReview[] @relation("ReviewWriter")
-
-  // Matchmaker Connections
-  ownerMatchConnections  MatchConnection[] @relation("OwnerMatchConnections")
-  tenantMatchConnections MatchConnection[] @relation("TenantMatchConnections")
-
-  // Administration Approvals
-  approvedVerifications IdentityVerification[] @relation("ApprovedVerifications")
-  approvedProperties    Property[]             @relation("ApprovedProperties")
-  approvedReviews       PropertyReview[]       @relation("ApprovedReviews")
-  approvedRequests      TenantRequest[]        @relation("ApprovedRequests")
-
-  // Transactions & Billing
-  paymentTransactions PaymentTransaction[]
-  leaseContracts      LeaseContract[]
-  notifications       Notification[]
-
-  @@map("user")
-}
-
-model IdentityVerification {
-  id     String @id @default(uuid()) @db.Uuid
-  userId String @unique @map("user_id") @db.Uuid
-  user   User   @relation(fields: [userId], references: [id])
-
-  // Transitional private field retained for compatibility.
-  // Never expose through ordinary APIs or logs.
-  nationalId String? @map("national_id")
-
-  nationalIdFrontUrl String @map("national_id_front_url")
-  nationalIdBackUrl  String @map("national_id_back_url")
-  selfieUrl          String @map("selfie_url")
-
-  status VerificationStatus @default(PENDING)
-
-  // Admin Approval
-  reviewedBy      String?   @map("reviewed_by") @db.Uuid
-  reviewer        User?     @relation("ApprovedVerifications", fields: [reviewedBy], references: [id])
-  rejectionReason String?   @map("rejection_reason")
-  submittedAt     DateTime  @default(now()) @map("submitted_at")
-  reviewedAt      DateTime? @map("reviewed_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
-
-  @@map("identity_verification")
-}
-
-model UserQuota {
-  id                String   @id @default(uuid()) @db.Uuid
-  userId            String   @unique @map("user_id") @db.Uuid
-  user              User     @relation(fields: [userId], references: [id])
-  freeListingsLeft  Int      @default(1) @map("free_listings_left")
-  optimizerUsesLeft Int      @default(2) @map("optimizer_uses_left")
-  freeOffersLeft    Int      @default(3) @map("free_offers_left")
-  lastResetDate     DateTime @default(now()) @map("last_reset_date")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  @@map("user_quota")
-}
-
-model Property {
-  id                     String         @id @default(uuid()) @db.Uuid
-  ownerId                String         @map("owner_id") @db.Uuid
-  owner                  User           @relation("PropertyOwner", fields: [ownerId], references: [id])
-  title                  String
-  description            String
-  governorate            String
-  city                   String
-  district               String
-  manualAddress          String         @map("manual_address")
-  propertyType           PropertyType   @map("property_type")
-  propertyAroundServices String?        @map("property_around_services") @db.Text
-  rentAmount             Float          @map("rent_amount")
-  areaM2                 Float          @map("area_m2")
-  bedrooms               Int
-  bathrooms              Int
-  isFurnished            Boolean        @map("is_furnished")
-  hasElevator            Boolean        @map("has_elevator")
-  hasParking             Boolean        @map("has_parking")
-  contactRevealed        Boolean        @default(false) @map("contact_revealed")
-  status                 PropertyStatus @default(PENDING)
-  isBoosted              Boolean        @default(false) @map("is_boosted")
-
-  // Admin Approval
-  approvedBy     String?   @map("approved_by") @db.Uuid
-  approvedByUser User?     @relation("ApprovedProperties", fields: [approvedBy], references: [id])
-  approvedAt     DateTime? @map("approved_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-
-  propertyImages   PropertyImage[]
-  propertyReviews  PropertyReview[]
-  favorites        Favorite[]
-  matchConnections MatchConnection[]
-  ownerOffers      OwnerOffer[]
-
-  @@map("property")
-}
-
-model PropertyImage {
-  id           String   @id @default(uuid()) @db.Uuid
-  propertyId   String   @map("property_id") @db.Uuid
-  property     Property @relation(fields: [propertyId], references: [id])
-  imageUrl     String   @map("image_url")
-  displayOrder Int      @map("display_order")
-  isCover      Boolean  @default(false) @map("is_cover")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  @@map("property_image")
-}
-
-model PropertyReview {
-  id         String             @id @default(uuid()) @db.Uuid
-  reviewerId String             @map("reviewer_id") @db.Uuid
-  reviewer   User               @relation("ReviewWriter", fields: [reviewerId], references: [id])
-  propertyId String             @map("property_id") @db.Uuid
-  property   Property           @relation(fields: [propertyId], references: [id])
-  rating     Int
-  comment    String?            @db.Text
-  status     VerificationStatus @default(PENDING)
-
-  // Admin Approval
-  reviewedBy String?  @map("reviewed_by") @db.Uuid
-  reviewerBy User?    @relation("ApprovedReviews", fields: [reviewedBy], references: [id])
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  @@map("property_review")
-}
-
-model TenantRequest {
-  id                    String              @id @default(uuid()) @db.Uuid
-  tenantId              String              @map("tenant_id") @db.Uuid
-  tenant                User                @relation("TenantRequests", fields: [tenantId], references: [id])
-  minBudget             Float               @map("min_budget")
-  maxBudget             Float               @map("max_budget")
-  preferredLocations    String              @map("preferred_locations")
-  propertyType          PropertyType        @map("property_type")
-  requiredBedrooms      Int                 @map("required_bedrooms")
-  needsFurnished        Boolean             @map("needs_furnished")
-  flexibilityScore      Int                 @map("flexibility_score")
-  lifestyleRequirements String              @map("lifestyle_requirements") @db.Text
-  status                TenantRequestStatus @default(PENDING)
-  approvedBy            String?             @map("approved_by") @db.Uuid
-  approvedByUser        User?               @relation("ApprovedRequests", fields: [approvedBy], references: [id])
-  createdAt             DateTime            @default(now()) @map("created_at")
-  updatedAt             DateTime            @updatedAt @map("updated_at")
-  ownerOffers           OwnerOffer[]
-
-  @@map("tenant_request")
-}
-
-model OwnerOffer {
-  id              String           @id @default(uuid()) @db.Uuid
-  ownerId         String           @map("owner_id") @db.Uuid
-  owner           User             @relation(fields: [ownerId], references: [id])
-  tenantRequestId String           @map("tenant_request_id") @db.Uuid
-  tenantRequest   TenantRequest    @relation(fields: [tenantRequestId], references: [id])
-  propertyId      String?          @map("property_id") @db.Uuid
-  property        Property?        @relation(fields: [propertyId], references: [id])
-  pitchMessage    String           @map("pitch_message") @db.Text
-  proposedPrice   Float            @map("proposed_price")
-  status          OwnerOfferStatus @default(SENT)
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-
-  @@map("owner_offer")
-}
-
-model Favorite {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  tenant     User     @relation(fields: [tenantId], references: [id])
-  propertyId String   @map("property_id") @db.Uuid
-  property   Property @relation(fields: [propertyId], references: [id])
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  @@unique([tenantId, propertyId])
-  @@map("favorite")
-}
-
-model MatchConnection {
-  id         String           @id @default(uuid()) @db.Uuid
-  tenantId   String           @map("tenant_id") @db.Uuid
-  tenant     User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
-  propertyId String           @map("property_id") @db.Uuid
-  property   Property         @relation(fields: [propertyId], references: [id])
-  ownerId    String           @map("owner_id") @db.Uuid
-  owner      User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
-  matchScore Float            @map("match_score")
-  status     ConnectionStatus @default(INTERESTED)
-  createdAt  DateTime         @default(now()) @map("created_at")
-  updatedAt  DateTime         @updatedAt @map("updated_at")
-
-  @@map("match_connection")
-}
-
-model PaymentTransaction {
-  id                  String        @id @default(uuid()) @db.Uuid
-  userId              String        @map("user_id") @db.Uuid
-  user                User          @relation(fields: [userId], references: [id])
-  paymobOrderId       String        @unique @map("paymob_order_id")
-  paymobTransactionId String?       @map("paymob_transaction_id")
-  amount              Float
-  currency            String        @default("EGP")
-  paymentType         PaymentType   @map("payment_type")
-  status              PaymentStatus @default(PENDING)
-  paidAt              DateTime?     @map("paid_at")
-  createdAt           DateTime      @default(now()) @map("created_at")
-
-  @@map("payment_transaction")
-}
-
-model LeaseContract {
-  id                String   @id @default(uuid()) @db.Uuid
-  generatedByUserId String   @map("generated_by_user_id") @db.Uuid
-  generatedBy       User     @relation(fields: [generatedByUserId], references: [id])
-  ownerName         String   @map("owner_name")
-  ownerNationalId   String   @map("owner_national_id")
-  tenantName        String   @map("tenant_name")
-  tenantNationalId  String   @map("tenant_national_id")
-  propertyAddress   String   @map("property_address")
-  customClauses     String?  @map("custom_clauses") @db.Text
-  pdfUrl            String?  @map("pdf_url")
-  startDate         DateTime @map("start_date")
-  endDate           DateTime @map("end_date")
-  rentAmount        Float    @map("rent_amount")
-  createdAt         DateTime @default(now()) @map("created_at")
-
-  @@map("lease_contract")
-}
-
-model PartnerLead {
-  id          String             @id @default(uuid()) @db.Uuid
-  tenantId    String             @map("tenant_id") @db.Uuid
-  tenant      User               @relation(fields: [tenantId], references: [id])
-  serviceType PartnerServiceType @map("service_type")
-  partnerName String             @map("partner_name")
-  status      PartnerLeadStatus  @default(PENDING)
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
-
-  @@map("partner_lead")
-}
-
-model Notification {
-  id        String           @id @default(uuid()) @db.Uuid
-  userId    String           @map("user_id") @db.Uuid
-  user      User             @relation(fields: [userId], references: [id])
-  type      NotificationType
-  title     String
-  message   String
-  link      String?
-  isRead    Boolean          @default(false) @map("is_read")
-  createdAt DateTime         @default(now()) @map("created_at")
-
-  @@map("notification")
 }
