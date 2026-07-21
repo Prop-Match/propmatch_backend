@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeGateway } from './realtime.gateway';
 import {
   SOCKET_EVENTS,
+  type MessagePayload,
   type NotificationPayload,
   type NotificationType,
   type QueueItem,
@@ -149,6 +150,10 @@ export class RealtimeService {
     // userId routes the event; it is not part of the client payload.
     this.gateway.emitToUser(userId, SOCKET_EVENTS.notification, payload);
     return payload;
+  }
+
+  emitMessage(userId: string, payload: MessagePayload): void {
+    this.gateway.emitToUser(userId, SOCKET_EVENTS.message, payload);
   }
 }
 
