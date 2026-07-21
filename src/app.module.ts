@@ -16,6 +16,7 @@ import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 import { AdminModule } from './admin/admin.module';
 import { MessagesModule } from './messages/messages.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ReviewsModule } from './reviews/reviews.module';
 
 /**
  * `nest build` nests compiled output under dist/src, so `../i18n/` resolves
@@ -52,6 +53,7 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
     OffersModule,
     MessagesModule,
     PaymentsModule,
+    ReviewsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
