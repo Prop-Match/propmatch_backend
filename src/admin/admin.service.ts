@@ -264,6 +264,64 @@ export class AdminService {
       status,
     };
   }
+
+  /** A deliberately small, moderation-only projection. It must not reuse the
+   * general property detail mapper because that mapper may reveal contact data. */
+  async getPropertyReviewDetail(propertyId: string) {
+    const property = await this.prismaService.property.findUnique({
+      where: { id: propertyId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        governorate: true,
+        city: true,
+        district: true,
+        manualAddress: true,
+        propertyType: true,
+        rentAmount: true,
+        areaM2: true,
+        bedrooms: true,
+        bathrooms: true,
+        isFurnished: true,
+        hasElevator: true,
+        hasParking: true,
+        propertyAroundServices: true,
+        status: true,
+        createdAt: true,
+        propertyImages: {
+          orderBy: { displayOrder: 'asc' },
+          select: {
+            id: true,
+            imageUrl: true,
+            displayOrder: true,
+            isCover: true,
+          },
+        },
+        owner: {
+          select: {
+            fullName: true,
+            identityVerification: { select: { status: true } },
+          },
+        },
+      },
+    });
+
+    if (!property) {
+      throw new NotFoundException(
+        I18nContext.current()?.t('admin.PROPERTY_NOT_FOUND'),
+      );
+    }
+
+    const { propertyImages, owner, ...detail } = property;
+    return {
+      ...detail,
+      images: propertyImages,
+      ownerName: owner.fullName,
+      ownerVerificationStatus:
+        owner.identityVerification?.status ?? 'NOT_SUBMITTED',
+    };
+  }
   async reviewRequest(
     adminId: string,
     requestId: string,

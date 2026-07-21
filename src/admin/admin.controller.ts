@@ -101,6 +101,13 @@ export class AdminController {
     return this.adminService.reviewProperty(req.user.userId, propertyId, dto);
   }
 
+  @Get('properties/:propertyId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getPropertyReviewDetail(@Param('propertyId') propertyId: string) {
+    return this.adminService.getPropertyReviewDetail(propertyId);
+  }
+
   @HttpCode(HttpStatus.OK)
   @Post('requests/:requestId/review')
   @UseGuards(JwtAuthGuard, RolesGuard)
