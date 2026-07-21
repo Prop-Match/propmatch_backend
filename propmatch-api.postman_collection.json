@@ -686,6 +686,73 @@
       ]
     },
     {
+      "name": "Payments",
+      "id": "27573463-payments-folder-uuid",
+      "item": [
+        {
+          "name": "Checkout (Payment Intention)",
+          "id": "27573463-payment-checkout-uuid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"paymentType\": \"NEW_LISTING\",\n    \"amount\": 500\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/checkout",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "checkout"]
+            },
+            "description": "Initiates a payment intention for the authenticated user (e.g. premium listing checkout)."
+          },
+          "response": []
+        },
+        {
+          "name": "Paymob Webhook",
+          "id": "27573463-paymob-webhook-uuid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"obj\": {\n        \"id\": 1234567,\n        \"pending\": false,\n        \"success\": true,\n        \"amount_cents\": 50000,\n        \"currency\": \"EGP\",\n        \"integration_id\": 11,\n        \"order\": {\n            \"id\": 987654,\n            \"data\": {\n                \"userId\": \"user-uuid-placeholder\",\n                \"paymentType\": \"NEW_LISTING\"\n            }\n        }\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/webhook/paymob?hmac=your_computed_hmac_here",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "webhook", "paymob"],
+              "query": [
+                {
+                  "key": "hmac",
+                  "value": "your_computed_hmac_here"
+                }
+              ]
+            },
+            "description": "Simulates Paymob's payment notification webhook callback to our backend."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Hello World",
       "id": "27573463-hello-world-uuid",
       "request": {
