@@ -144,8 +144,8 @@ export class OffersService {
 
     await this.realtimeService.notifyUser(request.tenantId, {
       type: 'NEW_OFFER_RECEIVED',
-      title: 'Ø¹Ø±Ø¶ Ø¬Ø¯ÙŠØ¯ Ø¹Ù„Ù‰ Ø·Ù„Ø¨Ùƒ',
-      message: 'ÙˆØµÙ„Ùƒ Ø¹Ø±Ø¶ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø£Ø­Ø¯ Ø§Ù„Ù…Ù„Ù‘Ø§Ùƒ â€” Ø§Ø·Ù‘Ù„Ø¹ Ø¹Ù„ÙŠÙ‡ Ø§Ù„Ø¢Ù†.',
+      title: 'عرض جديد على طلبك',
+      message: 'وصلك عرض جديد من أحد الملاك — اطّلع عليه الآن.',
       link: '/tenant/offers',
     });
 

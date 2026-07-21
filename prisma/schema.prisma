@@ -65,6 +65,7 @@ enum NotificationType {
   REVIEW_APPROVED
   NEW_TENANT_REQUEST
   NEW_OFFER_RECEIVED
+  NEW_MESSAGE
 }
 
 enum TenantRequestStatus {
