@@ -7,8 +7,11 @@ import {
   Query,
   Request,
   UseGuards,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { PropertiesService } from './properties.service';
+import { FormOptimizerService } from './services/FormOptimizer.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -18,7 +21,10 @@ import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller()
 export class PropertiesController {
-  constructor(private readonly propertiesService: PropertiesService) {}
+  constructor(
+    private readonly propertiesService: PropertiesService,
+    private readonly formOptimizerService: FormOptimizerService,
+  ) {}
 
   /**
    * POST /api/landlord/properties
@@ -63,5 +69,37 @@ export class PropertiesController {
     @Request() req: { user: { userId: string; role: string } },
   ) {
     return this.propertiesService.getPropertyById(id, req.user);
+  }
+
+  @Post('landlord/properties/draft/optimize-description/stream')
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
+  @Roles('LANDLORD')
+  async optimizeDescriptionStream(
+    @Body() body: any,
+    @Res() res,
+  ) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    try {
+      const stream$ = this.formOptimizerService.optimizeDescriptionStream(body);
+      stream$.subscribe({
+        next: (msg) => {
+          res.write(`data: ${JSON.stringify(msg.data)}\n\n`);
+        },
+        complete: () => {
+          res.end();
+        },
+        error: (err) => {
+          res.status(500).json({ message: err.message });
+          res.end();
+        },
+      });
+    } catch (error: any) {
+      console.log(error);
+      res.status(500).json({ message: error.message });
+      res.end();
+    }
   }
 }
