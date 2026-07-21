@@ -4,6 +4,7 @@ export const SOCKET_EVENTS = {
   notification: 'notification',
   /** A new moderation item entered a queue → the `admins` room. */
   adminQueueItem: 'admin:queue:item',
+  message: 'message',
 } as const;
 
 /** Rooms. One per user; admins additionally share the `admins` room. */
@@ -19,7 +20,8 @@ export type NotificationType =
   | 'NEW_REVIEW_SUBMITTED'
   | 'REVIEW_APPROVED'
   | 'NEW_TENANT_REQUEST'
-  | 'NEW_OFFER_RECEIVED';
+  | 'NEW_OFFER_RECEIVED'
+  | 'NEW_MESSAGE';
 
 
 export interface NotificationPayload {
@@ -29,6 +31,14 @@ export interface NotificationPayload {
   message: string;
   link: string | null;
   isRead: boolean;
+  createdAt: string;
+}
+
+export interface MessagePayload {
+  id: string;
+  matchConnectionId: string;
+  senderId: string;
+  body: string;
   createdAt: string;
 }
 

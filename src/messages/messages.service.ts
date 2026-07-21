@@ -4,10 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class MessagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   private async connectionFor(userId: string, id: string) {
     const connection = await this.prisma.matchConnection.findFirst({
@@ -88,7 +92,7 @@ export class MessagesService {
   }
 
   async send(userId: string, id: string, input: { body: string }) {
-    await this.connectionFor(userId, id);
+    const connection = await this.connectionFor(userId, id);
     const body = input.body.trim();
     if (!body || body.length > 1000)
       throw new BadRequestException('Invalid message body.');
@@ -96,10 +100,26 @@ export class MessagesService {
       data: { matchConnectionId: id, senderId: userId, body },
       select: { id: true, senderId: true, body: true, createdAt: true },
     });
-    return {
+    const payload = {
       ...message,
       createdAt: message.createdAt.toISOString(),
-      isMine: true,
     };
+    const recipientId =
+      connection.tenantId === userId ? connection.ownerId : connection.tenantId;
+    this.realtime.emitMessage(recipientId, {
+      ...payload,
+      matchConnectionId: id,
+    });
+    await this.realtime.notifyUser(recipientId, {
+      type: 'NEW_MESSAGE',
+      title: 'رسالة جديدة',
+      message: 'لديك رسالة جديدة بشأن أحد عروضك المقبولة.',
+      link:
+        connection.tenantId === recipientId
+          ? `/tenant/messages/${id}`
+          : `/landlord/messages/${id}`,
+    });
+
+    return { ...payload, isMine: true };
   }
 }
