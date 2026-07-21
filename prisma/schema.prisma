@@ -135,6 +135,7 @@ model User {
   paymentTransactions PaymentTransaction[]
   leaseContracts      LeaseContract[]
   notifications       Notification[]
+  sentMessages        Message[]
 
   @@map("user")
 }
@@ -313,8 +314,24 @@ model MatchConnection {
   status     ConnectionStatus @default(INTERESTED)
   createdAt  DateTime         @default(now()) @map("created_at")
   updatedAt  DateTime         @updatedAt @map("updated_at")
+  messages   Message[]
 
   @@map("match_connection")
+}
+
+model Message {
+  id                String   @id @default(uuid()) @db.Uuid
+  matchConnectionId String   @map("match_connection_id") @db.Uuid
+  senderId          String   @map("sender_id") @db.Uuid
+  body              String   @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  matchConnection MatchConnection @relation(fields: [matchConnectionId], references: [id], onDelete: Cascade)
+  sender          User            @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([matchConnectionId, createdAt])
+  @@index([senderId])
+  @@map("message")
 }
 
 model PaymentTransaction {
