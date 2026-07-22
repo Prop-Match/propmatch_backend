@@ -24,7 +24,6 @@ export class PropertiesService {
     private readonly chromaService?: ChromaPropertyService,
   ) {}
 
-  /** Prisma include used whenever we need the full property detail. */
   private static readonly DETAIL_INCLUDE = {
     propertyImages: {
       orderBy: { displayOrder: 'asc' as const },
@@ -37,6 +36,9 @@ export class PropertiesService {
         identityVerification: { select: { status: true } },
       },
     },
+    governorate: true,
+    city: true,
+    country: true,
   };
 
   /**
@@ -52,7 +54,9 @@ export class PropertiesService {
   async search(query: SearchPropertiesDto) {
     const where: Prisma.PropertyWhereInput = { status: 'APPROVED' };
 
-    if (query.city) where.city = query.city;
+    if (query.city) {
+      where.city = { nameEn: { equals: query.city, mode: 'insensitive' as const } };
+    }
     if (query.propertyType) where.propertyType = query.propertyType;
     if (query.bedrooms !== undefined) where.bedrooms = { gte: query.bedrooms };
     if (query.isFurnished) where.isFurnished = true;
@@ -170,6 +174,32 @@ export class PropertiesService {
       });
     }
 
+    const dbGov = await this.prisma.governorate.findFirst({
+      where: {
+        OR: [
+          { nameEn: { equals: dto.governorate, mode: 'insensitive' as const } },
+          { nameAr: { equals: dto.governorate, mode: 'insensitive' as const } },
+        ],
+      },
+    });
+
+    const dbCity = await this.prisma.city.findFirst({
+      where: {
+        OR: [
+          { nameEn: { equals: dto.city, mode: 'insensitive' as const } },
+          { nameAr: { equals: dto.city, mode: 'insensitive' as const } },
+        ],
+      },
+    });
+
+    if (!dbGov || !dbCity) {
+      throw new ForbiddenException('Selected region is not supported.');
+    }
+
+    if (!dbGov.status || !dbCity.status) {
+      throw new ForbiddenException('Selected region is disabled.');
+    }
+
     // ── 3. Create property + images + decrement quota in a transaction ─
     const result = await this.prisma.$transaction(async (tx) => {
       const property = await tx.property.create({
@@ -177,8 +207,9 @@ export class PropertiesService {
           ownerId,
           title: dto.title,
           description: dto.description,
-          governorate: dto.governorate,
-          city: dto.city,
+          countryId: dbGov.countryId,
+          governorateId: dbGov.id,
+          cityId: dbCity.id,
           district: dto.district,
           manualAddress: dto.manualAddress,
           propertyType: dto.propertyType,
@@ -239,7 +270,7 @@ export class PropertiesService {
   async getAll(query: PropertySearchQueryDto) {
     const where: Prisma.PropertyWhereInput = {
       status: 'APPROVED',
-      ...(query.city ? { city: query.city } : {}),
+      ...(query.city ? { city: { nameEn: { equals: query.city, mode: 'insensitive' as const } } } : {}),
       ...(query.propertyType ? { propertyType: query.propertyType } : {}),
       ...(query.bedrooms !== undefined ? { bedrooms: query.bedrooms } : {}),
       ...(query.isFurnished !== undefined

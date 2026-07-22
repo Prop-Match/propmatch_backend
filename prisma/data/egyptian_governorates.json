@@ -1,0 +1,191 @@
+[
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "القاهرة",
+      "en": "Cairo"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الجيزة",
+      "en": "Giza"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الأسكندرية",
+      "en": "Alexandria"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الدقهلية",
+      "en": "Dakahlia"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "البحر الأحمر",
+      "en": "Red Sea"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "البحيرة",
+      "en": "Beheira"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الفيوم",
+      "en": "Fayoum"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الغربية",
+      "en": "Gharbiya"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الإسماعلية",
+      "en": "Ismailia"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "المنوفية",
+      "en": "Menofia"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "المنيا",
+      "en": "Minya"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "القليوبية",
+      "en": "Qaliubiya"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الوادي الجديد",
+      "en": "New Valley"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "السويس",
+      "en": "Suez"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "اسوان",
+      "en": "Aswan"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "اسيوط",
+      "en": "Assiut"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "بني سويف",
+      "en": "Beni Suef"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "بورسعيد",
+      "en": "Port Said"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "دمياط",
+      "en": "Damietta"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الشرقية",
+      "en": "Sharkia"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "جنوب سيناء",
+      "en": "South Sinai"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "كفر الشيخ",
+      "en": "Kafr Al sheikh"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "مطروح",
+      "en": "Matrouh"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "الأقصر",
+      "en": "Luxor"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "قنا",
+      "en": "Qena"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "شمال سيناء",
+      "en": "North Sinai"
+    }
+  },
+  {
+    "country_id": 1,
+    "name": {
+      "ar": "سوهاج",
+      "en": "Sohag"
+    }
+  }
+]

@@ -1,15 +1,9 @@
-import 'dotenv/config';
-import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from './prisma.service';
+import * as bcrypt from 'bcrypt';
+import 'dotenv/config';
 import { LocalPrivateObjectStorageService } from '../src/storage/local-private-object-storage.service';
+import { PrismaService } from './prisma.service';
 
-/**
- * One-off seed for manually verifying the admin dashboard against a real
- * backend: an admin login, plus one pending item in each of the four
- * moderation queues. Not wired into any npm script — run directly with
- * ts-node when you need fresh demo data.
- */
 async function main() {
   const prisma = new PrismaService();
   await prisma.onModuleInit();
@@ -65,13 +59,30 @@ async function main() {
     },
   });
 
+  const country = await prisma.country.findUniqueOrThrow({
+    where: { code: 'EG' },
+  });
+  const governorate = await prisma.governorate.findFirstOrThrow({
+    where: {
+      countryId: country.id,
+      nameEn: 'Dakahlia',
+    },
+  });
+  const city = await prisma.city.findFirstOrThrow({
+    where: {
+      governorateId: governorate.id,
+      nameEn: 'Mansoura',
+    },
+  });
+
   await prisma.property.create({
     data: {
       ownerId: landlord.id,
       title: 'شقة تجريبية بانتظار المراجعة',
       description: 'شقة واسعة في موقع متميز.',
-      governorate: 'الدقهلية',
-      city: 'المنصورة',
+      countryId: country.id,
+      governorateId: governorate.id,
+      cityId: city.id,
       district: 'حي أول',
       manualAddress: 'شارع الجامعة',
       propertyType: 'APARTMENT',
@@ -124,8 +135,9 @@ async function main() {
       ownerId: landlord.id,
       title: 'شقة معتمدة للتقييم',
       description: 'شقة تم اعتمادها مسبقًا لإتاحة تقييم عليها.',
-      governorate: 'الدقهلية',
-      city: 'المنصورة',
+      countryId: country.id,
+      governorateId: governorate.id,
+      cityId: city.id,
       district: 'حي ثان',
       manualAddress: 'شارع النصر',
       propertyType: 'APARTMENT',

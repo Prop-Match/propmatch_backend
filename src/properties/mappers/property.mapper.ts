@@ -1,4 +1,12 @@
-import { Property, PropertyImage, PropertyStatus, PropertyType, VerificationStatus } from 'generated/prisma/client';
+import {
+  City,
+  Governorate,
+  Property,
+  PropertyImage,
+  PropertyStatus,
+  PropertyType,
+  VerificationStatus,
+} from 'generated/prisma/client';
 
 /* ────────────────────── Frontend response interfaces ────────────────────── */
 
@@ -47,6 +55,8 @@ export interface PropertyDetailResponse extends PropertySummaryResponse {
 
 type PropertyWithImages = Property & {
   propertyImages: PropertyImage[];
+  governorate?: Governorate | null;
+  city?: City | null;
   owner?: {
     fullName: string;
     phoneNumber: string;
@@ -62,11 +72,7 @@ type PropertyWithImages = Property & {
  * Falls back to the first image if no explicit cover is set.
  */
 function extractCoverImage(images: PropertyImage[]): string | null {
-  return (
-    images.find((i) => i.isCover)?.imageUrl ??
-    images[0]?.imageUrl ??
-    null
-  );
+  return images.find((i) => i.isCover)?.imageUrl ?? images[0]?.imageUrl ?? null;
 }
 
 /**
@@ -85,9 +91,7 @@ function transformImage(image: PropertyImage): PropertyImageResponse {
  * Derive ownerVerified from the owner's identity verification relation.
  * This is the single source of truth — no denormalized flag needed.
  */
-function isOwnerVerified(
-  owner: PropertyWithImages['owner'],
-): boolean {
+function isOwnerVerified(owner: PropertyWithImages['owner']): boolean {
   return owner?.identityVerification?.status === 'APPROVED';
 }
 
@@ -101,8 +105,8 @@ export function transformPropertyToSummary(
   return {
     id: property.id,
     title: property.title,
-    governorate: property.governorate,
-    city: property.city,
+    governorate: property.governorate?.nameEn ?? '',
+    city: property.city?.nameEn ?? '',
     district: property.district,
     propertyType: property.propertyType,
     rentAmount: property.rentAmount,
@@ -144,7 +148,9 @@ export function transformPropertyToDetail(
     images: property.propertyImages.map(transformImage),
     contactRevealed,
     manualAddress: contactRevealed ? property.manualAddress : null,
-    ownerPhoneNumber: contactRevealed ? (property.owner?.phoneNumber ?? null) : null,
+    ownerPhoneNumber: contactRevealed
+      ? (property.owner?.phoneNumber ?? null)
+      : null,
     ownerName: contactRevealed ? (property.owner?.fullName ?? null) : null,
     rejectionReason: null,
     approvedAt: property.approvedAt?.toISOString() ?? null,
