@@ -17,12 +17,14 @@ export interface PaymobIntentionResponse {
   client_secret: string;
 }
 
-export interface PaymobOrderResponse {
-  transactions: Array<{
+export interface PaymobTransactionLookupResponse {
+  results?: Array<{
     success?: boolean;
+    pending?: boolean;
     is_voided?: boolean;
     is_refunded?: boolean;
     id?: string | number;
+    order?: { id?: string | number };
   }>;
 }
 

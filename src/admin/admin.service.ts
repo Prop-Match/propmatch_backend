@@ -17,6 +17,7 @@ import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
+import { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
 
 const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
 
@@ -27,6 +28,7 @@ export class AdminService {
     private readonly realtimeService: RealtimeService,
     @Inject(PRIVATE_OBJECT_STORAGE)
     private readonly privateObjectStorage: PrivateObjectStorage,
+    private readonly propertyApprovalIndexingService: PropertyApprovalIndexingService,
   ) {}
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
@@ -245,19 +247,33 @@ export class AdminService {
     }
 
     const status = isApproved ? 'APPROVED' : 'REJECTED';
-    const property = await this.prismaService.property.update({
-      where: { id: propertyId },
-      data: {
-        status,
-        approvedBy: adminId,
-        approvedAt: new Date(),
-      },
-    });
+    const property = await this.prismaService.$transaction((tx) =>
+      tx.property.update({
+        where: { id: propertyId },
+        data: {
+          status,
+          approvedBy: adminId,
+          approvedAt: new Date(),
+        },
+      }),
+    );
     await this.audit(
       adminId,
       `property:${reviewDecisionDto.decision}`,
       propertyId,
     );
+    if (p.status === 'PENDING' && property.status === 'APPROVED') {
+      try {
+        await this.propertyApprovalIndexingService.indexApprovedProperty(
+          property.id,
+        );
+      } catch (error) {
+        this.propertyApprovalIndexingService.logIndexingFailure(
+          property.id,
+          error,
+        );
+      }
+    }
     await this.realtimeService.notifyUser(property.ownerId, {
       type: 'PROPERTY_APPROVED',
       title:
@@ -275,7 +291,6 @@ export class AdminService {
         ) || '',
       link: `/landlord/properties/${property.id}`,
     });
-
     return {
       message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
         args: { status },

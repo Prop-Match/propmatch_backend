@@ -9,7 +9,7 @@ import {
   WebhookResult,
 } from '../interfaces/payment-gateway.interface';
 import {
-  PaymobOrderResponse,
+  PaymobTransactionLookupResponse,
   PaymobWebhookTransaction,
 } from '../interfaces/paymob.types';
 
@@ -165,25 +165,29 @@ export class PaymobService implements IPaymentGateway {
     providerOrderId: string,
   ): Promise<{ isSuccessful: boolean; transactionId?: string }> {
     try {
-      // 1. Get a temporary Auth Token (Transaction Inquiry uses the older API)
+      // 1. Get a temporary auth token.
       const response: AxiosResponse<{ token: string }> = await firstValueFrom(
         this.httpService.post('https://accept.paymob.com/api/auth/tokens', {
           api_key: process.env.PAYMOB_API_KEY,
         }),
       );
       const token = String(response.data.token);
-      // 2. Look up the order in Paymob
-      // Usually queried by the Intention ID or Order ID
-      const orderReq: AxiosResponse<PaymobOrderResponse> = await firstValueFrom(
-        this.httpService.get(
-          `https://accept.paymob.com/api/ecommerce/orders/${providerOrderId}?token=${token}`,
-        ),
-      );
-      const transactions = orderReq.data.transactions || [];
-      const successfulTx = transactions.find(
+      // The legacy order endpoint exposes the amount but omits transaction
+      // results. Query the acceptance transactions endpoint instead and match
+      // the requested order explicitly (some Paymob accounts return a page of
+      // recent transactions even when the order query is supplied).
+      const transactionReq: AxiosResponse<PaymobTransactionLookupResponse> =
+        await firstValueFrom(
+          this.httpService.get(
+            `${this.BASE_URL}/api/acceptance/transactions?order=${encodeURIComponent(providerOrderId)}&token=${encodeURIComponent(token)}`,
+          ),
+        );
+      const successfulTx = (transactionReq.data.results || []).find(
         (t) =>
           t &&
+          String(t.order?.id) === providerOrderId &&
           t.success === true &&
+          t.pending !== true &&
           t.is_voided === false &&
           t.is_refunded === false,
       );
