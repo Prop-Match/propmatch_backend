@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
+import { LocalPrivateObjectStorageService } from '../src/storage/local-private-object-storage.service';
 
 /**
  * One-off seed for manually verifying the admin dashboard against a real
@@ -13,6 +15,19 @@ async function main() {
   await prisma.onModuleInit();
 
   const passwordHash = await bcrypt.hash('Password123!', 10);
+
+  // Real files on disk so admin/kyc/:id's createTemporaryReadUrl works
+  // against this seed data instead of the old fake CDN URLs.
+  const storage = new LocalPrivateObjectStorageService(new ConfigService());
+  const dummyImage = Buffer.from(
+    '/9j/4AAQSkZJRgABAQEAYABgAAD//gA7Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcgSlBFRyB2NjApLCBxdWFsaXR5ID0gOTAK/9k=',
+    'base64',
+  );
+  const [nationalIdFront, nationalIdBack, selfie] = await Promise.all([
+    storage.upload({ data: dummyImage, contentType: 'image/jpeg' }),
+    storage.upload({ data: dummyImage, contentType: 'image/jpeg' }),
+    storage.upload({ data: dummyImage, contentType: 'image/jpeg' }),
+  ]);
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@propmatch.local' },
@@ -73,13 +88,18 @@ async function main() {
 
   await prisma.identityVerification.upsert({
     where: { userId: tenant.id },
-    update: { status: 'PENDING' },
+    update: {
+      status: 'PENDING',
+      nationalIdFrontUrl: nationalIdFront.objectKey,
+      nationalIdBackUrl: nationalIdBack.objectKey,
+      selfieUrl: selfie.objectKey,
+    },
     create: {
       userId: tenant.id,
       nationalId: '29901010112345',
-      nationalIdFrontUrl: 'https://cdn.example.com/id-front.jpg',
-      nationalIdBackUrl: 'https://cdn.example.com/id-back.jpg',
-      selfieUrl: 'https://cdn.example.com/selfie.jpg',
+      nationalIdFrontUrl: nationalIdFront.objectKey,
+      nationalIdBackUrl: nationalIdBack.objectKey,
+      selfieUrl: selfie.objectKey,
       status: 'PENDING',
     },
   });
