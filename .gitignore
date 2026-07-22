@@ -37,6 +37,7 @@ lerna-debug.log*
 
 # dotenv environment variable files
 .env
+.env.development
 .env.development.local
 .env.test.local
 .env.production.local
@@ -56,5 +57,9 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+/chroma_data
+/local_embeddings_service/chroma_data
+/local_embeddings_service/.venv
+/local_embeddings_service/__pycache__
 .vscode
 /.private-storage/

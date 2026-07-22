@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { existsSync } from 'fs';
 import * as path from 'path';
@@ -35,6 +36,7 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
       isGlobal: true,
       envFilePath: ['.env.development', '.env.production'],
     }),
+    ScheduleModule.forRoot(),
     UsersModule,
     AuthModule,
     AdminModule,
