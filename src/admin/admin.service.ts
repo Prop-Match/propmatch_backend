@@ -101,20 +101,22 @@ export class AdminService {
         'IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER',
       );
     }
+    const getUrl = async (keyOrUrl: string) => {
+      if (!keyOrUrl) return '';
+      if (keyOrUrl.startsWith('http://') || keyOrUrl.startsWith('https://')) {
+        return keyOrUrl;
+      }
+      return this.privateObjectStorage.createTemporaryReadUrl(
+        keyOrUrl,
+        KYC_DOCUMENT_READ_TTL_SECONDS,
+      );
+    };
+
     const [nationalIdFrontUrl, nationalIdBackUrl, selfieUrl] =
       await Promise.all([
-        this.privateObjectStorage.createTemporaryReadUrl(
-          identityVerification.nationalIdFrontUrl,
-          KYC_DOCUMENT_READ_TTL_SECONDS,
-        ),
-        this.privateObjectStorage.createTemporaryReadUrl(
-          identityVerification.nationalIdBackUrl,
-          KYC_DOCUMENT_READ_TTL_SECONDS,
-        ),
-        this.privateObjectStorage.createTemporaryReadUrl(
-          identityVerification.selfieUrl,
-          KYC_DOCUMENT_READ_TTL_SECONDS,
-        ),
+        getUrl(identityVerification.nationalIdFrontUrl),
+        getUrl(identityVerification.nationalIdBackUrl),
+        getUrl(identityVerification.selfieUrl),
       ]);
     return {
       userId: identityVerification.userId,

@@ -69,7 +69,7 @@ export class AdminController {
 
   private publicBackendOrigin(): string {
     const value = this.configService.get<string>('BACKEND_PUBLIC_URL')?.trim();
-    if (!value) throw new Error('BACKEND_PUBLIC_URL must be configured');
+    if (!value) return 'http://localhost:3001';
     const url = new URL(value);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new Error('BACKEND_PUBLIC_URL must use http or https');
