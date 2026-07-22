@@ -94,9 +94,9 @@ export class PaymentsService {
     return { recieved: true };
   }
 
-  async getTransaction(userId: string, paymobOrderId: string) {
+  async getTransaction(userId: string, providerOrderId: string) {
     const transaction = await this.prismaService.paymentTransaction.findFirst({
-      where: { userId, paymobOrderId },
+      where: { userId, providerOrderId },
     });
     if (!transaction) {
       throw new NotFoundException('Payment transaction not found');
@@ -136,7 +136,7 @@ export class PaymentsService {
       });
     return Promise.all(
       pendingTransactions.map((transaction) =>
-        this.reconcileTransaction(userId, transaction.paymobOrderId),
+        this.reconcileTransaction(userId, transaction.providerOrderId),
       ),
     );
   }
@@ -237,7 +237,7 @@ export class PaymentsService {
           transaction.userId,
           transaction.paymentType,
           transactionId,
-          transaction.paymobOrderId,
+          transaction.providerOrderId,
         );
       }
     }
