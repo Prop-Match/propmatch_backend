@@ -191,8 +191,9 @@ model Property {
   owner                  User           @relation("PropertyOwner", fields: [ownerId], references: [id])
   title                  String
   description            String
-  governorate            String
-  city                   String
+  country                Country        @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  governorate            Governorate    @relation(fields: [governorateId], references: [id], onDelete: Restrict)
+  city                   City           @relation(fields: [cityId], references: [id], onDelete: Restrict)
   district               String
   manualAddress          String         @map("manual_address")
   propertyType           PropertyType   @map("property_type")
@@ -220,6 +221,9 @@ model Property {
   favorites        Favorite[]
   matchConnections MatchConnection[]
   ownerOffers      OwnerOffer[]
+  governorateId    Int
+  cityId           Int
+  countryId        Int
 
   @@map("property")
 }
@@ -400,4 +404,42 @@ model Notification {
   createdAt DateTime         @default(now()) @map("created_at")
 
   @@map("notification")
+}
+
+model Country {
+  id           Int           @id @default(autoincrement())
+  nameAr       String        @map("name_ar")
+  nameEn       String        @map("name_en")
+  code         String        @unique
+  image        String
+  status       Boolean       @default(true)
+  governorates Governorate[]
+  properties   Property[]
+
+  @@map("country")
+}
+
+model Governorate {
+  id         Int        @id @default(autoincrement())
+  countryId  Int        @map("country_id")
+  country    Country    @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  nameAr     String     @map("name_ar")
+  nameEn     String     @map("name_en")
+  status     Boolean    @default(true)
+  cities     City[]
+  properties Property[]
+
+  @@map("governorate")
+}
+
+model City {
+  id            Int         @id @default(autoincrement())
+  governorateId Int         @map("governorate_id")
+  governorate   Governorate @relation(fields: [governorateId], references: [id], onDelete: Cascade)
+  nameAr        String      @map("name_ar")
+  nameEn        String      @map("name_en")
+  status        Boolean     @default(true)
+  properties    Property[]
+
+  @@map("city")
 }
