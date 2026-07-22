@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
@@ -9,6 +9,9 @@ import {
 } from './mappers/property.mapper';
 import { RealtimeService } from '../realtime/realtime.service';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { ChromaPropertyService } from './chroma-property.service';
+import { PropertyEmbeddingService } from './property-embedding.service';
+import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
 
 @Injectable()
 export class PropertiesService {
@@ -17,6 +20,8 @@ export class PropertiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeService: RealtimeService,
+    private readonly embeddingService?: PropertyEmbeddingService,
+    private readonly chromaService?: ChromaPropertyService,
   ) {}
 
   /** Prisma include used whenever we need the full property detail. */
@@ -58,16 +63,24 @@ export class PropertiesService {
       };
     }
 
-    // Semantic seam: until ChromaDB, match the free text across the searchable
-    // fields. Replace this OR block with the vector-ranked id set later.
     const q = query.q?.trim();
     if (q) {
-      where.OR = [
-        { title: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
-        { district: { contains: q, mode: 'insensitive' } },
-        { propertyAroundServices: { contains: q, mode: 'insensitive' } },
-      ];
+      try {
+        if (!this.embeddingService || !this.chromaService) throw new Error();
+        const vector = await this.embeddingService.createEmbedding(q);
+        const matches = await this.chromaService.query({ embedding: vector, limit: 20 });
+        const ids = matches.map((match) => match.propertyId);
+        where.id = { in: ids };
+      } catch {
+        // Local semantic search is optional during development. Fall back to
+        // the existing safe text search if the sidecar is not running.
+        where.OR = [
+          { title: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { district: { contains: q, mode: 'insensitive' } },
+          { propertyAroundServices: { contains: q, mode: 'insensitive' } },
+        ];
+      }
     }
 
     const properties = await this.prisma.property.findMany({
@@ -81,6 +94,53 @@ export class PropertiesService {
     // is derived from the owner relation, so nothing sensitive is serialised.
     const items = properties.map(transformPropertyToSummary);
     return { items, total: items.length, page: 1, pageSize: items.length };
+  }
+
+  async semanticSearch(query: SemanticPropertySearchDto) {
+    try {
+      if (!this.embeddingService || !this.chromaService) {
+        throw new Error('semantic search dependencies unavailable');
+      }
+      const embedding = await this.embeddingService.createEmbedding(query.query);
+      const matches = await this.chromaService.query({
+        embedding,
+        limit: query.limit,
+      });
+      const orderedIds = [
+        ...new Set(
+          matches
+            .filter(
+              (match) =>
+                typeof match.propertyId === 'string' &&
+                match.propertyId.length > 0 &&
+                match.vectorId === `property:${match.propertyId}`,
+            )
+            .map((match) => match.propertyId),
+        ),
+      ];
+      if (orderedIds.length === 0) {
+        return { items: [], total: 0, page: 1, pageSize: query.limit };
+      }
+
+      const properties = await this.prisma.property.findMany({
+        where: { id: { in: orderedIds }, status: 'APPROVED' },
+        include: PropertiesService.DETAIL_INCLUDE,
+      });
+      const byId = new Map(properties.map((property) => [property.id, property]));
+      const items = orderedIds
+        .map((id) => byId.get(id))
+        .filter((property): property is NonNullable<typeof property> => Boolean(property))
+        .map(transformPropertyToSummary);
+
+      return { items, total: items.length, page: 1, pageSize: query.limit };
+    } catch (error) {
+      this.logger.error('semantic property search unavailable');
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        code: 'SEMANTIC_SEARCH_UNAVAILABLE',
+        message: 'Semantic property search is temporarily unavailable.',
+      });
+    }
   }
 
   /**
