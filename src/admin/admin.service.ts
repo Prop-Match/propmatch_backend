@@ -31,6 +31,17 @@ export class AdminService {
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
   }
+
+  /** Append-only record of a moderation decision, for the team activity page. */
+  private async audit(
+    actorId: string,
+    action: string,
+    subjectId: string,
+  ): Promise<void> {
+    await this.prismaService.adminAuditLogEntry.create({
+      data: { actorId, action, subjectId },
+    });
+  }
   async getQueues() {
     const [kyc, properties, requests, reviews] = await Promise.all([
       this.prismaService.identityVerification.findMany({
@@ -189,6 +200,7 @@ export class AdminService {
         rejectionReason: !isApproved ? reviewDecisionDto.reason : null,
       },
     });
+    await this.audit(adminId, `kyc:${reviewDecisionDto.decision}`, userId);
     // There is no correction-required notification type yet. Do not label a
     // resubmission request as an approval; the persisted verification state is
     // the source of truth until a suitable notification type is introduced.
@@ -241,6 +253,11 @@ export class AdminService {
         approvedAt: new Date(),
       },
     });
+    await this.audit(
+      adminId,
+      `property:${reviewDecisionDto.decision}`,
+      propertyId,
+    );
     await this.realtimeService.notifyUser(property.ownerId, {
       type: 'PROPERTY_APPROVED',
       title:
@@ -357,6 +374,11 @@ export class AdminService {
         status,
       },
     });
+    await this.audit(
+      adminId,
+      `request:${reviewDecisionDto.decision}`,
+      requestId,
+    );
     await this.realtimeService.notifyUser(request.tenantId, {
       type: 'NEW_TENANT_REQUEST',
       title:
@@ -454,6 +476,7 @@ export class AdminService {
         reviewedBy: adminId,
       },
     });
+    await this.audit(adminId, `review:${reviewDecisionDto.decision}`, reviewId);
     await this.realtimeService.notifyUser(userReview.reviewerId, {
       type: 'REVIEW_APPROVED',
       title:
@@ -478,6 +501,69 @@ export class AdminService {
       status,
     };
   }
+
+  /** GET admin/reviews/:reviewId — detail fetch, mirrors requests/properties. */
+  async getReviewDetail(reviewId: string) {
+    const review = await this.prismaService.propertyReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        reviewer: { select: { fullName: true } },
+        property: { select: { title: true } },
+      },
+    });
+    if (!review) {
+      throw new NotFoundException(
+        I18nContext.current()?.t('admin.REVIEW_NOT_FOUND'),
+      );
+    }
+    return {
+      id: review.id,
+      reviewerName: review.reviewer.fullName,
+      propertyId: review.propertyId,
+      propertyTitle: review.property.title,
+      rating: review.rating,
+      comment: review.comment ?? '',
+      status: review.status,
+      createdAt: review.createdAt.toISOString(),
+    };
+  }
+
+  /** GET admin/login-history — admin-panel login attempts (team activity page). */
+  async getLoginHistory() {
+    const attempts = await this.prismaService.loginAttempt.findMany({
+      include: { user: { select: { fullName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return {
+      items: attempts.map((a) => ({
+        id: a.id,
+        adminName: a.user.fullName,
+        ip: a.ip,
+        at: a.createdAt.toISOString(),
+        success: a.success,
+      })),
+    };
+  }
+
+  /** GET admin/audit-log — append-only moderation action history. */
+  async getAuditLog() {
+    const entries = await this.prismaService.adminAuditLogEntry.findMany({
+      include: { actor: { select: { fullName: true } } },
+      orderBy: { at: 'desc' },
+      take: 100,
+    });
+    return {
+      items: entries.map((e) => ({
+        id: e.id,
+        actorName: e.actor.fullName,
+        action: e.action,
+        subjectId: e.subjectId,
+        at: e.at.toISOString(),
+      })),
+    };
+  }
+
   async createAdmin(
     creatorId: string | undefined,
     createAdminDto: CreateAdminDto,

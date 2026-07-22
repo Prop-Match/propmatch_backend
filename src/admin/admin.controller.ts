@@ -139,6 +139,27 @@ export class AdminController {
     return this.adminService.reviewUserReview(req.user.userId, dto, reviewId);
   }
 
+  @Get('reviews/:reviewId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getReviewDetail(@Param('reviewId') reviewId: string) {
+    return this.adminService.getReviewDetail(reviewId);
+  }
+
+  @Get('login-history')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getLoginHistory() {
+    return this.adminService.getLoginHistory();
+  }
+
+  @Get('audit-log')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getAuditLog() {
+    return this.adminService.getAuditLog();
+  }
+
   @Post('register')
   @UseGuards(OptionalJwtAuthGuard)
   async registerAdmin(

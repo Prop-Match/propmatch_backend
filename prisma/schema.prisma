@@ -138,6 +138,10 @@ model User {
   notifications       Notification[]
   sentMessages        Message[]
 
+  // Admin activity (team page)
+  loginAttempts   LoginAttempt[]
+  auditLogEntries AdminAuditLogEntry[]
+
   @@map("user")
 }
 
@@ -395,4 +399,30 @@ model Notification {
   createdAt DateTime         @default(now()) @map("created_at")
 
   @@map("notification")
+}
+
+/** Admin-panel login attempts (team activity page). Only ADMIN-role accounts are recorded. */
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  ip        String
+  success   Boolean
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("login_attempt")
+}
+
+/** Append-only record of sensitive admin moderation actions (team activity page). */
+model AdminAuditLogEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String   @map("actor_id") @db.Uuid
+  actor     User     @relation(fields: [actorId], references: [id])
+  action    String
+  subjectId String   @map("subject_id") @db.Uuid
+  at        DateTime @default(now())
+
+  @@index([at])
+  @@map("admin_audit_log_entry")
 }

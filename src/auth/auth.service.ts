@@ -6,6 +6,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { I18nContext } from 'nestjs-i18n';
+import { PrismaService } from '../../prisma/prisma.service';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
 import { RefreshDto } from './dto/refresh.dto';
@@ -14,9 +15,25 @@ export class AuthService {
   constructor(
     private readonly userService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  async signIn(email: string, password: string) {
+  /**
+   * Records admin-panel login attempts for the team activity page. Only
+   * ADMIN-role accounts are tracked; a failed login against an unknown email
+   * has no user to attribute a role to, so it's not recorded here.
+   */
+  private async recordAdminLoginAttempt(
+    userId: string,
+    ip: string,
+    success: boolean,
+  ): Promise<void> {
+    await this.prisma.loginAttempt.create({
+      data: { userId, ip, success },
+    });
+  }
+
+  async signIn(email: string, password: string, ip: string) {
     const user = await this.userService.findByEmail(email);
     if (!user) {
       throw new UnauthorizedException(
@@ -24,6 +41,9 @@ export class AuthService {
       );
     }
     const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (user.role === 'ADMIN') {
+      await this.recordAdminLoginAttempt(user.id, ip, isMatch);
+    }
     if (!isMatch) {
       throw new UnauthorizedException(
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),

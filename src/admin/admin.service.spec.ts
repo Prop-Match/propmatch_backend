@@ -18,6 +18,7 @@ describe('AdminService KYC review', () => {
   const service = new AdminService(
     {
       identityVerification: { findUnique, update },
+      adminAuditLogEntry: { create: jest.fn() },
     } as unknown as PrismaService,
     { notifyUser } as unknown as RealtimeService,
     {} as PrivateObjectStorage,
@@ -78,7 +79,10 @@ describe('AdminService property moderation', () => {
   const update = jest.fn();
   const notifyUser = jest.fn();
   const service = new AdminService(
-    { property: { findUnique, update } } as unknown as PrismaService,
+    {
+      property: { findUnique, update },
+      adminAuditLogEntry: { create: jest.fn() },
+    } as unknown as PrismaService,
     { notifyUser } as unknown as RealtimeService,
     {} as PrivateObjectStorage,
   );
