@@ -2,6 +2,14 @@
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
 
+## PropMatch modules
+
+The legal chatbot is exposed through the authenticated NestJS gateway and
+delegates RAG work to the standalone FastAPI service. See
+[`src/legal-support/README.md`](./src/legal-support/README.md) for endpoints,
+environment variables, streaming behavior, and the service-to-service security
+boundary.
+
 [circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
 [circleci-url]: https://circleci.com/gh/nestjs/nest
 
