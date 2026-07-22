@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import 'dotenv/config';
 import { LocalPrivateObjectStorageService } from '../src/storage/local-private-object-storage.service';
+import 'dotenv/config';
 import { PrismaService } from './prisma.service';
 
 async function main() {

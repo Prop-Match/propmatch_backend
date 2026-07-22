@@ -1,24 +1,25 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { existsSync } from 'fs';
+import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import * as path from 'path';
 import { PrismaModule } from 'prisma/prisma.module';
+import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { LegalSupportModule } from './legal-support/legal-support.module';
+import { MessagesModule } from './messages/messages.module';
 import { OffersModule } from './offers/offers.module';
+import { PaymentsModule } from './payments/payments.module';
 import { PropertiesModule } from './properties/properties.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { RegionsModule } from './regions/regions.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
-import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
-import { AdminModule } from './admin/admin.module';
-import { MessagesModule } from './messages/messages.module';
-import { PaymentsModule } from './payments/payments.module';
-import { ReviewsModule } from './reviews/reviews.module';
-import { LegalSupportModule } from './legal-support/legal-support.module';
 
 /**
  * `nest build` nests compiled output under dist/src, so `../i18n/` resolves
@@ -58,6 +59,7 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
     PaymentsModule,
     ReviewsModule,
     LegalSupportModule,
+    RegionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

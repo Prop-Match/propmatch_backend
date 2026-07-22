@@ -96,7 +96,7 @@ export class PropertiesService {
 
     // Summary mapper omits all PII (phone/name/address) — only ownerVerified
     // is derived from the owner relation, so nothing sensitive is serialised.
-    const items = properties.map(transformPropertyToSummary);
+    const items = properties.map((p) => transformPropertyToSummary(p));
     return { items, total: items.length, page: 1, pageSize: items.length };
   }
 
@@ -134,7 +134,7 @@ export class PropertiesService {
       const items = orderedIds
         .map((id) => byId.get(id))
         .filter((property): property is NonNullable<typeof property> => Boolean(property))
-        .map(transformPropertyToSummary);
+        .map((p) => transformPropertyToSummary(p));
 
       return { items, total: items.length, page: 1, pageSize: query.limit };
     } catch (error) {
@@ -298,7 +298,7 @@ export class PropertiesService {
     ]);
 
     return {
-      items: properties.map(transformPropertyToSummary),
+      items: properties.map((p) => transformPropertyToSummary(p)),
       total,
     };
   }
@@ -318,7 +318,7 @@ export class PropertiesService {
     ]);
 
     return {
-      items: properties.map(transformPropertyToSummary),
+      items: properties.map((p) => transformPropertyToSummary(p)),
       total,
     };
   }

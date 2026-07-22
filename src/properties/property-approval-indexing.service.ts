@@ -4,6 +4,8 @@ import { ChromaPropertyService } from './chroma-property.service';
 import { PropertyEmbeddingService } from './property-embedding.service';
 import { PropertySearchDocumentBuilder } from './property-search-document.builder';
 
+import { I18nContext } from 'nestjs-i18n';
+
 @Injectable()
 export class PropertyApprovalIndexingService {
   private readonly logger = new Logger(PropertyApprovalIndexingService.name);
@@ -22,8 +24,8 @@ export class PropertyApprovalIndexingService {
         id: true,
         title: true,
         description: true,
-        governorate: true,
-        city: true,
+        governorate: { select: { nameAr: true, nameEn: true } },
+        city: { select: { nameAr: true, nameEn: true } },
         district: true,
         propertyType: true,
         propertyAroundServices: true,
@@ -40,7 +42,16 @@ export class PropertyApprovalIndexingService {
 
     if (!property || property.status !== 'APPROVED') return;
 
-    const { document, metadata } = this.documentBuilder.build(property);
+    const lang = I18nContext.current()?.lang ?? 'ar';
+    const isAr = lang.startsWith('ar');
+
+    const { document, metadata } = this.documentBuilder.build({
+      ...property,
+      governorate: isAr
+        ? property.governorate.nameAr
+        : property.governorate.nameEn,
+      city: isAr ? property.city.nameAr : property.city.nameEn,
+    });
     const embedding = await this.embeddingService.createEmbedding(document);
     await this.chromaService.upsert(
       `property:${property.id}`,

@@ -474,6 +474,18 @@ model City {
   nameEn        String      @map("name_en")
   status        Boolean     @default(true)
   properties    Property[]
+  districts     District[]
 
   @@map("city")
+}
+
+model District {
+  id     Int     @id @default(autoincrement())
+  cityId Int     @map("city_id")
+  city   City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  nameAr String  @map("name_ar")
+  nameEn String  @map("name_en")
+  status Boolean @default(false)
+
+  @@map("district")
 }

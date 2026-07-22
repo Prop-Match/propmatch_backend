@@ -95,18 +95,28 @@ function isOwnerVerified(owner: PropertyWithImages['owner']): boolean {
   return owner?.identityVerification?.status === 'APPROVED';
 }
 
+import { I18nContext } from 'nestjs-i18n';
+
 /**
  * Transform a Prisma Property (with images) to the frontend summary shape.
  * Used for list / card views — never carries masked PII fields.
  */
 export function transformPropertyToSummary(
   property: PropertyWithImages,
+  options?: { lang?: string },
 ): PropertySummaryResponse {
+  const currentLang = options?.lang ?? I18nContext.current()?.lang ?? 'ar';
+  const isAr = currentLang.startsWith('ar');
+
   return {
     id: property.id,
     title: property.title,
-    governorate: property.governorate?.nameEn ?? '',
-    city: property.city?.nameEn ?? '',
+    governorate: isAr
+      ? (property.governorate?.nameAr ?? property.governorate?.nameEn ?? '')
+      : (property.governorate?.nameEn ?? property.governorate?.nameAr ?? ''),
+    city: isAr
+      ? (property.city?.nameAr ?? property.city?.nameEn ?? '')
+      : (property.city?.nameEn ?? property.city?.nameAr ?? ''),
     district: property.district,
     propertyType: property.propertyType,
     rentAmount: property.rentAmount,
