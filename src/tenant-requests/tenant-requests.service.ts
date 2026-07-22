@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { CreateTenantRequestDto } from './dto/create-tenant-request.dto';
 import { transformTenantRequest } from './mappers/tenant-request.mapper';
 
@@ -7,7 +8,10 @@ import { transformTenantRequest } from './mappers/tenant-request.mapper';
 export class TenantRequestsService {
   private readonly logger = new Logger(TenantRequestsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtimeService: RealtimeService,
+  ) {}
 
   /**
    * Create a new tenant request (PRO-05).
@@ -31,6 +35,8 @@ export class TenantRequestsService {
         // status defaults to PENDING via Prisma schema
       },
     });
+
+    this.realtimeService.tenantRequestSubmitted(request);
 
     // New request has zero offers
     return transformTenantRequest(request);
