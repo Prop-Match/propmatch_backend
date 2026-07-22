@@ -9,27 +9,27 @@ export class FormOptimizerService {
         const original = typeof description === "string" ? description.trim() : "";
         const location = [context.district, context.city, context.governorate]
             .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-            .join("? ");
+            .join("، ");
         const details = [
-            typeof context.areaM2 === "number" ? `?????? ${context.areaM2} ??? ????` : "",
-            typeof context.bedrooms === "number" ? `???? ${context.bedrooms} ??? ???` : "",
-            typeof context.bathrooms === "number" ? `?${context.bathrooms} ??????` : "",
+            typeof context.areaM2 === "number" ? `بمساحة ${context.areaM2} متر مربع` : "",
+            typeof context.bedrooms === "number" ? `وتضم ${context.bedrooms} غرف نوم` : "",
+            typeof context.bathrooms === "number" ? `و${context.bathrooms} حمامات` : "",
         ].filter(Boolean).join(" ");
         const features = [
-            context.isFurnished === true ? "??????" : context.isFurnished === false ? "??? ??????" : "",
-            context.hasElevator === true ? "?? ????" : "",
-            context.hasParking === true ? "????? ??????" : "",
-        ].filter(Boolean).join("? ");
-        const rent = typeof context.rentAmount === "number" ? `???? ????? ???? ???? ${context.rentAmount} ????` : "";
+            context.isFurnished === true ? "مفروشة" : context.isFurnished === false ? "غير مفروشة" : "",
+            context.hasElevator === true ? "مع مصعد" : "",
+            context.hasParking === true ? "وموقف سيارات" : "",
+        ].filter(Boolean).join("، ");
+        const rent = typeof context.rentAmount === "number" ? `بسعر إيجار شهري قدره ${context.rentAmount} جنيه` : "";
 
         const opening = original
-            ? /[.!?]$/.test(original) ? original : `${original}.`
-            : "???? ???? ???????.";
+            ? /[.!؟]$/.test(original) ? original : `${original}.`
+            : "عقار متاح للإيجار.";
 
         return [
             opening,
-            location ? `??? ?????? ?? ${location}${details ? ` ${details}.` : "."}` : details ? `${details}.` : "",
-            [features, rent].filter(Boolean).join("? ") ? `?????? ${[features, rent].filter(Boolean).join("? ")}.` : "",
+            location ? `يقع العقار في ${location}${details ? ` ${details}.` : "."}` : details ? `${details}.` : "",
+            [features, rent].filter(Boolean).join("، ") ? `العقار ${[features, rent].filter(Boolean).join("، ")}.` : "",
         ].filter(Boolean).join(" ");
     }
 
