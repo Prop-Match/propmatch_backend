@@ -45,7 +45,7 @@ export class PaymentsService {
     await this.prismaService.paymentTransaction.create({
       data: {
         userId,
-        paymobOrderId: providerOrderId,
+        providerOrderId: providerOrderId,
         amount: amount,
         paymentType: typedPaymentType,
         status: 'PENDING',
@@ -75,7 +75,7 @@ export class PaymentsService {
     if ((!userId || !paymentType) && result.providerOrderId) {
       const transaction =
         await this.prismaService.paymentTransaction.findUnique({
-          where: { paymobOrderId: result.providerOrderId },
+          where: { providerOrderId: result.providerOrderId },
         });
       if (transaction) {
         userId = transaction.userId;
@@ -147,7 +147,7 @@ export class PaymentsService {
     providerOrderId?: string,
   ): Promise<void> {
     const existing = await this.prismaService.paymentTransaction.findFirst({
-      where: { paymobTransactionId: transactionId },
+      where: { providerTransactionId: transactionId },
     });
     if (existing) {
       return;
@@ -156,10 +156,10 @@ export class PaymentsService {
     await this.prismaService.$transaction(async (tx) => {
       if (providerOrderId) {
         await tx.paymentTransaction.update({
-          where: { paymobOrderId: providerOrderId },
+          where: { providerOrderId: providerOrderId },
           data: {
             status: 'SUCCESS',
-            paymobTransactionId: transactionId,
+            providerTransactionId: transactionId,
             paidAt: new Date(),
           },
         });
@@ -168,7 +168,7 @@ export class PaymentsService {
           where: { userId, status: 'PENDING' },
           data: {
             status: 'SUCCESS',
-            paymobTransactionId: transactionId,
+            providerTransactionId: transactionId,
             paidAt: new Date(),
           },
         });
@@ -228,10 +228,10 @@ export class PaymentsService {
     for (const transaction of pendingTransactions) {
       // Ask the gateway (Paymob, Stripe, etc.) to double-check the real status
       const { isSuccessful, transactionId } =
-        await this.gatway.checkTransactionStatus(transaction.paymobOrderId);
+        await this.gatway.checkTransactionStatus(transaction.providerOrderId);
       if (isSuccessful && transactionId) {
         this.logger.log(
-          `Reconciliation found missed successful payment for Order: ${transaction.paymobOrderId}`,
+          `Reconciliation found missed successful payment for Order: ${transaction.providerOrderId}`,
         );
         await this.processSuccessfulPayment(
           transaction.userId,

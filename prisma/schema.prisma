@@ -56,6 +56,10 @@ enum PaymentStatus {
   FAILED
 }
 
+enum PaymentProvider {
+  PAYMOB
+}
+
 enum NotificationType {
   EKYC_APPROVED
   PROPERTY_APPROVED
@@ -340,17 +344,18 @@ model Message {
 }
 
 model PaymentTransaction {
-  id                  String        @id @default(uuid()) @db.Uuid
-  userId              String        @map("user_id") @db.Uuid
-  user                User          @relation(fields: [userId], references: [id])
-  paymobOrderId       String        @unique @map("paymob_order_id")
-  paymobTransactionId String?       @map("paymob_transaction_id")
-  amount              Float
-  currency            String        @default("EGP")
-  paymentType         PaymentType   @map("payment_type")
-  status              PaymentStatus @default(PENDING)
-  paidAt              DateTime?     @map("paid_at")
-  createdAt           DateTime      @default(now()) @map("created_at")
+  id                    String          @id @default(uuid()) @db.Uuid
+  userId                String          @map("user_id") @db.Uuid
+  user                  User            @relation(fields: [userId], references: [id])
+  provider              PaymentProvider @default(PAYMOB)
+  providerOrderId       String          @unique @map("provider_order_id")
+  providerTransactionId String?         @map("provider_transaction_id")
+  amount                Float
+  currency              String          @default("EGP")
+  paymentType           PaymentType     @map("payment_type")
+  status                PaymentStatus   @default(PENDING)
+  paidAt                DateTime?       @map("paid_at")
+  createdAt             DateTime        @default(now()) @map("created_at")
 
   @@map("payment_transaction")
 }
