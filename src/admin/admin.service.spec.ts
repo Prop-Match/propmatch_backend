@@ -10,6 +10,7 @@ import { AdminService } from './admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
+import type { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
 
 describe('AdminService KYC review', () => {
   const findUnique = jest.fn();
@@ -21,6 +22,7 @@ describe('AdminService KYC review', () => {
     } as unknown as PrismaService,
     { notifyUser } as unknown as RealtimeService,
     {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
   );
 
   beforeEach(() => {
@@ -77,10 +79,23 @@ describe('AdminService property moderation', () => {
   const findUnique = jest.fn();
   const update = jest.fn();
   const notifyUser = jest.fn();
+  const indexApprovedProperty = jest.fn();
+  const logIndexingFailure = jest.fn();
   const service = new AdminService(
-    { property: { findUnique, update } } as unknown as PrismaService,
+    {
+      property: { findUnique, update },
+      $transaction: (
+        callback: (tx: {
+          property: { update: typeof update };
+        }) => Promise<unknown>,
+      ) => callback({ property: { update } }),
+    } as unknown as PrismaService,
     { notifyUser } as unknown as RealtimeService,
     {} as PrivateObjectStorage,
+    {
+      indexApprovedProperty,
+      logIndexingFailure,
+    } as unknown as PropertyApprovalIndexingService,
   );
 
   const property = {
@@ -122,6 +137,7 @@ describe('AdminService property moderation', () => {
     findUnique.mockResolvedValue(property);
     update.mockResolvedValue(property);
     notifyUser.mockResolvedValue({});
+    indexApprovedProperty.mockResolvedValue(undefined);
   });
 
   it('returns a safe, complete property review detail', async () => {
@@ -149,6 +165,7 @@ describe('AdminService property moderation', () => {
   });
 
   it('approves a pending property', async () => {
+    update.mockResolvedValueOnce({ ...property, status: 'APPROVED' });
     await expect(
       service.reviewProperty('admin-1', 'property-1', { decision: 'approve' }),
     ).resolves.toMatchObject({ status: 'APPROVED' });
@@ -157,6 +174,10 @@ describe('AdminService property moderation', () => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         data: expect.objectContaining({ status: 'APPROVED' }),
       }),
+    );
+    expect(indexApprovedProperty).toHaveBeenCalledWith('property-1');
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      indexApprovedProperty.mock.invocationCallOrder[0],
     );
   });
 
@@ -173,6 +194,7 @@ describe('AdminService property moderation', () => {
         data: expect.objectContaining({ status: 'REJECTED' }),
       }),
     );
+    expect(indexApprovedProperty).not.toHaveBeenCalled();
   });
 
   it('requires a reason to reject a property', async () => {
@@ -180,6 +202,7 @@ describe('AdminService property moderation', () => {
       service.reviewProperty('admin-1', 'property-1', { decision: 'reject' }),
     ).rejects.toThrow();
     expect(update).not.toHaveBeenCalled();
+    expect(indexApprovedProperty).not.toHaveBeenCalled();
   });
 
   it('does not review a property that has already been reviewed', async () => {
@@ -188,5 +211,31 @@ describe('AdminService property moderation', () => {
       service.reviewProperty('admin-1', 'property-1', { decision: 'approve' }),
     ).rejects.toThrow();
     expect(update).not.toHaveBeenCalled();
+    expect(indexApprovedProperty).not.toHaveBeenCalled();
+  });
+
+  it('keeps an approved property when indexing fails', async () => {
+    update.mockResolvedValueOnce({ ...property, status: 'APPROVED' });
+    indexApprovedProperty.mockRejectedValueOnce(new Error('provider failed'));
+
+    await expect(
+      service.reviewProperty('admin-1', 'property-1', { decision: 'approve' }),
+    ).resolves.toMatchObject({ status: 'APPROVED' });
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(logIndexingFailure).toHaveBeenCalledWith(
+      'property-1',
+      expect.any(Error),
+    );
+  });
+
+  it('does not index when the approval transaction fails', async () => {
+    update.mockRejectedValueOnce(new Error('database failure'));
+
+    await expect(
+      service.reviewProperty('admin-1', 'property-1', { decision: 'approve' }),
+    ).rejects.toThrow('database failure');
+
+    expect(indexApprovedProperty).not.toHaveBeenCalled();
   });
 });
