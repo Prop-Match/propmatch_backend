@@ -61,6 +61,34 @@ To initialize and sync the database in your local environment, follow these step
 $ npm install
 ```
 
+## Local semantic embeddings
+
+Property indexing and semantic search use SBG embeddings when the approved
+gateway model is available. If it is unavailable, use the local Python sidecar.
+The local fallback loads `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
+once on CPU and stores vectors in `propmatch_documents_local_v1`. Collections
+cannot be shared between embedding models because vector dimensions and semantic
+spaces differ.
+
+```bash
+cd local_embeddings_service
+python -m venv .venv
+.venv\\Scripts\\python -m pip install -r requirements.txt
+.venv\\Scripts\\python -m uvicorn app:app --env-file ..\\.env --host 127.0.0.1 --port 8001
+```
+
+Set these values in `backend/.env`:
+
+```env
+EMBEDDING_PROVIDER=local
+EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+CHROMA_PATH=./chroma_data
+CHROMA_COLLECTION=propmatch_documents_local_v1
+LOCAL_EMBEDDINGS_URL=http://127.0.0.1:8001
+```
+
+Verify the local flow with `python verify.py` from `local_embeddings_service`.
+
 ## Compile and run the project
 
 ```bash
