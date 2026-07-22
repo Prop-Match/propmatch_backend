@@ -1,8 +1,21 @@
 import { PaymentType } from '@generated/prisma/enums';
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from './../../prisma/prisma.service';
 import { PaymobService } from './providers/paymob.service';
+
+const PAYMENT_AMOUNTS: Record<PaymentType, number> = {
+  NEW_LISTING: 100,
+  BOOST_LISTING: 75,
+  REFILL_MATCHES: 30,
+  OFFER_PACK: 50,
+};
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -13,22 +26,39 @@ export class PaymentsService {
   async checkout(
     userId: string,
     paymentType: string,
-    amount: number,
-  ): Promise<{ checkoutUrl: string }> {
+  ): Promise<{
+    paymobOrderId: string;
+    amount: number;
+    currency: 'EGP';
+    paymentType: PaymentType;
+    iframeUrl: string;
+  }> {
+    const typedPaymentType = paymentType as PaymentType;
+    const amount = PAYMENT_AMOUNTS[typedPaymentType];
+    if (!amount) {
+      throw new BadRequestException('Unsupported payment type');
+    }
+
     const { checkoutUrl, providerOrderId } =
-      await this.gatway.generatePaymentUrl(userId, paymentType, amount);
+      await this.gatway.generatePaymentUrl(userId, typedPaymentType, amount);
 
     await this.prismaService.paymentTransaction.create({
       data: {
         userId,
         paymobOrderId: providerOrderId,
         amount: amount,
-        paymentType: paymentType as PaymentType,
+        paymentType: typedPaymentType,
         status: 'PENDING',
       },
     });
 
-    return { checkoutUrl };
+    return {
+      paymobOrderId: providerOrderId,
+      amount,
+      currency: 'EGP',
+      paymentType: typedPaymentType,
+      iframeUrl: checkoutUrl,
+    };
   }
   async handleWebhook(
     query: Record<string, string>,
@@ -62,6 +92,53 @@ export class PaymentsService {
       );
     }
     return { recieved: true };
+  }
+
+  async getTransaction(userId: string, paymobOrderId: string) {
+    const transaction = await this.prismaService.paymentTransaction.findFirst({
+      where: { userId, paymobOrderId },
+    });
+    if (!transaction) {
+      throw new NotFoundException('Payment transaction not found');
+    }
+    return transaction;
+  }
+
+  /**
+   * Return-page fallback for local development and a safety net for delayed
+   * webhooks. The entitlement is still awarded only after Paymob's server API
+   * confirms the order as successful.
+   */
+  async reconcileTransaction(userId: string, paymobOrderId: string) {
+    const transaction = await this.getTransaction(userId, paymobOrderId);
+    if (transaction.status === 'SUCCESS') {
+      return transaction;
+    }
+
+    const { isSuccessful, transactionId } =
+      await this.gatway.checkTransactionStatus(paymobOrderId);
+    if (isSuccessful && transactionId) {
+      await this.processSuccessfulPayment(
+        transaction.userId,
+        transaction.paymentType,
+        transactionId,
+        paymobOrderId,
+      );
+    }
+    return this.getTransaction(userId, paymobOrderId);
+  }
+
+  async reconcilePendingForUser(userId: string) {
+    const pendingTransactions =
+      await this.prismaService.paymentTransaction.findMany({
+        where: { userId, status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+      });
+    return Promise.all(
+      pendingTransactions.map((transaction) =>
+        this.reconcileTransaction(userId, transaction.paymobOrderId),
+      ),
+    );
   }
   private async processSuccessfulPayment(
     userId: string,
@@ -160,6 +237,7 @@ export class PaymentsService {
           transaction.userId,
           transaction.paymentType,
           transactionId,
+          transaction.paymobOrderId,
         );
       }
     }

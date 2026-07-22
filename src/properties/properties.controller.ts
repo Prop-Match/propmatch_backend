@@ -14,6 +14,7 @@ import { PropertiesService } from './properties.service';
 import { FormOptimizerService } from './services/FormOptimizer.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertySearchQueryDto } from './dto/property-search-query.dto';
+import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
@@ -55,6 +56,12 @@ export class PropertiesController {
     return this.propertiesService.getAll(query);
   }
 
+  /** Public semantic browse endpoint; PostgreSQL approval status remains authoritative. */
+  @Get('properties/search/semantic')
+  async semanticSearch(@Query() query: SemanticPropertySearchDto) {
+    return this.propertiesService.semanticSearch(query);
+  }
+
   @Get('landlord/properties')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('LANDLORD')
@@ -91,9 +98,14 @@ export class PropertiesController {
         complete: () => {
           res.end();
         },
-        error: (err) => {
-          res.status(500).json({ message: err.message });
-          res.end();
+        error: () => {
+          if (!res.headersSent) {
+            res.status(502).json({
+              message: 'Description optimization is temporarily unavailable.',
+            });
+          } else {
+            res.end();
+          }
         },
       });
     } catch (error: any) {
