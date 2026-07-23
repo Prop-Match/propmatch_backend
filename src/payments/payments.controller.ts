@@ -1,11 +1,11 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
-  Post,
-  Get,
   Param,
+  Post,
   Query,
   Req,
   UseGuards,
@@ -33,27 +33,30 @@ export class PaymentsController {
   /**
    * Lets the signed-in buyer refresh a transaction after returning from the
    * hosted checkout. The server, not the browser, verifies its state with
-   * Paymob before any entitlement can be granted.
+   * provider before any entitlement can be granted.
    */
-  @Post(':paymobOrderId/reconcile')
+  @Post(':providerOrderId/reconcile')
   @UseGuards(JwtAuthGuard)
   async reconcile(
     @Req() req: { user: { userId: string } },
-    @Param('paymobOrderId') paymobOrderId: string,
+    @Param('providerOrderId') providerOrderId: string,
   ) {
     return this.paymentsService.reconcileTransaction(
       req.user.userId,
-      paymobOrderId,
+      providerOrderId,
     );
   }
 
-  @Get(':paymobOrderId')
+  @Get(':providerOrderId')
   @UseGuards(JwtAuthGuard)
   async getTransaction(
     @Req() req: { user: { userId: string } },
-    @Param('paymobOrderId') paymobOrderId: string,
+    @Param('providerOrderId') providerOrderId: string,
   ) {
-    return this.paymentsService.getTransaction(req.user.userId, paymobOrderId);
+    return this.paymentsService.getTransaction(
+      req.user.userId,
+      providerOrderId,
+    );
   }
   @Post('webhook/paymob')
   @HttpCode(HttpStatus.OK)

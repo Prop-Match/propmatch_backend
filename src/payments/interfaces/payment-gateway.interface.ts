@@ -1,6 +1,7 @@
 export interface WebhookResult {
   isValid: boolean;
   success: boolean;
+  isFinal: boolean;
   transactionId: string;
   paymentType?: string;
   userId?: string;
