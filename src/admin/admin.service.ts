@@ -3,21 +3,22 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Inject } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { I18nContext } from 'nestjs-i18n';
+import { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
+import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
+import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
-import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
-import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
-import { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
+import { AdminStats } from './interfaces/admin-stats.interface';
 
 const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
 
@@ -704,6 +705,130 @@ export class AdminService {
       disabled: !admin.isActive,
       lastLoginAt: admin.lastLoginAt?.toISOString() || null,
       createdAt: admin.createdAt.toISOString(),
+    };
+  }
+
+  async getStats(): Promise<AdminStats> {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+
+    // 1. Execute all database queries concurrently in a single Promise.all
+    const [
+      revenueAggregate,
+      activeListingsCount,
+      pendingCounts,
+      approvedCounts,
+      rejectedCounts,
+      recentTransactions,
+    ] = await Promise.all([
+      // DB-native aggregate for total revenue & transaction count
+      this.prismaService.paymentTransaction.aggregate({
+        where: { status: 'SUCCESS' },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+
+      // Active listings count
+      this.prismaService.property.count({
+        where: { status: 'APPROVED' },
+      }),
+
+      // Pending moderations (Property, Verification, Request, Review)
+      Promise.all([
+        this.prismaService.property.count({ where: { status: 'PENDING' } }),
+        this.prismaService.identityVerification.count({
+          where: { status: 'PENDING' },
+        }),
+        this.prismaService.tenantRequest.count({
+          where: { status: 'PENDING' },
+        }),
+        this.prismaService.propertyReview.count({
+          where: { status: 'PENDING' },
+        }),
+      ]),
+
+      // Approved moderations
+      Promise.all([
+        this.prismaService.property.count({ where: { status: 'APPROVED' } }),
+        this.prismaService.identityVerification.count({
+          where: { status: 'APPROVED' },
+        }),
+        this.prismaService.tenantRequest.count({
+          where: { status: 'APPROVED' },
+        }),
+        this.prismaService.propertyReview.count({
+          where: { status: 'APPROVED' },
+        }),
+      ]),
+
+      // Rejected moderations
+      Promise.all([
+        this.prismaService.property.count({ where: { status: 'REJECTED' } }),
+        this.prismaService.identityVerification.count({
+          where: { status: 'REJECTED' },
+        }),
+        this.prismaService.tenantRequest.count({
+          where: { status: 'REJECTED' },
+        }),
+        this.prismaService.propertyReview.count({
+          where: { status: 'REJECTED' },
+        }),
+      ]),
+
+      // Transactions over the last 12 months for monthly chart
+      this.prismaService.paymentTransaction.findMany({
+        where: {
+          status: 'SUCCESS',
+          createdAt: { gte: twelveMonthsAgo },
+        },
+        select: {
+          amount: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    // 2. Sum moderation totals
+    const pendingModeration = pendingCounts.reduce(
+      (sum, count) => sum + count,
+      0,
+    );
+    const totalApproved = approvedCounts.reduce((sum, count) => sum + count, 0);
+    const totalRejected = rejectedCounts.reduce((sum, count) => sum + count, 0);
+
+    // 3. Group transactions cleanly by month using Intl.DateTimeFormat
+    const monthlyMap = new Map<
+      string,
+      { month: string; revenue: number; transactions: number }
+    >();
+    const monthFormatter = new Intl.DateTimeFormat('ar-EG', { month: 'long' });
+
+    for (const t of recentTransactions) {
+      const monthName = monthFormatter.format(t.createdAt);
+      const existing = monthlyMap.get(monthName) ?? {
+        month: monthName,
+        revenue: 0,
+        transactions: 0,
+      };
+      existing.revenue += t.amount;
+      existing.transactions += 1;
+      monthlyMap.set(monthName, existing);
+    }
+
+    return {
+      summary: {
+        totalRevenue: revenueAggregate._sum.amount ?? 0,
+        totalTransactions: revenueAggregate._count._all,
+        activeListings: activeListingsCount,
+        pendingModeration,
+      },
+      monthlyRevenue: Array.from(monthlyMap.values()),
+      moderationDistribution: [
+        { label: 'تمت الموافقة', value: totalApproved },
+        { label: 'قيد المراجعة', value: pendingModeration },
+        { label: 'تم الرفض', value: totalRejected },
+      ],
     };
   }
 }
