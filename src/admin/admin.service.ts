@@ -308,8 +308,8 @@ export class AdminService {
         id: true,
         title: true,
         description: true,
-        governorate: true,
-        city: true,
+        governorate: { select: { nameAr: true, nameEn: true } },
+        city: { select: { nameAr: true, nameEn: true } },
         district: true,
         manualAddress: true,
         propertyType: true,
@@ -347,9 +347,17 @@ export class AdminService {
       );
     }
 
-    const { propertyImages, owner, ...detail } = property;
+    const { propertyImages, owner, governorate, city, ...detail } = property;
+    const lang = I18nContext.current()?.lang ?? 'ar';
+    const isAr = lang.startsWith('ar');
     return {
       ...detail,
+      governorate: isAr
+        ? (governorate?.nameAr ?? governorate?.nameEn ?? '')
+        : (governorate?.nameEn ?? governorate?.nameAr ?? ''),
+      city: isAr
+        ? (city?.nameAr ?? city?.nameEn ?? '')
+        : (city?.nameEn ?? city?.nameAr ?? ''),
       images: propertyImages,
       ownerName: owner.fullName,
       ownerVerificationStatus:
