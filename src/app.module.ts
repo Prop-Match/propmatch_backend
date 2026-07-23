@@ -17,6 +17,7 @@ import { PropertiesModule } from './properties/properties.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RegionsModule } from './regions/regions.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { SupportModule } from './support/support.module';
 import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
@@ -60,6 +61,7 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
     ReviewsModule,
     LegalSupportModule,
     RegionsModule,
+    SupportModule,
   ],
   controllers: [AppController],
   providers: [AppService],

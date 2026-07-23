@@ -92,6 +92,26 @@ enum PartnerServiceType {
   INSURANCE
 }
 
+/**
+ * Lifecycle: NEW → ASSIGNED → IN_PROGRESS → WAITING → CLOSED (frontend TicketStatusSchema).
+ */
+enum TicketStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  WAITING
+  CLOSED
+}
+
+/**
+ * Who authored a support message (frontend SupportAuthorSchema).
+ */
+enum SupportAuthor {
+  AI
+  USER
+  ADMIN
+}
+
 enum PartnerLeadStatus {
   PENDING
   SENT
@@ -145,6 +165,11 @@ model User {
   // Admin activity (team page)
   loginAttempts   LoginAttempt[]
   auditLogEntries AdminAuditLogEntry[]
+
+  // Customer support tickets (AI handoff → human admin)
+  supportTickets         SupportTicket[]  @relation("TicketOwner")
+  assignedSupportTickets SupportTicket[]  @relation("TicketAssignee")
+  supportMessages        SupportMessage[] @relation("SupportMessageAuthor")
 
   @@map("user")
 }
@@ -488,4 +513,48 @@ model District {
   status Boolean @default(false)
 
   @@map("district")
+}
+
+/**
+ * Human-support ticket, created by the external legal-support AI service via
+ * `transfer_to_human_support(user_id, chat_summary)` when it declines an
+ * off-topic question or the user explicitly asks for a human. Has no ERD
+ * entity / PRO ticket — modeled from the frontend's existing contract
+ * (src/lib/api/contracts/support.ts) since that's the only agreed shape.
+ */
+model SupportTicket {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  user            User             @relation("TicketOwner", fields: [userId], references: [id])
+  subject         String
+  status          TicketStatus     @default(NEW)
+  assignedAdminId String?          @map("assigned_admin_id") @db.Uuid
+  assignedAdmin   User?            @relation("TicketAssignee", fields: [assignedAdminId], references: [id])
+  createdAt       DateTime         @default(now()) @map("created_at")
+  lastMessageAt   DateTime         @map("last_message_at")
+  messages        SupportMessage[]
+
+  @@index([status, lastMessageAt])
+  @@map("support_ticket")
+}
+
+model SupportMessage {
+  id         String        @id @default(uuid()) @db.Uuid
+  ticketId   String        @map("ticket_id") @db.Uuid
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author     SupportAuthor
+  /**
+   * Set only when author = ADMIN — which admin wrote this reply.
+   */
+  authorId   String?       @map("author_id") @db.Uuid
+  authorUser User?         @relation("SupportMessageAuthor", fields: [authorId], references: [id])
+  content    String        @db.Text
+  /**
+   * Internal admin notes are never sent to the customer (mocks/router.ts parity).
+   */
+  internal   Boolean       @default(false)
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@map("support_message")
 }
