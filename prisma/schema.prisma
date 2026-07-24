@@ -146,6 +146,11 @@ model User {
   loginAttempts   LoginAttempt[]
   auditLogEntries AdminAuditLogEntry[]
 
+  // Customer support
+  supportTickets  SupportTicket[]  @relation("UserTickets")
+  assignedTickets SupportTicket[]  @relation("AdminAssignedTickets")
+  supportMessages SupportMessage[]
+
   @@map("user")
 }
 
@@ -488,4 +493,63 @@ model District {
   status Boolean @default(false)
 
   @@map("district")
+}
+
+enum TicketStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  WAITING
+  CLOSED
+}
+
+enum SupportAuthor {
+  AI
+  USER
+  ADMIN
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+model SupportTicket {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @map("user_id") @db.Uuid
+  user             User             @relation("UserTickets", fields: [userId], references: [id])
+  status           TicketStatus     @default(NEW)
+  assignedAdminId  String?          @map("assigned_admin_id") @db.Uuid
+  assignedAdmin    User?            @relation("AdminAssignedTickets", fields: [assignedAdminId], references: [id])
+  messages         SupportMessage[]
+  lastMessageAt    DateTime         @default(now()) @map("last_message_at")
+  escalationReason String?          @map("escalation_reason") @db.Text
+  priority         SupportPriority  @default(NORMAL)
+  aiSummary        String?          @map("ai_summary") @db.Text
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@index([userId, updatedAt])
+  @@index([assignedAdminId, status])
+  @@index([status, lastMessageAt])
+  @@map("support_ticket")
+}
+
+model SupportMessage {
+  id         String        @id @default(uuid()) @db.Uuid
+  ticketId   String        @map("ticket_id") @db.Uuid
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorType SupportAuthor
+  authorName String        @map("author_name")
+  authorId   String?       @map("author_id") @db.Uuid
+  author     User?         @relation(fields: [authorId], references: [id])
+  content    String
+  internal   Boolean       @default(false)
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@map("support_message")
 }

@@ -16,8 +16,9 @@ describe('PropertiesService.search', () => {
       {
         id: 'property-b',
         title: 'Safe listing',
-        governorate: 'Cairo',
-        city: 'Cairo',
+        governorate: { nameAr: 'القاهرة', nameEn: 'Cairo' },
+        city: { nameAr: 'القاهرة', nameEn: 'Cairo' },
+        country: { nameAr: 'مصر', nameEn: 'Egypt' },
         district: 'Maadi',
         propertyType: 'APARTMENT',
         rentAmount: 12000,
@@ -47,7 +48,11 @@ describe('PropertiesService.search', () => {
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { status: 'APPROVED', city: 'Cairo', bedrooms: { gte: 2 } },
+        where: {
+          status: 'APPROVED',
+          city: { nameEn: { equals: 'Cairo', mode: 'insensitive' } },
+          bedrooms: { gte: 2 },
+        },
         orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
     );

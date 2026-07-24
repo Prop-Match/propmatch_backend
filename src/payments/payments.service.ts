@@ -27,11 +27,11 @@ export class PaymentsService {
     userId: string,
     paymentType: string,
   ): Promise<{
-    paymobOrderId: string;
+    providerOrderId: string;
     amount: number;
     currency: 'EGP';
     paymentType: PaymentType;
-    iframeUrl: string;
+    checkoutUrl: string;
   }> {
     const typedPaymentType = paymentType as PaymentType;
     const amount = PAYMENT_AMOUNTS[typedPaymentType];
@@ -53,11 +53,11 @@ export class PaymentsService {
     });
 
     return {
-      paymobOrderId: providerOrderId,
+      providerOrderId: providerOrderId,
       amount,
       currency: 'EGP',
       paymentType: typedPaymentType,
-      iframeUrl: checkoutUrl,
+      checkoutUrl: checkoutUrl,
     };
   }
   async handleWebhook(
@@ -90,6 +90,14 @@ export class PaymentsService {
         result.transactionId,
         result.providerOrderId,
       );
+    } else if (result.isFinal && result.providerOrderId) {
+      await this.prismaService.paymentTransaction.updateMany({
+        where: { providerOrderId: result.providerOrderId, status: 'PENDING' },
+        data: {
+          status: 'FAILED',
+          providerTransactionId: result.transactionId,
+        },
+      });
     }
     return { recieved: true };
   }
@@ -106,26 +114,26 @@ export class PaymentsService {
 
   /**
    * Return-page fallback for local development and a safety net for delayed
-   * webhooks. The entitlement is still awarded only after Paymob's server API
+   * webhooks. The entitlement is still awarded only after Provider's server API
    * confirms the order as successful.
    */
-  async reconcileTransaction(userId: string, paymobOrderId: string) {
-    const transaction = await this.getTransaction(userId, paymobOrderId);
+  async reconcileTransaction(userId: string, providerOrderId: string) {
+    const transaction = await this.getTransaction(userId, providerOrderId);
     if (transaction.status === 'SUCCESS') {
       return transaction;
     }
 
     const { isSuccessful, transactionId } =
-      await this.gatway.checkTransactionStatus(paymobOrderId);
+      await this.gatway.checkTransactionStatus(providerOrderId);
     if (isSuccessful && transactionId) {
       await this.processSuccessfulPayment(
         transaction.userId,
         transaction.paymentType,
         transactionId,
-        paymobOrderId,
+        providerOrderId,
       );
     }
-    return this.getTransaction(userId, paymobOrderId);
+    return this.getTransaction(userId, providerOrderId);
   }
 
   async reconcilePendingForUser(userId: string) {

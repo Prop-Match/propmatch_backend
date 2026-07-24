@@ -20,8 +20,8 @@ describe('PropertyApprovalIndexingService', () => {
     status: 'APPROVED',
     title: 'Apartment',
     description: 'Sunny home',
-    governorate: 'Cairo',
-    city: 'Cairo',
+    governorate: { nameAr: 'القاهرة', nameEn: 'Cairo' },
+    city: { nameAr: 'القاهرة', nameEn: 'Cairo' },
     district: 'Maadi',
     propertyType: 'APARTMENT',
     propertyAroundServices: 'Metro',
@@ -53,7 +53,11 @@ describe('PropertyApprovalIndexingService', () => {
         where: { id: 'property-1' },
       }),
     );
-    expect(build).toHaveBeenCalledWith(property);
+    expect(build).toHaveBeenCalledWith({
+      ...property,
+      governorate: property.governorate.nameAr,
+      city: property.city.nameAr,
+    });
     expect(createEmbedding).toHaveBeenCalledWith('safe document');
     expect(upsert).toHaveBeenCalledWith(
       'property:property-1',
