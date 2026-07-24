@@ -22,6 +22,7 @@ import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
 import { CustomerSupportModule } from './customer-support/customer-support.module';
 import { QuotaModule } from './quota/quota.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 /**
  * `nest build` nests compiled output under dist/src, so `../i18n/` resolves
@@ -66,6 +67,7 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
     RegionsModule,
     CustomerSupportModule,
     QuotaModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
