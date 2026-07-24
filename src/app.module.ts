@@ -20,6 +20,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
+import { QuotaModule } from './quota/quota.module';
 
 /**
  * `nest build` nests compiled output under dist/src, so `../i18n/` resolves
@@ -35,7 +36,9 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.development', '.env.production'],
+      // `.env` last so a single `.env` file works for the whole team (the
+      // Prisma CLI reads `.env` too). `.env.development` still wins if present.
+      envFilePath: ['.env.development', '.env.production', '.env'],
     }),
     ScheduleModule.forRoot(),
     UsersModule,
@@ -60,6 +63,7 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
     ReviewsModule,
     LegalSupportModule,
     RegionsModule,
+    QuotaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

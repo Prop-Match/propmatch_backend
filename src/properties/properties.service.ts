@@ -272,7 +272,8 @@ export class PropertiesService {
       status: 'APPROVED',
       ...(query.city ? { city: { nameEn: { equals: query.city, mode: 'insensitive' as const } } } : {}),
       ...(query.propertyType ? { propertyType: query.propertyType } : {}),
-      ...(query.bedrooms !== undefined ? { bedrooms: query.bedrooms } : {}),
+      // Frontend sends bedrooms as "N+" (a minimum), so match >= N, not exact.
+      ...(query.bedrooms !== undefined ? { bedrooms: { gte: query.bedrooms } } : {}),
       ...(query.isFurnished !== undefined
         ? { isFurnished: query.isFurnished }
         : {}),
@@ -284,8 +285,22 @@ export class PropertiesService {
             },
           }
         : {}),
+      // Free-text `q` searches across the fields a tenant would expect, not
+      // just the title (matches the frontend hybrid-search contract).
       ...(query.q
-        ? { title: { contains: query.q, mode: 'insensitive' as const } }
+        ? {
+            OR: [
+              { title: { contains: query.q, mode: 'insensitive' as const } },
+              { description: { contains: query.q, mode: 'insensitive' as const } },
+              { district: { contains: query.q, mode: 'insensitive' as const } },
+              {
+                propertyAroundServices: {
+                  contains: query.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ],
+          }
         : {}),
     };
 
@@ -293,6 +308,8 @@ export class PropertiesService {
       this.prisma.property.findMany({
         where,
         include: PropertiesService.DETAIL_INCLUDE,
+        // Boosted listings first (PRO-14 monetization), then newest.
+        orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }],
       }),
       this.prisma.property.count({ where }),
     ]);

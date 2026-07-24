@@ -12,6 +12,7 @@ import {
 import { Response } from 'express';
 import { PropertiesService } from './properties.service';
 import { FormOptimizerService } from './services/FormOptimizer.service';
+import { QuotaService } from '../quota/quota.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
@@ -25,6 +26,7 @@ export class PropertiesController {
   constructor(
     private readonly propertiesService: PropertiesService,
     private readonly formOptimizerService: FormOptimizerService,
+    private readonly quotaService: QuotaService,
   ) {}
 
   /**
@@ -82,9 +84,16 @@ export class PropertiesController {
   @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
   @Roles('LANDLORD')
   async optimizeDescriptionStream(
+    @Request() req: { user: { userId: string } },
     @Body() body: any,
     @Res() res,
   ) {
+    // PRO-18: spend one optimizer use BEFORE opening the stream. If the quota
+    // is gone this throws QUOTA_EXHAUSTED → Nest returns a JSON 403 (the stream
+    // has not started), which the frontend turns into the REFILL_MATCHES
+    // paywall. Once SSE is committed a 403 would be impossible.
+    await this.quotaService.consumeOptimizer(req.user.userId);
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
