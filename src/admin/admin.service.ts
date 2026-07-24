@@ -204,14 +204,27 @@ export class AdminService {
       },
     });
     await this.audit(adminId, `kyc:${reviewDecisionDto.decision}`, userId);
-    // There is no correction-required notification type yet. Do not label a
-    // resubmission request as an approval; the persisted verification state is
-    // the source of truth until a suitable notification type is introduced.
     if (isApproved) {
       await this.realtimeService.notifyUser(userId, {
         type: NotificationType.EKYC_APPROVED,
-        title: I18nContext.current()?.t('admin.TITLE_KYC_APPROVED') || '',
-        message: I18nContext.current()?.t('admin.MSG_KYC_APPROVED') || '',
+        title:
+          I18nContext.current()?.t('admin.TITLE_KYC_APPROVED') ||
+          'تم قبول توثيق الهوية',
+        message:
+          I18nContext.current()?.t('admin.MSG_KYC_APPROVED') ||
+          'تمت الموافقة على توثيق هويتك بنجاح.',
+        link: '/profile',
+      });
+    } else {
+      await this.realtimeService.notifyUser(userId, {
+        type: NotificationType.EKYC_APPROVED,
+        title:
+          I18nContext.current()?.t('admin.TITLE_KYC_REJECTED') ||
+          'تم رفض توثيق الهوية',
+        message:
+          I18nContext.current()?.t('admin.MSG_KYC_REJECTED', {
+            args: { reason: reviewDecisionDto.reason ?? 'يرجى إعادة التقديم' },
+          }) || `تم رفض توثيق هويتك. السبب: ${reviewDecisionDto.reason ?? ''}`,
         link: '/profile',
       });
     }
@@ -282,14 +295,17 @@ export class AdminService {
           isApproved
             ? 'admin.TITLE_PROPERTY_APPROVED'
             : 'admin.TITLE_PROPERTY_REJECTED',
-        ) || '',
+        ) || (isApproved ? 'تم قبول عقارك الجديد' : 'تم رفض إعلان العقار'),
       message:
         I18nContext.current()?.t(
           isApproved
             ? 'admin.MSG_PROPERTY_APPROVED'
             : 'admin.MSG_PROPERTY_REJECTED',
           { args: { title: property.title, reason: reviewDecisionDto.reason } },
-        ) || '',
+        ) ||
+        (isApproved
+          ? `تمت الموافقة على نشر عقارك "${property.title}" وهو متاح للمستأجرين الآن.`
+          : `لم نتمكن من الموافقة على عقارك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: `/landlord/properties/${property.id}`,
     });
     return {
@@ -410,14 +426,17 @@ export class AdminService {
           isApproved
             ? 'admin.TITLE_REQUEST_APPROVED'
             : 'admin.TITLE_REQUEST_REJECTED',
-        ) || '',
+        ) || (isApproved ? 'تم قبول طلبك' : 'تم رفض طلبك'),
       message:
         I18nContext.current()?.t(
           isApproved
             ? 'admin.MSG_REQUEST_APPROVED'
             : 'admin.MSG_REQUEST_REJECTED',
           { args: { reason: reviewDecisionDto.reason } },
-        ) || '',
+        ) ||
+        (isApproved
+          ? 'تمت الموافقة على طلبك بنجاح.'
+          : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: '/tenant/requests',
     });
     return {
@@ -508,14 +527,17 @@ export class AdminService {
           isApproved
             ? 'admin.TITLE_REVIEW_APPROVED'
             : 'admin.TITLE_REVIEW_REJECTED',
-        ) || '',
+        ) || (isApproved ? 'تم قبول ونشر تقييمك' : 'تم رفض نشر تقييمك'),
       message:
         I18nContext.current()?.t(
           isApproved
             ? 'admin.MSG_REVIEW_APPROVED'
             : 'admin.MSG_REVIEW_REJECTED',
           { args: { reason: reviewDecisionDto.reason } },
-        ) || '',
+        ) ||
+        (isApproved
+          ? 'تمت الموافقة على تقييمك وهو منشور الآن.'
+          : `تم رفض تقييمك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: `/properties/${userReview.propertyId}`,
     });
     return {
