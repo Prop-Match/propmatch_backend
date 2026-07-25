@@ -40,9 +40,15 @@ flowchart LR
 - **Request DTO:** `SemanticPropertySearchDto` (`query`: required trimmed
   string, 2–300 characters; `limit`: optional integer, default 10, 1–20).
   Example: `?query=near+university&limit=10`.
-- **Response:** `{ items, total, page: 1, pageSize }`, where `items` are
-  `PropertySummaryResponse` values. The response deliberately does **not**
-  expose vector distance or a semantic score.
+- **Response:** `{ items, total, resultCount, page: 1, pageSize, reason? }`, where `items` are
+  `PropertySummaryResponse` values extended with rounded `semanticSimilarity`
+  (four decimal places; cosine range -1 to 1). `resultCount` always equals the
+  number of returned items and remains consistent with `total`. A successful
+  empty semantic search—whether Chroma returned no candidates, all candidates
+  were below threshold, or approved-record hydration removed them—returns
+  `reason: "NO_RELEVANT_SEMANTIC_MATCH"`. The response deliberately does
+  **not** expose raw vector distance, embeddings, threshold, or collection
+  details.
 - **Failure behaviour:** unavailable embedding/vector dependencies produce
   HTTP 503 with `SEMANTIC_SEARCH_UNAVAILABLE`; an empty Chroma result is a
   successful empty response.

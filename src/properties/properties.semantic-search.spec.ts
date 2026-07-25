@@ -43,12 +43,18 @@ describe('PropertiesService.semanticSearch', () => {
     expect(query).toHaveBeenCalledWith({ embedding: [0.1, 0.2], limit: 5 });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['b', 'a'] }, status: 'APPROVED' } }));
     expect(result.items.map((item) => item.id)).toEqual(['b', 'a']);
+    expect(result.items.map((item) => item.semanticSimilarity)).toEqual([0.9, 0.8]);
+    expect(result.resultCount).toBe(result.items.length);
+    expect(result.total).toBe(result.resultCount);
     expect(result.items[0]).not.toHaveProperty('ownerId');
   });
 
   it('returns a successful empty list when Chroma has no matches', async () => {
     query.mockResolvedValue([]);
-    await expect(createService().semanticSearch({ query: 'nowhere', limit: 10 })).resolves.toEqual({ items: [], total: 0, page: 1, pageSize: 10 });
+    await expect(createService().semanticSearch({ query: 'nowhere', limit: 10 })).resolves.toEqual({
+      items: [], total: 0, resultCount: 0, page: 1, pageSize: 10,
+      reason: 'NO_RELEVANT_SEMANTIC_MATCH',
+    });
     expect(findMany).not.toHaveBeenCalled();
   });
 
@@ -78,7 +84,11 @@ describe('PropertiesService.semanticSearch', () => {
       where: { id: { in: ['above', 'equal'] }, status: 'APPROVED' },
     }));
     expect(result.items.map((item) => item.id)).toEqual(['above', 'equal']);
+    expect(result.items.map((item) => item.semanticSimilarity)).toEqual([0.8, 0.65]);
+    expect(result.resultCount).toBe(2);
+    expect(result.total).toBe(result.resultCount);
     expect(result).not.toHaveProperty('distance');
+    expect(JSON.stringify(result)).not.toContain('embedding');
   });
 
   it('returns a successful empty list when every candidate is below the threshold', async () => {
@@ -89,7 +99,28 @@ describe('PropertiesService.semanticSearch', () => {
     await expect(createService(0.65).semanticSearch({
       query: 'near university',
       limit: 5,
-    })).resolves.toEqual({ items: [], total: 0, page: 1, pageSize: 5 });
+    })).resolves.toEqual({
+      items: [], total: 0, resultCount: 0, page: 1, pageSize: 5,
+      reason: 'NO_RELEVANT_SEMANTIC_MATCH',
+    });
     expect(findMany).not.toHaveBeenCalled();
+  });
+
+  it('removes unapproved hydrated properties and reports a semantic no-match', async () => {
+    query.mockResolvedValue([
+      { vectorId: 'property:unapproved', propertyId: 'unapproved', distance: 0.2 },
+    ]);
+    findMany.mockResolvedValue([]);
+
+    await expect(createService().semanticSearch({
+      query: 'near university',
+      limit: 5,
+    })).resolves.toEqual({
+      items: [], total: 0, resultCount: 0, page: 1, pageSize: 5,
+      reason: 'NO_RELEVANT_SEMANTIC_MATCH',
+    });
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['unapproved'] }, status: 'APPROVED' },
+    }));
   });
 });
