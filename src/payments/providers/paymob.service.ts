@@ -108,7 +108,7 @@ export class PaymobService implements IPaymentGateway {
   ): WebhookResult {
     const obj = body?.obj as PaymobWebhookTransaction | undefined;
     if (!obj) {
-      return { success: false, isValid: false, transactionId: '' };
+      return { success: false, isFinal: false, isValid: false, transactionId: '' };
     }
     const fields = [
       obj.amount_cents,
@@ -149,12 +149,13 @@ export class PaymobService implements IPaymentGateway {
       this.logger.error(`String hashed: "${hmacString}"`);
       this.logger.error(`Computed HMAC:  ${computed}`);
       this.logger.error(`Received HMAC:  ${receivedHmac}`);
-      return { isValid: false, success: false, transactionId: '' };
+      return { isValid: false, success: false, isFinal: false, transactionId: '' };
     }
     const extras = obj.payment_key_claims?.extra || obj.order?.data;
     return {
       isValid: true,
       success: obj.success === true && obj.pending === false,
+      isFinal: obj.pending === false,
       transactionId: String(obj.id),
       providerOrderId: String(obj.order?.id),
       paymentType: extras?.paymentType,

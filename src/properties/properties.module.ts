@@ -7,6 +7,7 @@ import { PropertySearchDocumentBuilder } from './property-search-document.builde
 import { PropertyEmbeddingService } from './property-embedding.service';
 import { ChromaPropertyService } from './chroma-property.service';
 import { PropertyApprovalIndexingService } from './property-approval-indexing.service';
+import { SemanticMatchingConfig } from '../config/semantic-matching.config';
 
 @Module({
   imports: [CommonModule],
@@ -18,6 +19,7 @@ import { PropertyApprovalIndexingService } from './property-approval-indexing.se
     PropertyEmbeddingService,
     ChromaPropertyService,
     PropertyApprovalIndexingService,
+    SemanticMatchingConfig,
   ],
   exports: [PropertyApprovalIndexingService],
 })

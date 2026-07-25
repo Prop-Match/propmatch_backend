@@ -12,6 +12,14 @@ import { SearchPropertiesDto } from './dto/search-properties.dto';
 import { ChromaPropertyService } from './chroma-property.service';
 import { PropertyEmbeddingService } from './property-embedding.service';
 import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
+import {
+  DEFAULT_SEMANTIC_MIN_SIMILARITY,
+  SemanticMatchingConfig,
+} from '../config/semantic-matching.config';
+import {
+  SemanticPropertySearchItem,
+  SemanticPropertySearchResponse,
+} from './dto/semantic-property-search-response.dto';
 
 @Injectable()
 export class PropertiesService {
@@ -22,6 +30,7 @@ export class PropertiesService {
     private readonly realtimeService: RealtimeService,
     private readonly embeddingService?: PropertyEmbeddingService,
     private readonly chromaService?: ChromaPropertyService,
+    private readonly semanticMatchingConfig?: SemanticMatchingConfig,
   ) {}
 
   private static readonly DETAIL_INCLUDE = {
@@ -100,7 +109,9 @@ export class PropertiesService {
     return { items, total: items.length, page: 1, pageSize: items.length };
   }
 
-  async semanticSearch(query: SemanticPropertySearchDto) {
+  async semanticSearch(
+    query: SemanticPropertySearchDto,
+  ): Promise<SemanticPropertySearchResponse> {
     try {
       if (!this.embeddingService || !this.chromaService) {
         throw new Error('semantic search dependencies unavailable');
@@ -110,33 +121,66 @@ export class PropertiesService {
         embedding,
         limit: query.limit,
       });
-      const orderedIds = [
-        ...new Set(
-          matches
-            .filter(
-              (match) =>
-                typeof match.propertyId === 'string' &&
-                match.propertyId.length > 0 &&
-                match.vectorId === `property:${match.propertyId}`,
-            )
-            .map((match) => match.propertyId),
-        ),
-      ];
-      if (orderedIds.length === 0) {
-        return { items: [], total: 0, page: 1, pageSize: query.limit };
+      const minSimilarity =
+        this.semanticMatchingConfig?.minSimilarity ??
+        DEFAULT_SEMANTIC_MIN_SIMILARITY;
+      const seenIds = new Set<string>();
+      const semanticMatches = matches.flatMap((match) => {
+        if (
+          typeof match.propertyId !== 'string' ||
+          match.propertyId.length === 0 ||
+          match.vectorId !== `property:${match.propertyId}` ||
+          typeof match.distance !== 'number' ||
+          !Number.isFinite(match.distance)
+        ) {
+          return [];
+        }
+
+        const cosineSimilarity = 1 - match.distance;
+        if (
+          cosineSimilarity < -1 ||
+          cosineSimilarity > 1 ||
+          cosineSimilarity < minSimilarity ||
+          seenIds.has(match.propertyId)
+        ) {
+          return [];
+        }
+
+        seenIds.add(match.propertyId);
+        return [{
+          propertyId: match.propertyId,
+          semanticSimilarity: Number(cosineSimilarity.toFixed(4)),
+        }];
+      });
+      if (semanticMatches.length === 0) {
+        return this.noRelevantSemanticMatch(query.limit);
       }
+
+      const orderedIds = semanticMatches.map((match) => match.propertyId);
 
       const properties = await this.prisma.property.findMany({
         where: { id: { in: orderedIds }, status: 'APPROVED' },
         include: PropertiesService.DETAIL_INCLUDE,
       });
       const byId = new Map(properties.map((property) => [property.id, property]));
-      const items = orderedIds
-        .map((id) => byId.get(id))
-        .filter((property): property is NonNullable<typeof property> => Boolean(property))
-        .map((p) => transformPropertyToSummary(p));
+      const items: SemanticPropertySearchItem[] = semanticMatches.flatMap(
+        ({ propertyId, semanticSimilarity }) => {
+          const property = byId.get(propertyId);
+          return property
+            ? [{ ...transformPropertyToSummary(property), semanticSimilarity }]
+            : [];
+        },
+      );
 
-      return { items, total: items.length, page: 1, pageSize: query.limit };
+      return items.length > 0
+        ? {
+            items,
+            total: items.length,
+            resultCount: items.length,
+            page: 1,
+            pageSize: query.limit,
+          }
+        : this.noRelevantSemanticMatch(query.limit);
     } catch (error) {
       this.logger.error('semantic property search unavailable');
       throw new ServiceUnavailableException({
@@ -145,6 +189,19 @@ export class PropertiesService {
         message: 'Semantic property search is temporarily unavailable.',
       });
     }
+  }
+
+  private noRelevantSemanticMatch(
+    pageSize: number,
+  ): SemanticPropertySearchResponse {
+    return {
+      items: [],
+      total: 0,
+      resultCount: 0,
+      page: 1,
+      pageSize,
+      reason: 'NO_RELEVANT_SEMANTIC_MATCH',
+    };
   }
 
   /**
@@ -272,7 +329,8 @@ export class PropertiesService {
       status: 'APPROVED',
       ...(query.city ? { city: { nameEn: { equals: query.city, mode: 'insensitive' as const } } } : {}),
       ...(query.propertyType ? { propertyType: query.propertyType } : {}),
-      ...(query.bedrooms !== undefined ? { bedrooms: query.bedrooms } : {}),
+      // Frontend sends bedrooms as "N+" (a minimum), so match >= N, not exact.
+      ...(query.bedrooms !== undefined ? { bedrooms: { gte: query.bedrooms } } : {}),
       ...(query.isFurnished !== undefined
         ? { isFurnished: query.isFurnished }
         : {}),
@@ -284,8 +342,22 @@ export class PropertiesService {
             },
           }
         : {}),
+      // Free-text `q` searches across the fields a tenant would expect, not
+      // just the title (matches the frontend hybrid-search contract).
       ...(query.q
-        ? { title: { contains: query.q, mode: 'insensitive' as const } }
+        ? {
+            OR: [
+              { title: { contains: query.q, mode: 'insensitive' as const } },
+              { description: { contains: query.q, mode: 'insensitive' as const } },
+              { district: { contains: query.q, mode: 'insensitive' as const } },
+              {
+                propertyAroundServices: {
+                  contains: query.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ],
+          }
         : {}),
     };
 
@@ -293,6 +365,8 @@ export class PropertiesService {
       this.prisma.property.findMany({
         where,
         include: PropertiesService.DETAIL_INCLUDE,
+        // Boosted listings first (PRO-14 monetization), then newest.
+        orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }],
       }),
       this.prisma.property.count({ where }),
     ]);
