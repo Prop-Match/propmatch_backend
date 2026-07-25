@@ -186,7 +186,7 @@ model UserQuota {
   userId            String   @unique @map("user_id") @db.Uuid
   user              User     @relation(fields: [userId], references: [id])
   freeListingsLeft  Int      @default(1) @map("free_listings_left")
-  optimizerUsesLeft Int      @default(2) @map("optimizer_uses_left")
+  optimizerUsesLeft Int      @default(3) @map("optimizer_uses_left")
   freeOffersLeft    Int      @default(3) @map("free_offers_left")
   lastResetDate     DateTime @default(now()) @map("last_reset_date")
   updatedAt         DateTime @updatedAt @map("updated_at")

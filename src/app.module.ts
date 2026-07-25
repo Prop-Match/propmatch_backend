@@ -25,14 +25,13 @@ import { QuotaModule } from './quota/quota.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
 /**
- * `nest build` nests compiled output under dist/src, so `../i18n/` resolves
- * correctly there. Running straight from src (ts-jest, ts-node dev) has no
- * such nesting, so the same relative path misses — fall back to the sibling
- * `i18n/` directory in that case.
+ * Nest copies `src/i18n` to `dist/i18n`, while compiled modules live under
+ * `dist/src`. Resolve from the project root so dev/watch startup cannot select
+ * a non-existent `dist/src/i18n` before the asset copy finishes.
  */
-const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
-  ? path.join(__dirname, '../i18n/')
-  : path.join(__dirname, 'i18n/');
+const sourceI18nPath = path.join(process.cwd(), 'src', 'i18n');
+const builtI18nPath = path.join(process.cwd(), 'dist', 'i18n');
+const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
 
 @Module({
   imports: [
@@ -52,7 +51,7 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
       fallbackLanguage: 'ar',
       loaderOptions: {
         path: i18nPath,
-        watch: true,
+        watch: process.env.NODE_ENV !== 'production',
       },
       resolvers: [new AcceptLanguageResolver()],
     }),

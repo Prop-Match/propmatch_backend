@@ -8,6 +8,7 @@ import { PropertyEmbeddingService } from './property-embedding.service';
 import { ChromaPropertyService } from './chroma-property.service';
 import { PropertyApprovalIndexingService } from './property-approval-indexing.service';
 import { SemanticMatchingConfig } from '../config/semantic-matching.config';
+import { PropertyImageStorageService } from './property-image-storage.service';
 
 @Module({
   imports: [CommonModule],
@@ -20,6 +21,7 @@ import { SemanticMatchingConfig } from '../config/semantic-matching.config';
     ChromaPropertyService,
     PropertyApprovalIndexingService,
     SemanticMatchingConfig,
+    PropertyImageStorageService,
   ],
   exports: [PropertyApprovalIndexingService],
 })

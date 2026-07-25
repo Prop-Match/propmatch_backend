@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,13 +8,16 @@ import {
   Query,
   Request,
   UseGuards,
+  UseInterceptors,
+  UploadedFiles,
   Res,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { PropertiesService } from './properties.service';
 import { FormOptimizerService } from './services/FormOptimizer.service';
 import { QuotaService } from '../quota/quota.service';
-import { CreatePropertyDto } from './dto/create-property.dto';
+import { CreatePropertyMultipartDto } from './dto/create-property-multipart.dto';
 import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
 import { SemanticPropertySearchResponse } from './dto/semantic-property-search-response.dto';
@@ -21,6 +25,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import {
+  MAX_PROPERTY_IMAGES,
+  MAX_PROPERTY_IMAGE_SIZE,
+  PROPERTY_IMAGE_MIME_TYPES,
+  PropertyImageStorageService,
+} from './property-image-storage.service';
 
 @Controller()
 export class PropertiesController {
@@ -28,6 +38,7 @@ export class PropertiesController {
     private readonly propertiesService: PropertiesService,
     private readonly formOptimizerService: FormOptimizerService,
     private readonly quotaService: QuotaService,
+    private readonly propertyImageStorage: PropertyImageStorageService,
   ) {}
 
   /**
@@ -40,11 +51,36 @@ export class PropertiesController {
   @Post('landlord/properties')
   @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
   @Roles('LANDLORD')
+  @UseInterceptors(
+    FilesInterceptor('images', MAX_PROPERTY_IMAGES, {
+      limits: {
+        files: MAX_PROPERTY_IMAGES,
+        fileSize: MAX_PROPERTY_IMAGE_SIZE,
+      },
+      fileFilter: (_request, file, callback) => {
+        if (!PROPERTY_IMAGE_MIME_TYPES.has(file.mimetype)) {
+          callback(new BadRequestException('نوع الصورة غير مدعوم.'), false);
+          return;
+        }
+        callback(null, true);
+      },
+    }),
+  )
   async create(
     @Request() req: { user: { userId: string } },
-    @Body() dto: CreatePropertyDto,
+    @Body() dto: CreatePropertyMultipartDto,
+    @UploadedFiles() files: Express.Multer.File[],
   ) {
-    return this.propertiesService.create(req.user.userId, dto);
+    const imageUrls = await this.propertyImageStorage.uploadMany(files);
+    try {
+      return await this.propertiesService.create(req.user.userId, {
+        ...dto,
+        images: imageUrls,
+      });
+    } catch (error) {
+      await this.propertyImageStorage.deleteMany(imageUrls);
+      throw error;
+    }
   }
 
   /**
@@ -89,7 +125,7 @@ export class PropertiesController {
   async optimizeDescriptionStream(
     @Request() req: { user: { userId: string } },
     @Body() body: any,
-    @Res() res,
+    @Res() res: Response,
   ) {
     // PRO-18: spend one optimizer use BEFORE opening the stream. If the quota
     // is gone this throws QUOTA_EXHAUSTED → Nest returns a JSON 403 (the stream
@@ -120,9 +156,10 @@ export class PropertiesController {
           }
         },
       });
-    } catch (error: any) {
-      console.log(error);
-      res.status(500).json({ message: error.message });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unexpected optimizer error';
+      res.status(500).json({ message });
       res.end();
     }
   }

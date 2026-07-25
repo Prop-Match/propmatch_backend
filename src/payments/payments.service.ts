@@ -197,7 +197,7 @@ export class PaymentsService {
               userId,
               freeListingsLeft: 2, // 1 default + 1 purchased
               freeOffersLeft: 3,
-              optimizerUsesLeft: 2,
+              optimizerUsesLeft: 3,
             },
           });
         }
@@ -213,7 +213,7 @@ export class PaymentsService {
               userId,
               freeListingsLeft: 1,
               freeOffersLeft: 4, // 3 default + 1 purchased
-              optimizerUsesLeft: 2,
+              optimizerUsesLeft: 3,
             },
           });
         }

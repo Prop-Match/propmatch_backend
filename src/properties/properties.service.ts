@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Prisma } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
@@ -64,7 +69,9 @@ export class PropertiesService {
     const where: Prisma.PropertyWhereInput = { status: 'APPROVED' };
 
     if (query.city) {
-      where.city = { nameEn: { equals: query.city, mode: 'insensitive' as const } };
+      where.city = {
+        nameEn: { equals: query.city, mode: 'insensitive' as const },
+      };
     }
     if (query.propertyType) where.propertyType = query.propertyType;
     if (query.bedrooms !== undefined) where.bedrooms = { gte: query.bedrooms };
@@ -81,7 +88,10 @@ export class PropertiesService {
       try {
         if (!this.embeddingService || !this.chromaService) throw new Error();
         const vector = await this.embeddingService.createEmbedding(q);
-        const matches = await this.chromaService.query({ embedding: vector, limit: 20 });
+        const matches = await this.chromaService.query({
+          embedding: vector,
+          limit: 20,
+        });
         const ids = matches.map((match) => match.propertyId);
         where.id = { in: ids };
       } catch {
@@ -116,7 +126,9 @@ export class PropertiesService {
       if (!this.embeddingService || !this.chromaService) {
         throw new Error('semantic search dependencies unavailable');
       }
-      const embedding = await this.embeddingService.createEmbedding(query.query);
+      const embedding = await this.embeddingService.createEmbedding(
+        query.query,
+      );
       const matches = await this.chromaService.query({
         embedding,
         limit: query.limit,
@@ -147,10 +159,12 @@ export class PropertiesService {
         }
 
         seenIds.add(match.propertyId);
-        return [{
-          propertyId: match.propertyId,
-          semanticSimilarity: Number(cosineSimilarity.toFixed(4)),
-        }];
+        return [
+          {
+            propertyId: match.propertyId,
+            semanticSimilarity: Number(cosineSimilarity.toFixed(4)),
+          },
+        ];
       });
       if (semanticMatches.length === 0) {
         return this.noRelevantSemanticMatch(query.limit);
@@ -162,7 +176,9 @@ export class PropertiesService {
         where: { id: { in: orderedIds }, status: 'APPROVED' },
         include: PropertiesService.DETAIL_INCLUDE,
       });
-      const byId = new Map(properties.map((property) => [property.id, property]));
+      const byId = new Map(
+        properties.map((property) => [property.id, property]),
+      );
       const items: SemanticPropertySearchItem[] = semanticMatches.flatMap(
         ({ propertyId, semanticSimilarity }) => {
           const property = byId.get(propertyId);
@@ -296,10 +312,14 @@ export class PropertiesService {
 
       this.realtimeService.propertySubmitted(property);
 
-      // Decrement the free listing quota
+      // Decrement the listing quota and prepare three optimizer uses for the
+      // landlord's next property draft.
       await tx.userQuota.update({
         where: { userId: ownerId },
-        data: { freeListingsLeft: { decrement: 1 } },
+        data: {
+          freeListingsLeft: { decrement: 1 },
+          optimizerUsesLeft: 3,
+        },
       });
 
       return property;
@@ -327,10 +347,18 @@ export class PropertiesService {
   async getAll(query: PropertySearchQueryDto) {
     const where: Prisma.PropertyWhereInput = {
       status: 'APPROVED',
-      ...(query.city ? { city: { nameEn: { equals: query.city, mode: 'insensitive' as const } } } : {}),
+      ...(query.city
+        ? {
+            city: {
+              nameEn: { equals: query.city, mode: 'insensitive' as const },
+            },
+          }
+        : {}),
       ...(query.propertyType ? { propertyType: query.propertyType } : {}),
       // Frontend sends bedrooms as "N+" (a minimum), so match >= N, not exact.
-      ...(query.bedrooms !== undefined ? { bedrooms: { gte: query.bedrooms } } : {}),
+      ...(query.bedrooms !== undefined
+        ? { bedrooms: { gte: query.bedrooms } }
+        : {}),
       ...(query.isFurnished !== undefined
         ? { isFurnished: query.isFurnished }
         : {}),
@@ -348,7 +376,12 @@ export class PropertiesService {
         ? {
             OR: [
               { title: { contains: query.q, mode: 'insensitive' as const } },
-              { description: { contains: query.q, mode: 'insensitive' as const } },
+              {
+                description: {
+                  contains: query.q,
+                  mode: 'insensitive' as const,
+                },
+              },
               { district: { contains: query.q, mode: 'insensitive' as const } },
               {
                 propertyAroundServices: {
