@@ -344,6 +344,44 @@
             "description": "Exchanges a valid refresh token for a brand new access and refresh token pair."
           },
           "response": []
+        },
+        {
+          "name": "Semantic Property Search",
+          "id": "27573463-prop-semantic-search-uuid",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/properties/search/semantic?query=near%20university&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["properties", "search", "semantic"],
+              "query": [
+                { "key": "query", "value": "near university" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "Public semantic property search. Returned items include normalized cosine semanticSimilarity; raw vector distances are not exposed."
+          },
+          "response": [
+            {
+              "name": "Successful semantic results",
+              "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/properties/search/semantic?query=near%20university&limit=10" } },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"items\": [{\n    \"id\": \"property-1\",\n    \"title\": \"Apartment near university\",\n    \"governorate\": \"Dakahlia\",\n    \"city\": \"Mansoura\",\n    \"district\": \"University District\",\n    \"propertyType\": \"APARTMENT\",\n    \"rentAmount\": 5000,\n    \"areaM2\": 100,\n    \"bedrooms\": 2,\n    \"bathrooms\": 1,\n    \"isFurnished\": false,\n    \"isBoosted\": false,\n    \"status\": \"APPROVED\",\n    \"coverImage\": null,\n    \"ownerVerified\": true,\n    \"semanticSimilarity\": 0.8\n  }],\n  \"total\": 1,\n  \"resultCount\": 1,\n  \"page\": 1,\n  \"pageSize\": 10\n}"
+            },
+            {
+              "name": "No relevant semantic match",
+              "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/properties/search/semantic?query=unmatched%20query&limit=10" } },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"items\": [],\n  \"total\": 0,\n  \"resultCount\": 0,\n  \"page\": 1,\n  \"pageSize\": 10,\n  \"reason\": \"NO_RELEVANT_SEMANTIC_MATCH\"\n}"
+            }
+          ]
         }
       ]
     },
