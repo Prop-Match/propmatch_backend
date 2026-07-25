@@ -11,7 +11,8 @@ branch. Two existing flows use the word “match” but serve different purposes
    rule-based `scoreRequestAgainstProperty` utility. It is explicitly a
    placeholder for a later semantic score.
 
-No runtime behaviour is changed by this note.
+The semantic property-search flow now has an inclusive configurable minimum
+similarity threshold; this note documents that implementation.
 
 ## Current semantic property request flow
 
@@ -80,17 +81,21 @@ path until it is wired to a controller.
 - `local_embeddings_service/app.py` normalizes embedding vectors and creates
   the Chroma collection with `hnsw:space = "cosine"`.
 - Chroma returns `distances`; `ChromaPropertyService` maps them to the optional
-  `distance` field of `PropertyVectorMatch`. No conversion to similarity and
-  no score is currently returned to the Nest caller or HTTP client.
+  `distance` field of `PropertyVectorMatch`. `PropertiesService.semanticSearch`
+  converts each finite distance to cosine similarity with `1 - distance` and
+  keeps candidates at or above `SEMANTIC_MIN_SIMILARITY`. The configuration
+  default is `0.65` and accepted values are in the inclusive `-1` to `1`
+  cosine-similarity range. Neither the raw distance nor the threshold is
+  returned to the HTTP client.
 - For Chroma cosine space, the documented value is cosine **distance**
   `1 - cosine_similarity`. With normalized vectors, the expected mathematical
   range is **0 to 2**: **smaller is better** (0 is identical direction, 1 is
   orthogonal, 2 is opposite). This is the confirmed vector representation; it
   is distinct from the offer utility’s integer 5–98 score, where larger is
   better.
-- No low-quality semantic result filter exists. The semantic endpoint accepts
-  the top `limit` Chroma candidates, validates the `property:{id}` convention,
-  removes duplicates, and removes non-approved database rows only.
+- Low-quality semantic candidates are filtered before property IDs are
+  hydrated. The endpoint retains Chroma ordering, validates the `property:{id}`
+  convention, removes duplicates, and removes non-approved database rows.
 
 ## Existing rule-based matching / offer flow
 
@@ -111,13 +116,10 @@ role, verified identity) through `CreateTenantRequestDto`.
 
 ## Recommended future threshold insertion point
 
-When `SEMANTIC_MIN_SIMILARITY` is introduced, put configuration parsing in a
-reusable configuration/service layer and apply it in the semantic retrieval
-service **after** a comparable value has been calculated but **before** IDs are
-used for final ranking/return. For the present Chroma representation, either
-convert each distance to similarity (`1 - distance`) and compare it with
-`SEMANTIC_MIN_SIMILARITY`, or use a clearly named maximum-distance setting;
-do not compare a similarity threshold directly to distance.
+`SEMANTIC_MIN_SIMILARITY` is parsed and range-validated by
+`SemanticMatchingConfig`, then applied in `PropertiesService.semanticSearch`
+after conversion from Chroma distance and before IDs are hydrated. The
+threshold is inclusive: `similarity >= minimum` passes.
 
 For tenant matching, preserve the SQL `where` hard filters first, query/rank
 only their candidates (or reapply the same filters when hydrating Chroma IDs),

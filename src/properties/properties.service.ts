@@ -12,6 +12,10 @@ import { SearchPropertiesDto } from './dto/search-properties.dto';
 import { ChromaPropertyService } from './chroma-property.service';
 import { PropertyEmbeddingService } from './property-embedding.service';
 import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
+import {
+  DEFAULT_SEMANTIC_MIN_SIMILARITY,
+  SemanticMatchingConfig,
+} from '../config/semantic-matching.config';
 
 @Injectable()
 export class PropertiesService {
@@ -22,6 +26,7 @@ export class PropertiesService {
     private readonly realtimeService: RealtimeService,
     private readonly embeddingService?: PropertyEmbeddingService,
     private readonly chromaService?: ChromaPropertyService,
+    private readonly semanticMatchingConfig?: SemanticMatchingConfig,
   ) {}
 
   /** Prisma include used whenever we need the full property detail. */
@@ -106,6 +111,9 @@ export class PropertiesService {
         embedding,
         limit: query.limit,
       });
+      const minSimilarity =
+        this.semanticMatchingConfig?.minSimilarity ??
+        DEFAULT_SEMANTIC_MIN_SIMILARITY;
       const orderedIds = [
         ...new Set(
           matches
@@ -113,7 +121,10 @@ export class PropertiesService {
               (match) =>
                 typeof match.propertyId === 'string' &&
                 match.propertyId.length > 0 &&
-                match.vectorId === `property:${match.propertyId}`,
+                match.vectorId === `property:${match.propertyId}` &&
+                typeof match.distance === 'number' &&
+                Number.isFinite(match.distance) &&
+                1 - match.distance >= minSimilarity,
             )
             .map((match) => match.propertyId),
         ),

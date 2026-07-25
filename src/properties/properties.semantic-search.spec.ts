@@ -1,16 +1,19 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
+import { SemanticMatchingConfig } from '../config/semantic-matching.config';
 
 describe('PropertiesService.semanticSearch', () => {
   const findMany = jest.fn();
   const createEmbedding = jest.fn();
   const query = jest.fn();
-  const service = new PropertiesService(
-    { property: { findMany } } as never,
-    {} as never,
-    { createEmbedding } as never,
-    { query } as never,
-  );
+  const createService = (minSimilarity = 0.65) =>
+    new PropertiesService(
+      { property: { findMany } } as never,
+      {} as never,
+      { createEmbedding } as never,
+      { query } as never,
+      { minSimilarity } as SemanticMatchingConfig,
+    );
 
   const approved = (id: string) => ({
     id,
@@ -34,7 +37,7 @@ describe('PropertiesService.semanticSearch', () => {
     ]);
     findMany.mockResolvedValue([approved('a'), approved('b')]);
 
-    const result = await service.semanticSearch({ query: 'near university', limit: 5 });
+    const result = await createService().semanticSearch({ query: 'near university', limit: 5 });
 
     expect(createEmbedding).toHaveBeenCalledWith('near university');
     expect(query).toHaveBeenCalledWith({ embedding: [0.1, 0.2], limit: 5 });
@@ -45,12 +48,48 @@ describe('PropertiesService.semanticSearch', () => {
 
   it('returns a successful empty list when Chroma has no matches', async () => {
     query.mockResolvedValue([]);
-    await expect(service.semanticSearch({ query: 'nowhere', limit: 10 })).resolves.toEqual({ items: [], total: 0, page: 1, pageSize: 10 });
+    await expect(createService().semanticSearch({ query: 'nowhere', limit: 10 })).resolves.toEqual({ items: [], total: 0, page: 1, pageSize: 10 });
     expect(findMany).not.toHaveBeenCalled();
   });
 
   it('sanitizes embedding and vector provider failures', async () => {
     createEmbedding.mockRejectedValue(new Error('provider details'));
-    await expect(service.semanticSearch({ query: 'test', limit: 10 })).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(createService().semanticSearch({ query: 'test', limit: 10 })).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('keeps candidates above or equal to the threshold in Chroma order', async () => {
+    query.mockResolvedValue([
+      { vectorId: 'property:above', propertyId: 'above', distance: 0.2 },
+      { vectorId: 'property:equal', propertyId: 'equal', distance: 0.35 },
+      { vectorId: 'property:below', propertyId: 'below', distance: 0.6 },
+    ]);
+    findMany.mockResolvedValue([
+      approved('equal'),
+      approved('above'),
+      approved('below'),
+    ]);
+
+    const result = await createService(0.65).semanticSearch({
+      query: 'near university',
+      limit: 5,
+    });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['above', 'equal'] }, status: 'APPROVED' },
+    }));
+    expect(result.items.map((item) => item.id)).toEqual(['above', 'equal']);
+    expect(result).not.toHaveProperty('distance');
+  });
+
+  it('returns a successful empty list when every candidate is below the threshold', async () => {
+    query.mockResolvedValue([
+      { vectorId: 'property:weak', propertyId: 'weak', distance: 0.6 },
+    ]);
+
+    await expect(createService(0.65).semanticSearch({
+      query: 'near university',
+      limit: 5,
+    })).resolves.toEqual({ items: [], total: 0, page: 1, pageSize: 5 });
+    expect(findMany).not.toHaveBeenCalled();
   });
 });
