@@ -370,7 +370,7 @@
               "code": 200,
               "_postman_previewlanguage": "json",
               "header": [{ "key": "Content-Type", "value": "application/json" }],
-              "body": "{\n  \"items\": [{\n    \"id\": \"property-1\",\n    \"title\": \"Apartment near university\",\n    \"governorate\": \"Dakahlia\",\n    \"city\": \"Mansoura\",\n    \"district\": \"University District\",\n    \"propertyType\": \"APARTMENT\",\n    \"rentAmount\": 5000,\n    \"areaM2\": 100,\n    \"bedrooms\": 2,\n    \"bathrooms\": 1,\n    \"isFurnished\": false,\n    \"isBoosted\": false,\n    \"status\": \"APPROVED\",\n    \"coverImage\": null,\n    \"ownerVerified\": true,\n    \"semanticSimilarity\": 0.8\n  }],\n  \"total\": 1,\n  \"resultCount\": 1,\n  \"page\": 1,\n  \"pageSize\": 10\n}"
+              "body": "{\n  \"items\": [{\n    \"id\": \"property-1\",\n    \"title\": \"Apartment near university\",\n    \"governorate\": \"Dakahlia\",\n    \"city\": \"Mansoura\",\n    \"district\": \"University District\",\n    \"propertyType\": \"APARTMENT\",\n    \"rentAmount\": 5000,\n    \"areaM2\": 100,\n    \"bedrooms\": 2,\n    \"bathrooms\": 1,\n    \"isFurnished\": false,\n    \"isBoosted\": false,\n    \"status\": \"APPROVED\",\n    \"coverImage\": null,\n    \"ownerVerified\": true,\n    \"semanticSimilarity\": 0.8,\n    \"matchReasons\": [{ \"code\": \"MATCHES_SEARCH_INTENT\", \"text\": \"يتوافق مع تفاصيل البحث والتفضيلات المكتوبة\" }]\n  }],\n  \"total\": 1,\n  \"resultCount\": 1,\n  \"page\": 1,\n  \"pageSize\": 10\n}"
             },
             {
               "name": "No relevant semantic match",
