@@ -2,14 +2,22 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
+  BadGatewayException,
   ForbiddenException,
+  GatewayTimeoutException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'prisma/prisma.service';
 import { RealtimeService } from 'src/realtime/realtime.service';
-import { SupportAuthor, TicketStatus } from './../../generated/prisma/enums';
+import {
+  NotificationType,
+  SupportAuthor,
+  TicketStatus,
+} from './../../generated/prisma/enums';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
 
@@ -18,6 +26,7 @@ export class CustomerSupportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
+    private readonly config: ConfigService,
   ) {}
   private readonly logger = new Logger(CustomerSupportService.name);
 
@@ -146,27 +155,37 @@ export class CustomerSupportService {
       internal: message.internal,
       at: message.createdAt.toISOString(),
     });
+
+    if (!dto.internal) {
+      await this.realtime.notifyUser(ticket.userId, {
+        type: NotificationType.NEW_MESSAGE,
+        title: 'رد جديد من الدعم الفني',
+        message: `أضاف فريق الدعم الفني رداً جديداً على تذكرتك: "${dto.content.slice(0, 50)}..."`,
+        link: `/support/tickets/${ticketId}`,
+      });
+    }
+
     return this.getTicketDetail(ticketId);
   }
+
   async addUserReply(ticketId: string, userId: string, content: string) {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
+      include: { user: { select: { fullName: true } } },
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (ticket.userId !== userId) throw new ForbiddenException('Access denied');
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { fullName: true },
-    });
-    await this.prisma.supportMessage.create({
+
+    const message = await this.prisma.supportMessage.create({
       data: {
         ticketId,
         authorType: SupportAuthor.USER,
-        authorName: user?.fullName ?? 'المستخدم',
+        authorName: ticket.user?.fullName ?? 'المستخدم',
         authorId: userId,
         content,
       },
     });
+
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
       data: {
@@ -174,6 +193,25 @@ export class CustomerSupportService {
         status: TicketStatus.IN_PROGRESS,
       },
     });
+
+    const payload = {
+      ticketId,
+      authorName: message.authorName,
+      content: message.content,
+      internal: false,
+      at: message.createdAt.toISOString(),
+    };
+
+    if (ticket.assignedAdminId) {
+      this.realtime.supportMessageRecieved(ticket.assignedAdminId, payload);
+      await this.realtime.notifyUser(ticket.assignedAdminId, {
+        type: NotificationType.NEW_MESSAGE,
+        title: 'رد جديد من المستخدم',
+        message: `أضاف ${ticket.user?.fullName ?? 'المستخدم'} رداً جديداً: "${content.slice(0, 50)}..."`,
+        link: `/admin/tickets/${ticketId}`,
+      });
+    }
+
     return this.getTicketDetail(ticketId, userId);
   }
   async getTicketDetail(ticketId: string, userId?: string) {
@@ -236,5 +274,66 @@ export class CustomerSupportService {
       createdAt: ticket.createdAt.toISOString(),
       messages: filteredMessages,
     };
+  }
+
+  async openAiStream(
+    message: string,
+    history: any[] | undefined,
+    user: { userId: string; role?: string },
+    clientSignal?: AbortSignal,
+  ) {
+    const baseUrl =
+      this.config.get<string>('LEGAL_SUPPORT_API_URL') ||
+      'http://localhost:8001';
+    const serviceKey = this.config.get<string>(
+      'LEGAL_SUPPORT_INTERNAL_API_KEY',
+    );
+    if (!baseUrl || !serviceKey) {
+      throw new ServiceUnavailableException(
+        'AI Customer Support service is not configured.',
+      );
+    }
+    const timeoutSignal = AbortSignal.timeout(120000);
+    const signal = clientSignal
+      ? AbortSignal.any([clientSignal, timeoutSignal])
+      : timeoutSignal;
+    let response: Response;
+    try {
+      response = await fetch(
+        `${baseUrl.replace(/\/$/, '')}/support/ai-chat/stream`,
+        {
+          method: 'POST',
+          headers: {
+            Accept: 'text/event-stream',
+            'Content-Type': 'application/json',
+            'X-Internal-Service-Key': serviceKey,
+            'X-PropMatch-User-Id': user.userId,
+            'X-PropMatch-User-Role': user.role || 'TENANT',
+          },
+          body: JSON.stringify({ message, history }),
+          signal,
+        },
+      );
+    } catch (error) {
+      if (timeoutSignal.aborted && !clientSignal?.aborted) {
+        throw new GatewayTimeoutException('Support AI service timed out.');
+      }
+      throw new ServiceUnavailableException(
+        'Support AI service is unavailable.',
+        {
+          cause: error,
+        },
+      );
+    }
+
+    if (!response.ok) {
+      throw new BadGatewayException('Support AI service rejected the request.');
+    }
+    if (!response.body) {
+      throw new BadGatewayException(
+        'Support AI service returned an empty stream.',
+      );
+    }
+    return response;
   }
 }

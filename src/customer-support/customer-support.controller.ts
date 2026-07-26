@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Request,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { Roles } from 'src/auth/decorators/roles.decorator';
@@ -17,14 +18,17 @@ import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 
+import { ConfigService } from '@nestjs/config';
+import type { Response as ExpressResponse } from 'express';
 interface RequestWithUser {
-  user?: { userId: string };
+  user?: { userId: string; role?: string };
 }
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class CustomerSupportController {
   constructor(
     private readonly customerSupportService: CustomerSupportService,
+    private readonly config: ConfigService,
   ) {}
 
   @Post('support/tickets')
@@ -33,6 +37,49 @@ export class CustomerSupportController {
     @Body() dto: CreateTicketDto,
   ) {
     return this.customerSupportService.createTicket(req.user!.userId, dto);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('support/ai-chat/stream')
+  async streamAiChat(
+    @Request() req: RequestWithUser,
+    @Body() dto: { message: string; history?: any[] },
+    @Res() res: ExpressResponse,
+  ): Promise<void> {
+    const abortController = new AbortController();
+    res.once('close', () => abortController.abort());
+
+    const upstream = await this.customerSupportService.openAiStream(
+      dto.message,
+      dto.history,
+      req.user!,
+      abortController.signal,
+    );
+
+    res.status(upstream.status);
+    res.setHeader(
+      'Content-Type',
+      upstream.headers.get('content-type') ??
+        'text/event-stream; charset=utf-8',
+    );
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const reader = upstream.body!.getReader();
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+    } catch (error) {
+      if (!abortController.signal.aborted) res.destroy(error as Error);
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   @Get('support/my-tickets')
