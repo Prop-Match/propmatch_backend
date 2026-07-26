@@ -25,6 +25,12 @@ import {
   SemanticPropertySearchItem,
   SemanticPropertySearchResponse,
 } from './dto/semantic-property-search-response.dto';
+import {
+  buildSemanticMatchReasons,
+  detectFurnishingPreference,
+  detectPropertyTypePreference,
+  propertyLocationMatches,
+} from './semantic-match-reasons';
 
 @Injectable()
 export class PropertiesService {
@@ -131,7 +137,10 @@ export class PropertiesService {
       );
       const matches = await this.chromaService.query({
         embedding,
-        limit: query.limit,
+        // Retrieve bounded recall candidates once. Explicit facts detected in
+        // the free-text query are applied after hydration; broad queries still
+        // use the configured semantic threshold below.
+        limit: 20,
       });
       const minSimilarity =
         this.semanticMatchingConfig?.minSimilarity ??
@@ -152,7 +161,6 @@ export class PropertiesService {
         if (
           cosineSimilarity < -1 ||
           cosineSimilarity > 1 ||
-          cosineSimilarity < minSimilarity ||
           seenIds.has(match.propertyId)
         ) {
           return [];
@@ -179,20 +187,61 @@ export class PropertiesService {
       const byId = new Map(
         properties.map((property) => [property.id, property]),
       );
+      const furnishingPreference = detectFurnishingPreference(query.query);
+      const propertyTypePreference = detectPropertyTypePreference(query.query);
+      const locationConstraintDetected = properties.some((property) =>
+        propertyLocationMatches(query.query, property),
+      );
+      const hasExplicitConstraint =
+        furnishingPreference !== undefined ||
+        propertyTypePreference !== undefined ||
+        locationConstraintDetected;
       const items: SemanticPropertySearchItem[] = semanticMatches.flatMap(
         ({ propertyId, semanticSimilarity }) => {
           const property = byId.get(propertyId);
+          if (!property) return [];
+          if (
+            furnishingPreference !== undefined &&
+            property.isFurnished !== furnishingPreference
+          ) {
+            return [];
+          }
+          if (
+            propertyTypePreference !== undefined &&
+            property.propertyType !== propertyTypePreference
+          ) {
+            return [];
+          }
+          if (
+            locationConstraintDetected &&
+            !propertyLocationMatches(query.query, property)
+          ) {
+            return [];
+          }
+          if (!hasExplicitConstraint && semanticSimilarity < minSimilarity) {
+            return [];
+          }
           return property
-            ? [{ ...transformPropertyToSummary(property), semanticSimilarity }]
+            ? [
+                {
+                  ...transformPropertyToSummary(property),
+                  semanticSimilarity,
+                  matchReasons: buildSemanticMatchReasons(
+                    query.query,
+                    property,
+                  ),
+                },
+              ]
             : [];
         },
       );
 
-      return items.length > 0
+      const limitedItems = items.slice(0, query.limit);
+      return limitedItems.length > 0
         ? {
-            items,
-            total: items.length,
-            resultCount: items.length,
+            items: limitedItems,
+            total: limitedItems.length,
+            resultCount: limitedItems.length,
             page: 1,
             pageSize: query.limit,
           }

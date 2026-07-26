@@ -15,11 +15,11 @@ describe('PropertiesService.semanticSearch', () => {
       { minSimilarity } as SemanticMatchingConfig,
     );
 
-  const approved = (id: string) => ({
+  const approved = (id: string, isFurnished = false) => ({
     id,
     title: id,
     governorate: 'Cairo', city: 'Cairo', district: 'Maadi', propertyType: 'APARTMENT',
-    rentAmount: 5000, areaM2: 100, bedrooms: 2, bathrooms: 1, isFurnished: false,
+    rentAmount: 5000, areaM2: 100, bedrooms: 2, bathrooms: 1, isFurnished,
     isBoosted: false, status: 'APPROVED', propertyImages: [], owner: null,
   });
 
@@ -40,10 +40,17 @@ describe('PropertiesService.semanticSearch', () => {
     const result = await createService().semanticSearch({ query: 'near university', limit: 5 });
 
     expect(createEmbedding).toHaveBeenCalledWith('near university');
-    expect(query).toHaveBeenCalledWith({ embedding: [0.1, 0.2], limit: 5 });
+    expect(query).toHaveBeenCalledWith({ embedding: [0.1, 0.2], limit: 20 });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['b', 'a'] }, status: 'APPROVED' } }));
     expect(result.items.map((item) => item.id)).toEqual(['b', 'a']);
     expect(result.items.map((item) => item.semanticSimilarity)).toEqual([0.9, 0.8]);
+    expect(result.items.every((item) => item.matchReasons.length > 0)).toBe(true);
+    expect(result.items[0].matchReasons).toEqual([
+      {
+        code: 'MATCHES_SEARCH_INTENT',
+        text: 'يتوافق مع تفاصيل البحث والتفضيلات المكتوبة',
+      },
+    ]);
     expect(result.resultCount).toBe(result.items.length);
     expect(result.total).toBe(result.resultCount);
     expect(result.items[0]).not.toHaveProperty('ownerId');
@@ -81,7 +88,7 @@ describe('PropertiesService.semanticSearch', () => {
     });
 
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ['above', 'equal'] }, status: 'APPROVED' },
+      where: { id: { in: ['above', 'equal', 'below'] }, status: 'APPROVED' },
     }));
     expect(result.items.map((item) => item.id)).toEqual(['above', 'equal']);
     expect(result.items.map((item) => item.semanticSimilarity)).toEqual([0.8, 0.65]);
@@ -103,7 +110,9 @@ describe('PropertiesService.semanticSearch', () => {
       items: [], total: 0, resultCount: 0, page: 1, pageSize: 5,
       reason: 'NO_RELEVANT_SEMANTIC_MATCH',
     });
-    expect(findMany).not.toHaveBeenCalled();
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['weak'] }, status: 'APPROVED' },
+    }));
   });
 
   it('removes unapproved hydrated properties and reports a semantic no-match', async () => {
@@ -122,5 +131,25 @@ describe('PropertiesService.semanticSearch', () => {
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: { in: ['unapproved'] }, status: 'APPROVED' },
     }));
+  });
+
+  it('honors explicit furnished and unfurnished wording after semantic retrieval', async () => {
+    query.mockResolvedValue([
+      { vectorId: 'property:furnished', propertyId: 'furnished', distance: 0.8 },
+      { vectorId: 'property:unfurnished', propertyId: 'unfurnished', distance: 0.1 },
+    ]);
+    findMany.mockResolvedValue([
+      approved('unfurnished', false),
+      approved('furnished', true),
+    ]);
+
+    const result = await createService().semanticSearch({
+      query: 'furnished apartment',
+      limit: 5,
+    });
+
+    expect(result.items.map((item) => item.id)).toEqual(['furnished']);
+    expect(result.items[0].isFurnished).toBe(true);
+    expect(result.items[0].semanticSimilarity).toBe(0.2);
   });
 });
