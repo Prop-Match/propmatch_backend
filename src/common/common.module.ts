@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { VerifiedGuard } from './guards/verified.guard';
+import { SbgChatService } from './services/sbg-chat.service';
 
 /**
  * Shared utilities used across multiple feature modules.
@@ -10,7 +11,7 @@ import { VerifiedGuard } from './guards/verified.guard';
  */
 @Module({
   imports: [PrismaModule],
-  providers: [VerifiedGuard],
-  exports: [VerifiedGuard],
+  providers: [VerifiedGuard, SbgChatService],
+  exports: [VerifiedGuard, SbgChatService],
 })
 export class CommonModule {}

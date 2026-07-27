@@ -158,6 +158,48 @@ Suggested validation/error boundary:
 4. Translate provider timeout/unavailability to a sanitized 503/504-style API
    error; do not leak provider details, prompts, or credentials.
 
+## Implemented extraction endpoint
+
+`POST /api/tenant/requests/extract` is now implemented in the existing
+`TenantRequestsController`. It requires JWT authentication, `TENANT` role, and
+the existing `VerifiedGuard`. Its input is exactly `{ "text": string }`; text
+is trimmed, required, and limited to 2,000 characters by
+`ExtractTenantRequestDto` and the global whitelist rejects unknown keys.
+
+The endpoint returns no persisted record:
+
+```json
+{
+  "originalText": "trimmed tenant text",
+  "suggestions": {
+    "minBudget": null,
+    "maxBudget": null,
+    "preferredLocations": null,
+    "propertyType": null,
+    "requiredBedrooms": null,
+    "needsFurnished": null,
+    "flexibilityScore": null,
+    "lifestyleRequirements": null
+  },
+  "missingFields": ["minBudget", "maxBudget"]
+}
+```
+
+It uses the shared backend-only `SbgChatService`, which centralizes the existing
+SBG configuration (`SBG_API_KEY`, `SBG_BASE_URL`, and `SBG_CHAT_MODEL`) and the
+same `/api/v1/student/chat` HTTP convention. The provider is called once; no
+embedding, Chroma, semantic-search, or Prisma service is used. Provider text is
+treated as untrusted JSON and must contain exactly the eight suggestion keys
+with valid enum, finite-number, integer/range, boolean, string, or null values.
+Contradictory stated budget bounds are rejected rather than swapped.
+
+Extraction permits one bounded 30-second provider call (the existing form
+optimizer retains its 10-second timeout); it does not retry. Sanitized failures
+are `504 TENANT_REQUEST_EXTRACTION_TIMEOUT`, `503
+TENANT_REQUEST_EXTRACTION_UNAVAILABLE`, and `502
+TENANT_REQUEST_EXTRACTION_INVALID_RESPONSE`. They never include the prompt,
+tenant text, provider response, model configuration, or credentials.
+
 ## Flow
 
 ```text
