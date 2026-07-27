@@ -1,37 +1,48 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
+import { ScheduleModule } from '@nestjs/schedule';
 import { existsSync } from 'fs';
+import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import * as path from 'path';
 import { PrismaModule } from 'prisma/prisma.module';
+import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { MatchingModule } from './matching/matching.module';
+import { LegalSupportModule } from './legal-support/legal-support.module';
+import { MessagesModule } from './messages/messages.module';
 import { OffersModule } from './offers/offers.module';
+import { PaymentsModule } from './payments/payments.module';
 import { PropertiesModule } from './properties/properties.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { RegionsModule } from './regions/regions.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
-import { TenantRequestsModule } from './tenant-requests/tenant-requests.module';
-import { AdminModule } from './admin/admin.module';
+import { CustomerSupportModule } from './customer-support/customer-support.module';
+import { QuotaModule } from './quota/quota.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { FavoritesModule } from './favorites/favorites.module';
 
 /**
- * `nest build` nests compiled output under dist/src, so `../i18n/` resolves
- * correctly there. Running straight from src (ts-jest, ts-node dev) has no
- * such nesting, so the same relative path misses — fall back to the sibling
- * `i18n/` directory in that case.
+ * Nest copies `src/i18n` to `dist/i18n`, while compiled modules live under
+ * `dist/src`. Resolve from the project root so dev/watch startup cannot select
+ * a non-existent `dist/src/i18n` before the asset copy finishes.
  */
-const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
-  ? path.join(__dirname, '../i18n/')
-  : path.join(__dirname, 'i18n/');
+const sourceI18nPath = path.join(process.cwd(), 'src', 'i18n');
+const builtI18nPath = path.join(process.cwd(), 'dist', 'i18n');
+const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.development', '.env.production'],
+      // `.env` last so a single `.env` file works for the whole team (the
+      // Prisma CLI reads `.env` too). `.env.development` still wins if present.
+      envFilePath: ['.env.development', '.env.production', '.env'],
     }),
+    ScheduleModule.forRoot(),
     UsersModule,
     AuthModule,
     AdminModule,
@@ -41,15 +52,23 @@ const i18nPath = existsSync(path.join(__dirname, '../i18n/'))
       fallbackLanguage: 'ar',
       loaderOptions: {
         path: i18nPath,
-        watch: true,
+        watch: process.env.NODE_ENV !== 'production',
       },
       resolvers: [new AcceptLanguageResolver()],
     }),
     PropertiesModule,
     VerificationModule,
     TenantRequestsModule,
-    MatchingModule,
     OffersModule,
+    MessagesModule,
+    PaymentsModule,
+    ReviewsModule,
+    LegalSupportModule,
+    RegionsModule,
+    CustomerSupportModule,
+    QuotaModule,
+    NotificationsModule,
+    FavoritesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

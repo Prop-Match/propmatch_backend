@@ -42,7 +42,12 @@ describe('VerificationController multipart submission', () => {
       .overrideGuard(JwtAuthGuard)
       .useValue({
         canActivate: (context: {
-          switchToHttp: () => { getRequest: () => Record<string, unknown> };
+          switchToHttp: () => {
+            getRequest: () => {
+              headers?: { authorization?: string };
+              user?: { userId: string };
+            };
+          };
         }) => {
           const request = context.switchToHttp().getRequest();
           if (!request.headers || !request.headers.authorization) {

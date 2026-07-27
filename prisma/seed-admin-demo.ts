@@ -1,18 +1,28 @@
-import 'dotenv/config';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import 'dotenv/config';
+import { LocalPrivateObjectStorageService } from '../src/storage/local-private-object-storage.service';
+import 'dotenv/config';
 import { PrismaService } from './prisma.service';
 
-/**
- * One-off seed for manually verifying the admin dashboard against a real
- * backend: an admin login, plus one pending item in each of the four
- * moderation queues. Not wired into any npm script — run directly with
- * ts-node when you need fresh demo data.
- */
 async function main() {
   const prisma = new PrismaService();
   await prisma.onModuleInit();
 
   const passwordHash = await bcrypt.hash('Password123!', 10);
+
+  // Real files on disk so admin/kyc/:id's createTemporaryReadUrl works
+  // against this seed data instead of the old fake CDN URLs.
+  const storage = new LocalPrivateObjectStorageService(new ConfigService());
+  const dummyImage = Buffer.from(
+    '/9j/4AAQSkZJRgABAQEAYABgAAD//gA7Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcgSlBFRyB2NjApLCBxdWFsaXR5ID0gOTAK/9k=',
+    'base64',
+  );
+  const [nationalIdFront, nationalIdBack, selfie] = await Promise.all([
+    storage.upload({ data: dummyImage, contentType: 'image/jpeg' }),
+    storage.upload({ data: dummyImage, contentType: 'image/jpeg' }),
+    storage.upload({ data: dummyImage, contentType: 'image/jpeg' }),
+  ]);
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@propmatch.local' },
@@ -50,13 +60,30 @@ async function main() {
     },
   });
 
+  const country = await prisma.country.findUniqueOrThrow({
+    where: { code: 'EG' },
+  });
+  const governorate = await prisma.governorate.findFirstOrThrow({
+    where: {
+      countryId: country.id,
+      nameEn: 'Dakahlia',
+    },
+  });
+  const city = await prisma.city.findFirstOrThrow({
+    where: {
+      governorateId: governorate.id,
+      nameEn: 'Mansoura',
+    },
+  });
+
   await prisma.property.create({
     data: {
       ownerId: landlord.id,
       title: 'شقة تجريبية بانتظار المراجعة',
       description: 'شقة واسعة في موقع متميز.',
-      governorate: 'الدقهلية',
-      city: 'المنصورة',
+      countryId: country.id,
+      governorateId: governorate.id,
+      cityId: city.id,
       district: 'حي أول',
       manualAddress: 'شارع الجامعة',
       propertyType: 'APARTMENT',
@@ -73,13 +100,18 @@ async function main() {
 
   await prisma.identityVerification.upsert({
     where: { userId: tenant.id },
-    update: { status: 'PENDING' },
+    update: {
+      status: 'PENDING',
+      nationalIdFrontUrl: nationalIdFront.objectKey,
+      nationalIdBackUrl: nationalIdBack.objectKey,
+      selfieUrl: selfie.objectKey,
+    },
     create: {
       userId: tenant.id,
       nationalId: '29901010112345',
-      nationalIdFrontUrl: 'https://cdn.example.com/id-front.jpg',
-      nationalIdBackUrl: 'https://cdn.example.com/id-back.jpg',
-      selfieUrl: 'https://cdn.example.com/selfie.jpg',
+      nationalIdFrontUrl: nationalIdFront.objectKey,
+      nationalIdBackUrl: nationalIdBack.objectKey,
+      selfieUrl: selfie.objectKey,
       status: 'PENDING',
     },
   });
@@ -104,8 +136,9 @@ async function main() {
       ownerId: landlord.id,
       title: 'شقة معتمدة للتقييم',
       description: 'شقة تم اعتمادها مسبقًا لإتاحة تقييم عليها.',
-      governorate: 'الدقهلية',
-      city: 'المنصورة',
+      countryId: country.id,
+      governorateId: governorate.id,
+      cityId: city.id,
       district: 'حي ثان',
       manualAddress: 'شارع النصر',
       propertyType: 'APARTMENT',

@@ -1,8 +1,6 @@
-import {
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { CreateTenantRequestDto } from './dto/create-tenant-request.dto';
 import { transformTenantRequest } from './mappers/tenant-request.mapper';
 
@@ -10,7 +8,10 @@ import { transformTenantRequest } from './mappers/tenant-request.mapper';
 export class TenantRequestsService {
   private readonly logger = new Logger(TenantRequestsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtimeService: RealtimeService,
+  ) {}
 
   /**
    * Create a new tenant request (PRO-05).
@@ -35,7 +36,37 @@ export class TenantRequestsService {
       },
     });
 
+    this.realtimeService.tenantRequestSubmitted(request);
+
     // New request has zero offers
-    return transformTenantRequest(request, 0);
+    return transformTenantRequest(request);
+  }
+
+  /** GET /tenant/requests — the tenant's own requests, each with its offer count. */
+  async findMine(tenantId: string) {
+    const requests = await this.prisma.tenantRequest.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { ownerOffers: true } } },
+    });
+
+    return {
+      items: requests.map((r) => transformTenantRequest(r)),
+    };
+  }
+
+  /** POST /tenant/requests/:id/close — the tenant withdraws their own request. */
+  async close(tenantId: string, id: string) {
+    const request = await this.prisma.tenantRequest.findFirst({
+      where: { id, tenantId },
+    });
+    if (!request) throw new NotFoundException('Tenant request not found.');
+
+    await this.prisma.tenantRequest.update({
+      where: { id },
+      data: { status: 'CLOSED' },
+    });
+
+    return { ok: true };
   }
 }

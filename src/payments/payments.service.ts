@@ -1,0 +1,255 @@
+import { PaymentType } from '@generated/prisma/enums';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { PrismaService } from './../../prisma/prisma.service';
+import { PaymobService } from './providers/paymob.service';
+
+const PAYMENT_AMOUNTS: Record<PaymentType, number> = {
+  NEW_LISTING: 100,
+  BOOST_LISTING: 75,
+  REFILL_MATCHES: 30,
+  OFFER_PACK: 50,
+};
+
+@Injectable()
+export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly gatway: PaymobService,
+  ) {}
+  async checkout(
+    userId: string,
+    paymentType: string,
+  ): Promise<{
+    providerOrderId: string;
+    amount: number;
+    currency: 'EGP';
+    paymentType: PaymentType;
+    checkoutUrl: string;
+  }> {
+    const typedPaymentType = paymentType as PaymentType;
+    const amount = PAYMENT_AMOUNTS[typedPaymentType];
+    if (!amount) {
+      throw new BadRequestException('Unsupported payment type');
+    }
+
+    const { checkoutUrl, providerOrderId } =
+      await this.gatway.generatePaymentUrl(userId, typedPaymentType, amount);
+
+    await this.prismaService.paymentTransaction.create({
+      data: {
+        userId,
+        providerOrderId: providerOrderId,
+        amount: amount,
+        paymentType: typedPaymentType,
+        status: 'PENDING',
+      },
+    });
+
+    return {
+      providerOrderId: providerOrderId,
+      amount,
+      currency: 'EGP',
+      paymentType: typedPaymentType,
+      checkoutUrl: checkoutUrl,
+    };
+  }
+  async handleWebhook(
+    query: Record<string, string>,
+    body: Record<string, unknown>,
+  ): Promise<{ recieved: boolean }> {
+    const result = this.gatway.processWebhook(query, body);
+    if (!result.isValid) {
+      throw new BadRequestException('Invalid signature');
+    }
+
+    let userId = result.userId;
+    let paymentType = result.paymentType;
+
+    if ((!userId || !paymentType) && result.providerOrderId) {
+      const transaction =
+        await this.prismaService.paymentTransaction.findUnique({
+          where: { providerOrderId: result.providerOrderId },
+        });
+      if (transaction) {
+        userId = transaction.userId;
+        paymentType = transaction.paymentType;
+      }
+    }
+
+    if (result.success && userId && paymentType) {
+      await this.processSuccessfulPayment(
+        userId,
+        paymentType,
+        result.transactionId,
+        result.providerOrderId,
+      );
+    } else if (result.isFinal && result.providerOrderId) {
+      await this.prismaService.paymentTransaction.updateMany({
+        where: { providerOrderId: result.providerOrderId, status: 'PENDING' },
+        data: {
+          status: 'FAILED',
+          providerTransactionId: result.transactionId,
+        },
+      });
+    }
+    return { recieved: true };
+  }
+
+  async getTransaction(userId: string, providerOrderId: string) {
+    const transaction = await this.prismaService.paymentTransaction.findFirst({
+      where: { userId, providerOrderId },
+    });
+    if (!transaction) {
+      throw new NotFoundException('Payment transaction not found');
+    }
+    return transaction;
+  }
+
+  /**
+   * Return-page fallback for local development and a safety net for delayed
+   * webhooks. The entitlement is still awarded only after Provider's server API
+   * confirms the order as successful.
+   */
+  async reconcileTransaction(userId: string, providerOrderId: string) {
+    const transaction = await this.getTransaction(userId, providerOrderId);
+    if (transaction.status === 'SUCCESS') {
+      return transaction;
+    }
+
+    const { isSuccessful, transactionId } =
+      await this.gatway.checkTransactionStatus(providerOrderId);
+    if (isSuccessful && transactionId) {
+      await this.processSuccessfulPayment(
+        transaction.userId,
+        transaction.paymentType,
+        transactionId,
+        providerOrderId,
+      );
+    }
+    return this.getTransaction(userId, providerOrderId);
+  }
+
+  async reconcilePendingForUser(userId: string) {
+    const pendingTransactions =
+      await this.prismaService.paymentTransaction.findMany({
+        where: { userId, status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+      });
+    return Promise.all(
+      pendingTransactions.map((transaction) =>
+        this.reconcileTransaction(userId, transaction.providerOrderId),
+      ),
+    );
+  }
+  private async processSuccessfulPayment(
+    userId: string,
+    paymentType: string,
+    transactionId: string,
+    providerOrderId?: string,
+  ): Promise<void> {
+    const existing = await this.prismaService.paymentTransaction.findFirst({
+      where: { providerTransactionId: transactionId },
+    });
+    if (existing) {
+      return;
+    }
+
+    await this.prismaService.$transaction(async (tx) => {
+      if (providerOrderId) {
+        await tx.paymentTransaction.update({
+          where: { providerOrderId: providerOrderId },
+          data: {
+            status: 'SUCCESS',
+            providerTransactionId: transactionId,
+            paidAt: new Date(),
+          },
+        });
+      } else {
+        await tx.paymentTransaction.updateMany({
+          where: { userId, status: 'PENDING' },
+          data: {
+            status: 'SUCCESS',
+            providerTransactionId: transactionId,
+            paidAt: new Date(),
+          },
+        });
+      }
+      const quota = await tx.userQuota.findUnique({
+        where: { userId },
+      });
+
+      if (paymentType === 'NEW_LISTING') {
+        if (quota) {
+          await tx.userQuota.update({
+            where: { userId },
+            data: { freeListingsLeft: { increment: 1 } },
+          });
+        } else {
+          await tx.userQuota.create({
+            data: {
+              userId,
+              freeListingsLeft: 2, // 1 default + 1 purchased
+              freeOffersLeft: 3,
+              optimizerUsesLeft: 3,
+            },
+          });
+        }
+      } else if (paymentType === 'OFFER_PACK') {
+        if (quota) {
+          await tx.userQuota.update({
+            where: { userId },
+            data: { freeOffersLeft: { increment: 1 } },
+          });
+        } else {
+          await tx.userQuota.create({
+            data: {
+              userId,
+              freeListingsLeft: 1,
+              freeOffersLeft: 4, // 3 default + 1 purchased
+              optimizerUsesLeft: 3,
+            },
+          });
+        }
+      }
+    });
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async reconcilePendingTransactions(): Promise<void> {
+    this.logger.log('Starting Payment Reconciliation Cron Job...');
+
+    // Find all transactions that are PENDING and older than 30 minutes
+    const pendingTransactions =
+      await this.prismaService.paymentTransaction.findMany({
+        where: {
+          status: 'PENDING',
+          createdAt: { lte: new Date(Date.now() - 30 * 60000) },
+        },
+      });
+    for (const transaction of pendingTransactions) {
+      // Ask the gateway (Paymob, Stripe, etc.) to double-check the real status
+      const { isSuccessful, transactionId } =
+        await this.gatway.checkTransactionStatus(transaction.providerOrderId);
+      if (isSuccessful && transactionId) {
+        this.logger.log(
+          `Reconciliation found missed successful payment for Order: ${transaction.providerOrderId}`,
+        );
+        await this.processSuccessfulPayment(
+          transaction.userId,
+          transaction.paymentType,
+          transactionId,
+          transaction.providerOrderId,
+        );
+      }
+    }
+
+    this.logger.log('Payment Reconciliation complete.');
+  }
+}

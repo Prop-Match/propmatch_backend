@@ -2,24 +2,48 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
-import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import {
   transformPropertyToDetail,
   transformPropertyToSummary,
 } from './mappers/property.mapper';
 import { RealtimeService } from '../realtime/realtime.service';
+import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { ChromaPropertyService } from './chroma-property.service';
+import { PropertyEmbeddingService } from './property-embedding.service';
+import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
+import {
+  DEFAULT_SEMANTIC_MIN_SIMILARITY,
+  SemanticMatchingConfig,
+} from '../config/semantic-matching.config';
+import {
+  SemanticPropertySearchItem,
+  SemanticPropertySearchResponse,
+} from './dto/semantic-property-search-response.dto';
+import {
+  buildSemanticMatchReasons,
+  detectFurnishingPreference,
+  detectPropertyTypePreference,
+  propertyLocationMatches,
+} from './semantic-match-reasons';
 
 @Injectable()
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly realtimeService: RealtimeService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtimeService: RealtimeService,
+    private readonly embeddingService?: PropertyEmbeddingService,
+    private readonly chromaService?: ChromaPropertyService,
+    private readonly semanticMatchingConfig?: SemanticMatchingConfig,
+  ) {}
 
-  /** Prisma include used whenever we need the full property detail. */
   private static readonly DETAIL_INCLUDE = {
     propertyImages: {
       orderBy: { displayOrder: 'asc' as const },
@@ -32,6 +56,9 @@ export class PropertiesService {
         identityVerification: { select: { status: true } },
       },
     },
+    governorate: true,
+    city: true,
+    country: true,
   };
 
   /**
@@ -47,7 +74,11 @@ export class PropertiesService {
   async search(query: SearchPropertiesDto) {
     const where: Prisma.PropertyWhereInput = { status: 'APPROVED' };
 
-    if (query.city) where.city = query.city;
+    if (query.city) {
+      where.city = {
+        nameEn: { equals: query.city, mode: 'insensitive' as const },
+      };
+    }
     if (query.propertyType) where.propertyType = query.propertyType;
     if (query.bedrooms !== undefined) where.bedrooms = { gte: query.bedrooms };
     if (query.isFurnished) where.isFurnished = true;
@@ -58,29 +89,190 @@ export class PropertiesService {
       };
     }
 
-    // Semantic seam: until ChromaDB, match the free text across the searchable
-    // fields. Replace this OR block with the vector-ranked id set later.
     const q = query.q?.trim();
     if (q) {
-      where.OR = [
-        { title: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
-        { district: { contains: q, mode: 'insensitive' } },
-        { propertyAroundServices: { contains: q, mode: 'insensitive' } },
-      ];
+      try {
+        if (!this.embeddingService || !this.chromaService) throw new Error();
+        const vector = await this.embeddingService.createPrimaryEmbedding(
+          q,
+          'search_query',
+        );
+        const matches = await this.chromaService.query({
+          provider: vector.provider,
+          embedding: vector.embedding,
+          limit: 20,
+        });
+        const ids = matches.map((match) => match.propertyId);
+        where.id = { in: ids };
+      } catch {
+        // Local semantic search is optional during development. Fall back to
+        // the existing safe text search if the sidecar is not running.
+        where.OR = [
+          { title: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { district: { contains: q, mode: 'insensitive' } },
+          { propertyAroundServices: { contains: q, mode: 'insensitive' } },
+        ];
+      }
     }
 
     const properties = await this.prisma.property.findMany({
       where,
       include: PropertiesService.DETAIL_INCLUDE,
       // Boosted listings first (PRO-14), then newest.
-      orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     });
 
     // Summary mapper omits all PII (phone/name/address) — only ownerVerified
     // is derived from the owner relation, so nothing sensitive is serialised.
-    const items = properties.map(transformPropertyToSummary);
+    const items = properties.map((p) => transformPropertyToSummary(p));
     return { items, total: items.length, page: 1, pageSize: items.length };
+  }
+
+  async semanticSearch(
+    query: SemanticPropertySearchDto,
+  ): Promise<SemanticPropertySearchResponse> {
+    try {
+      if (!this.embeddingService || !this.chromaService) {
+        throw new Error('semantic search dependencies unavailable');
+      }
+      const vector = await this.embeddingService.createPrimaryEmbedding(
+        query.query,
+        'search_query',
+      );
+      const matches = await this.chromaService.query({
+        provider: vector.provider,
+        embedding: vector.embedding,
+        // Retrieve bounded recall candidates once. Explicit facts detected in
+        // the free-text query are applied after hydration; broad queries still
+        // use the configured semantic threshold below.
+        limit: 20,
+      });
+      const minSimilarity =
+        this.semanticMatchingConfig?.minSimilarity ??
+        DEFAULT_SEMANTIC_MIN_SIMILARITY;
+      const seenIds = new Set<string>();
+      const semanticMatches = matches.flatMap((match) => {
+        if (
+          typeof match.propertyId !== 'string' ||
+          match.propertyId.length === 0 ||
+          match.vectorId !== `property:${match.propertyId}` ||
+          typeof match.distance !== 'number' ||
+          !Number.isFinite(match.distance)
+        ) {
+          return [];
+        }
+
+        const cosineSimilarity = 1 - match.distance;
+        if (
+          cosineSimilarity < -1 ||
+          cosineSimilarity > 1 ||
+          seenIds.has(match.propertyId)
+        ) {
+          return [];
+        }
+
+        seenIds.add(match.propertyId);
+        return [
+          {
+            propertyId: match.propertyId,
+            semanticSimilarity: Number(cosineSimilarity.toFixed(4)),
+          },
+        ];
+      });
+      if (semanticMatches.length === 0) {
+        return this.noRelevantSemanticMatch(query.limit);
+      }
+
+      const orderedIds = semanticMatches.map((match) => match.propertyId);
+
+      const properties = await this.prisma.property.findMany({
+        where: { id: { in: orderedIds }, status: 'APPROVED' },
+        include: PropertiesService.DETAIL_INCLUDE,
+      });
+      const byId = new Map(
+        properties.map((property) => [property.id, property]),
+      );
+      const furnishingPreference = detectFurnishingPreference(query.query);
+      const propertyTypePreference = detectPropertyTypePreference(query.query);
+      const locationConstraintDetected = properties.some((property) =>
+        propertyLocationMatches(query.query, property),
+      );
+      const hasExplicitConstraint =
+        furnishingPreference !== undefined ||
+        propertyTypePreference !== undefined ||
+        locationConstraintDetected;
+      const items: SemanticPropertySearchItem[] = semanticMatches.flatMap(
+        ({ propertyId, semanticSimilarity }) => {
+          const property = byId.get(propertyId);
+          if (!property) return [];
+          if (
+            furnishingPreference !== undefined &&
+            property.isFurnished !== furnishingPreference
+          ) {
+            return [];
+          }
+          if (
+            propertyTypePreference !== undefined &&
+            property.propertyType !== propertyTypePreference
+          ) {
+            return [];
+          }
+          if (
+            locationConstraintDetected &&
+            !propertyLocationMatches(query.query, property)
+          ) {
+            return [];
+          }
+          if (!hasExplicitConstraint && semanticSimilarity < minSimilarity) {
+            return [];
+          }
+          return property
+            ? [
+                {
+                  ...transformPropertyToSummary(property),
+                  semanticSimilarity,
+                  matchReasons: buildSemanticMatchReasons(
+                    query.query,
+                    property,
+                  ),
+                },
+              ]
+            : [];
+        },
+      );
+
+      const limitedItems = items.slice(0, query.limit);
+      return limitedItems.length > 0
+        ? {
+            items: limitedItems,
+            total: limitedItems.length,
+            resultCount: limitedItems.length,
+            page: 1,
+            pageSize: query.limit,
+          }
+        : this.noRelevantSemanticMatch(query.limit);
+    } catch (error) {
+      this.logger.error('semantic property search unavailable');
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        code: 'SEMANTIC_SEARCH_UNAVAILABLE',
+        message: 'Semantic property search is temporarily unavailable.',
+      });
+    }
+  }
+
+  private noRelevantSemanticMatch(
+    pageSize: number,
+  ): SemanticPropertySearchResponse {
+    return {
+      items: [],
+      total: 0,
+      resultCount: 0,
+      page: 1,
+      pageSize,
+      reason: 'NO_RELEVANT_SEMANTIC_MATCH',
+    };
   }
 
   /**
@@ -110,6 +302,32 @@ export class PropertiesService {
       });
     }
 
+    const dbGov = await this.prisma.governorate.findFirst({
+      where: {
+        OR: [
+          { nameEn: { equals: dto.governorate, mode: 'insensitive' as const } },
+          { nameAr: { equals: dto.governorate, mode: 'insensitive' as const } },
+        ],
+      },
+    });
+
+    const dbCity = await this.prisma.city.findFirst({
+      where: {
+        OR: [
+          { nameEn: { equals: dto.city, mode: 'insensitive' as const } },
+          { nameAr: { equals: dto.city, mode: 'insensitive' as const } },
+        ],
+      },
+    });
+
+    if (!dbGov || !dbCity) {
+      throw new ForbiddenException('Selected region is not supported.');
+    }
+
+    if (!dbGov.status || !dbCity.status) {
+      throw new ForbiddenException('Selected region is disabled.');
+    }
+
     // ── 3. Create property + images + decrement quota in a transaction ─
     const result = await this.prisma.$transaction(async (tx) => {
       const property = await tx.property.create({
@@ -117,8 +335,9 @@ export class PropertiesService {
           ownerId,
           title: dto.title,
           description: dto.description,
-          governorate: dto.governorate,
-          city: dto.city,
+          countryId: dbGov.countryId,
+          governorateId: dbGov.id,
+          cityId: dbCity.id,
           district: dto.district,
           manualAddress: dto.manualAddress,
           propertyType: dto.propertyType,
@@ -148,10 +367,14 @@ export class PropertiesService {
 
       this.realtimeService.propertySubmitted(property);
 
-      // Decrement the free listing quota
+      // Decrement the listing quota and prepare three optimizer uses for the
+      // landlord's next property draft.
       await tx.userQuota.update({
         where: { userId: ownerId },
-        data: { freeListingsLeft: { decrement: 1 } },
+        data: {
+          freeListingsLeft: { decrement: 1 },
+          optimizerUsesLeft: 3,
+        },
       });
 
       return property;
@@ -170,33 +393,129 @@ export class PropertiesService {
     };
   }
 
-  async getAll(){
-    const properties = await this.prisma.property.findMany({
-      where: {
-        status: 'APPROVED',
-      },
-      include: PropertiesService.DETAIL_INCLUDE,
-    });
+  /**
+   * GET /properties — public browse (PRO-11).
+   *
+   * Never carries owner PII: list cards use the summary mapper, which has no
+   * contact fields at all (see property.mapper.ts).
+   */
+  async getAll(query: PropertySearchQueryDto) {
+    const where: Prisma.PropertyWhereInput = {
+      status: 'APPROVED',
+      ...(query.city
+        ? {
+            city: {
+              nameEn: { equals: query.city, mode: 'insensitive' as const },
+            },
+          }
+        : {}),
+      ...(query.propertyType ? { propertyType: query.propertyType } : {}),
+      // Frontend sends bedrooms as "N+" (a minimum), so match >= N, not exact.
+      ...(query.bedrooms !== undefined
+        ? { bedrooms: { gte: query.bedrooms } }
+        : {}),
+      ...(query.isFurnished !== undefined
+        ? { isFurnished: query.isFurnished }
+        : {}),
+      ...(query.minRent !== undefined || query.maxRent !== undefined
+        ? {
+            rentAmount: {
+              ...(query.minRent !== undefined ? { gte: query.minRent } : {}),
+              ...(query.maxRent !== undefined ? { lte: query.maxRent } : {}),
+            },
+          }
+        : {}),
+      // Free-text `q` searches across the fields a tenant would expect, not
+      // just the title (matches the frontend hybrid-search contract).
+      ...(query.q
+        ? {
+            OR: [
+              { title: { contains: query.q, mode: 'insensitive' as const } },
+              {
+                description: {
+                  contains: query.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+              { district: { contains: query.q, mode: 'insensitive' as const } },
+              {
+                propertyAroundServices: {
+                  contains: query.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ],
+          }
+        : {}),
+    };
 
-    return properties.map((p) => {
-      return transformPropertyToDetail(p, {
-        contactRevealed: true,
-      });
-    });
+    const [properties, total] = await Promise.all([
+      this.prisma.property.findMany({
+        where,
+        include: PropertiesService.DETAIL_INCLUDE,
+        // Boosted listings first (PRO-14 monetization), then newest.
+        orderBy: [{ isBoosted: 'desc' }, { createdAt: 'desc' }],
+      }),
+      this.prisma.property.count({ where }),
+    ]);
+
+    return {
+      items: properties.map((p) => transformPropertyToSummary(p)),
+      total,
+    };
   }
 
-  async getPropertyById(id: string) {
+  /**
+   * GET /landlord/properties — the authenticated landlord's own listings.
+   * Summary shape is enough for their management list; the create/detail
+   * flow already returns the full detail with contact revealed.
+   */
+  async getMyProperties(ownerId: string) {
+    const [properties, total] = await Promise.all([
+      this.prisma.property.findMany({
+        where: { ownerId },
+        include: PropertiesService.DETAIL_INCLUDE,
+      }),
+      this.prisma.property.count({ where: { ownerId } }),
+    ]);
+
+    return {
+      items: properties.map((p) => transformPropertyToSummary(p)),
+      total,
+    };
+  }
+
+  /**
+   * GET /properties/:id.
+   *
+   * PII gate (rbac.md): contact info is per-connection, not per-property —
+   * revealed only to the property's own owner, or a tenant with an ACCEPTED
+   * offer on this property.
+   */
+  async getPropertyById(id: string, viewer?: { userId: string; role: string }) {
     const property = await this.prisma.property.findUniqueOrThrow({
       where: { id },
       include: PropertiesService.DETAIL_INCLUDE,
     });
 
-    return transformPropertyToDetail(property, {
-      contactRevealed: true,
-    });
+    let contactRevealed = false;
+    if (viewer?.userId === property.ownerId) {
+      contactRevealed = true;
+    } else if (viewer) {
+      const acceptedOffer = await this.prisma.ownerOffer.findFirst({
+        where: {
+          propertyId: id,
+          status: 'ACCEPTED',
+          tenantRequest: { tenantId: viewer.userId },
+        },
+      });
+      contactRevealed = acceptedOffer !== null;
+    }
+
+    return transformPropertyToDetail(property, { contactRevealed });
   }
 
-  async getPendingProperties(){
+  async getPendingProperties() {
     const properties = await this.prisma.property.findMany({
       where: {
         status: 'PENDING',

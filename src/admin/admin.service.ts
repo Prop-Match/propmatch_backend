@@ -3,26 +3,47 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { I18nContext } from 'nestjs-i18n';
+import { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
+import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
+import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
-import { I18nContext } from 'nestjs-i18n';
+import { AdminStats } from './interfaces/admin-stats.interface';
+
+const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly realtimeService: RealtimeService,
+    @Inject(PRIVATE_OBJECT_STORAGE)
+    private readonly privateObjectStorage: PrivateObjectStorage,
+    private readonly propertyApprovalIndexingService: PropertyApprovalIndexingService,
   ) {}
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
+  }
+
+  /** Append-only record of a moderation decision, for the team activity page. */
+  private async audit(
+    actorId: string,
+    action: string,
+    subjectId: string,
+  ): Promise<void> {
+    await this.prismaService.adminAuditLogEntry.create({
+      data: { actorId, action, subjectId },
+    });
   }
   async getQueues() {
     const [kyc, properties, requests, reviews] = await Promise.all([
@@ -94,13 +115,30 @@ export class AdminService {
         'IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER',
       );
     }
+    const getUrl = async (keyOrUrl: string) => {
+      if (!keyOrUrl) return '';
+      if (keyOrUrl.startsWith('http://') || keyOrUrl.startsWith('https://')) {
+        return keyOrUrl;
+      }
+      return this.privateObjectStorage.createTemporaryReadUrl(
+        keyOrUrl,
+        KYC_DOCUMENT_READ_TTL_SECONDS,
+      );
+    };
+
+    const [nationalIdFrontUrl, nationalIdBackUrl, selfieUrl] =
+      await Promise.all([
+        getUrl(identityVerification.nationalIdFrontUrl),
+        getUrl(identityVerification.nationalIdBackUrl),
+        getUrl(identityVerification.selfieUrl),
+      ]);
     return {
       userId: identityVerification.userId,
       userName: identityVerification.user.fullName,
       nationalId: identityVerification.nationalId,
-      nationalIdFrontUrl: identityVerification.nationalIdFrontUrl,
-      nationalIdBackUrl: identityVerification.nationalIdBackUrl,
-      selfieUrl: identityVerification.selfieUrl,
+      nationalIdFrontUrl,
+      nationalIdBackUrl,
+      selfieUrl,
       submittedAt: identityVerification.submittedAt.toISOString(),
     };
   }
@@ -140,30 +178,22 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const v = await this.prismaService.identityVerification.findUnique({
       where: { userId },
     });
     if (!v) {
-      throw new NotFoundException(
-        this.getTranslation('admin.NOT_FOUND', 'Not found.'),
-      );
+      throw new NotFoundException(I18nContext.current()?.t('admin.NOT_FOUND'));
     }
     if (v.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
-    const status = isApproved ? 'APPROVED' : 'REJECTED';
+    const status = isApproved ? 'APPROVED' : 'RESUBMISSION_REQUIRED';
     await this.prismaService.identityVerification.update({
       where: { userId },
       data: {
@@ -173,17 +203,30 @@ export class AdminService {
         rejectionReason: !isApproved ? reviewDecisionDto.reason : null,
       },
     });
-    await this.realtimeService.notifyUser(userId, {
-      type: NotificationType.EKYC_APPROVED,
-      title: isApproved
-        ? 'Identity Verification Approved'
-        : 'Identity Verification Rejected',
-      message: isApproved
-        ? 'Your identity verification has been approved.'
-        : `Your identity verification has been rejected. Reason: ${reviewDecisionDto.reason}`,
-      link: '/profile',
-    });
-    return { ok: true, status };
+    await this.audit(adminId, `kyc:${reviewDecisionDto.decision}`, userId);
+    // Rejections don't get a push notification: the ERD's NotificationType
+    // enum has no EKYC_REJECTED value, and the bell renders strictly by
+    // `type` (requirements.md §6) — sending EKYC_APPROVED here would show a
+    // rejected user an approval-styled notification. The user still sees
+    // the RESUBMISSION_REQUIRED status on their next profile fetch.
+    if (isApproved) {
+      await this.realtimeService.notifyUser(userId, {
+        type: NotificationType.EKYC_APPROVED,
+        title:
+          I18nContext.current()?.t('admin.TITLE_KYC_APPROVED') ||
+          'تم قبول توثيق الهوية',
+        message:
+          I18nContext.current()?.t('admin.MSG_KYC_APPROVED') ||
+          'تمت الموافقة على توثيق هويتك بنجاح.',
+        link: '/profile',
+      });
+    }
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
   async reviewProperty(
     adminId: string,
@@ -193,10 +236,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const p = await this.prismaService.property.findUnique({
@@ -204,37 +244,135 @@ export class AdminService {
     });
     if (!p) {
       throw new NotFoundException(
-        this.getTranslation('admin.PROPERTY_NOT_FOUND', 'PROPERTY_NOT_FOUND'),
+        I18nContext.current()?.t('admin.PROPERTY_NOT_FOUND'),
       );
     }
     if (p.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
     const status = isApproved ? 'APPROVED' : 'REJECTED';
-    const property = await this.prismaService.property.update({
-      where: { id: propertyId },
-      data: {
-        status,
-        approvedBy: adminId,
-        approvedAt: new Date(),
-      },
-    });
+    const property = await this.prismaService.$transaction((tx) =>
+      tx.property.update({
+        where: { id: propertyId },
+        data: {
+          status,
+          approvedBy: adminId,
+          approvedAt: new Date(),
+        },
+      }),
+    );
+    await this.audit(
+      adminId,
+      `property:${reviewDecisionDto.decision}`,
+      propertyId,
+    );
+    if (p.status === 'PENDING' && property.status === 'APPROVED') {
+      try {
+        await this.propertyApprovalIndexingService.indexApprovedProperty(
+          property.id,
+        );
+      } catch (error) {
+        this.propertyApprovalIndexingService.logIndexingFailure(
+          property.id,
+          error,
+        );
+      }
+    }
     await this.realtimeService.notifyUser(property.ownerId, {
       type: 'PROPERTY_APPROVED',
-      title: isApproved ? 'تم قبول عقارك الجديد' : 'تم رفض إعلان العقار',
-      message: isApproved
-        ? `تمت الموافقة على نشر عقارك "${property.title}" وهو متاح للمستأجرين الآن.`
-        : `لم نتمكن من الموافقة على عقارك. السبب: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_PROPERTY_APPROVED'
+            : 'admin.TITLE_PROPERTY_REJECTED',
+        ) || (isApproved ? 'تم قبول عقارك الجديد' : 'تم رفض إعلان العقار'),
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_PROPERTY_APPROVED'
+            : 'admin.MSG_PROPERTY_REJECTED',
+          { args: { title: property.title, reason: reviewDecisionDto.reason } },
+        ) ||
+        (isApproved
+          ? `تمت الموافقة على نشر عقارك "${property.title}" وهو متاح للمستأجرين الآن.`
+          : `لم نتمكن من الموافقة على عقارك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: `/landlord/properties/${property.id}`,
     });
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
+  }
 
-    return { status };
+  /** A deliberately small, moderation-only projection. It must not reuse the
+   * general property detail mapper because that mapper may reveal contact data. */
+  async getPropertyReviewDetail(propertyId: string) {
+    const property = await this.prismaService.property.findUnique({
+      where: { id: propertyId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        governorate: { select: { nameAr: true, nameEn: true } },
+        city: { select: { nameAr: true, nameEn: true } },
+        district: true,
+        manualAddress: true,
+        propertyType: true,
+        rentAmount: true,
+        areaM2: true,
+        bedrooms: true,
+        bathrooms: true,
+        isFurnished: true,
+        hasElevator: true,
+        hasParking: true,
+        propertyAroundServices: true,
+        status: true,
+        createdAt: true,
+        propertyImages: {
+          orderBy: { displayOrder: 'asc' },
+          select: {
+            id: true,
+            imageUrl: true,
+            displayOrder: true,
+            isCover: true,
+          },
+        },
+        owner: {
+          select: {
+            fullName: true,
+            identityVerification: { select: { status: true } },
+          },
+        },
+      },
+    });
+
+    if (!property) {
+      throw new NotFoundException(
+        I18nContext.current()?.t('admin.PROPERTY_NOT_FOUND'),
+      );
+    }
+
+    const { propertyImages, owner, governorate, city, ...detail } = property;
+    const lang = I18nContext.current()?.lang ?? 'ar';
+    const isAr = lang.startsWith('ar');
+    return {
+      ...detail,
+      governorate: isAr
+        ? (governorate?.nameAr ?? governorate?.nameEn ?? '')
+        : (governorate?.nameEn ?? governorate?.nameAr ?? ''),
+      city: isAr
+        ? (city?.nameAr ?? city?.nameEn ?? '')
+        : (city?.nameEn ?? city?.nameAr ?? ''),
+      images: propertyImages,
+      ownerName: owner.fullName,
+      ownerVerificationStatus:
+        owner.identityVerification?.status ?? 'NOT_SUBMITTED',
+    };
   }
   async reviewRequest(
     adminId: string,
@@ -244,10 +382,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const r = await this.prismaService.tenantRequest.findUnique({
@@ -255,15 +390,12 @@ export class AdminService {
     });
     if (!r) {
       throw new NotFoundException(
-        this.getTranslation('admin.REQUEST_NOT_FOUND', 'REQUEST_NOT_FOUND'),
+        I18nContext.current()?.t('admin.REQUEST_NOT_FOUND'),
       );
     }
     if (r.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -275,15 +407,77 @@ export class AdminService {
         status,
       },
     });
+    await this.audit(
+      adminId,
+      `request:${reviewDecisionDto.decision}`,
+      requestId,
+    );
     await this.realtimeService.notifyUser(request.tenantId, {
       type: 'NEW_TENANT_REQUEST',
-      title: isApproved ? 'تم قبول طلبك' : 'تم رفض طلبك',
-      message: isApproved
-        ? 'تمت الموافقة على طلبك.'
-        : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_REQUEST_APPROVED'
+            : 'admin.TITLE_REQUEST_REJECTED',
+        ) || (isApproved ? 'تم قبول طلبك' : 'تم رفض طلبك'),
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_REQUEST_APPROVED'
+            : 'admin.MSG_REQUEST_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) ||
+        (isApproved
+          ? 'تمت الموافقة على طلبك بنجاح.'
+          : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: '/tenant/requests',
     });
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
+  }
+
+  /** Safe moderation projection: tenant identity is restricted to name and
+   * verification status; contact and KYC data never enter this query. */
+  async getRequestReviewDetail(requestId: string) {
+    const request = await this.prismaService.tenantRequest.findUnique({
+      where: { id: requestId },
+      select: {
+        id: true,
+        status: true,
+        minBudget: true,
+        maxBudget: true,
+        preferredLocations: true,
+        propertyType: true,
+        requiredBedrooms: true,
+        needsFurnished: true,
+        flexibilityScore: true,
+        lifestyleRequirements: true,
+        createdAt: true,
+        tenant: {
+          select: {
+            fullName: true,
+            identityVerification: { select: { status: true } },
+          },
+        },
+      },
+    });
+    if (!request) {
+      throw new NotFoundException(
+        I18nContext.current()?.t('admin.REQUEST_NOT_FOUND'),
+      );
+    }
+
+    const { tenant, ...detail } = request;
+    return {
+      ...detail,
+      tenantName: tenant.fullName,
+      tenantVerificationStatus:
+        tenant.identityVerification?.status ?? 'NOT_SUBMITTED',
+    };
   }
   async reviewUserReview(
     adminId: string,
@@ -293,10 +487,7 @@ export class AdminService {
     const isApproved = reviewDecisionDto.decision === 'approve';
     if (!isApproved && !reviewDecisionDto.reason?.trim()) {
       throw new BadRequestException(
-        this.getTranslation(
-          'admin.REASON_REQUIRED',
-          'A rejection reason is required.',
-        ),
+        I18nContext.current()?.t('admin.REASON_REQUIRED'),
       );
     }
     const ur = await this.prismaService.propertyReview.findUnique({
@@ -304,15 +495,12 @@ export class AdminService {
     });
     if (!ur) {
       throw new NotFoundException(
-        this.getTranslation('admin.REVIEW_NOT_FOUND', 'REVIEW_NOT_FOUND'),
+        I18nContext.current()?.t('admin.REVIEW_NOT_FOUND'),
       );
     }
     if (ur.status !== 'PENDING') {
       throw new ConflictException(
-        this.getTranslation(
-          'admin.ALREADY_REVIEWED',
-          'This item has already been reviewed.',
-        ),
+        I18nContext.current()?.t('admin.ALREADY_REVIEWED'),
       );
     }
 
@@ -324,16 +512,97 @@ export class AdminService {
         reviewedBy: adminId,
       },
     });
+    await this.audit(adminId, `review:${reviewDecisionDto.decision}`, reviewId);
     await this.realtimeService.notifyUser(userReview.reviewerId, {
       type: 'REVIEW_APPROVED',
-      title: isApproved ? 'تم قبول ونشر تقييمك' : 'تم رفض نشر تقييمك',
-      message: isApproved
-        ? 'تقييمك العقاري أصبح مرئيًا الآن على صفحة تفاصيل العقار.'
-        : `لم نتمكن من نشر تقييمك. السبب: ${reviewDecisionDto.reason}`,
-      link: `/tenant/properties/${userReview.propertyId}`,
+      title:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.TITLE_REVIEW_APPROVED'
+            : 'admin.TITLE_REVIEW_REJECTED',
+        ) || (isApproved ? 'تم قبول ونشر تقييمك' : 'تم رفض نشر تقييمك'),
+      message:
+        I18nContext.current()?.t(
+          isApproved
+            ? 'admin.MSG_REVIEW_APPROVED'
+            : 'admin.MSG_REVIEW_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) ||
+        (isApproved
+          ? 'تمت الموافقة على تقييمك وهو منشور الآن.'
+          : `تم رفض تقييمك. السبب: ${reviewDecisionDto.reason ?? ''}`),
+      link: `/properties/${userReview.propertyId}`,
     });
-    return { status };
+    return {
+      message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
+        args: { status },
+      }),
+      status,
+    };
   }
+
+  /** GET admin/reviews/:reviewId — detail fetch, mirrors requests/properties. */
+  async getReviewDetail(reviewId: string) {
+    const review = await this.prismaService.propertyReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        reviewer: { select: { fullName: true } },
+        property: { select: { title: true } },
+      },
+    });
+    if (!review) {
+      throw new NotFoundException(
+        I18nContext.current()?.t('admin.REVIEW_NOT_FOUND'),
+      );
+    }
+    return {
+      id: review.id,
+      reviewerName: review.reviewer.fullName,
+      propertyId: review.propertyId,
+      propertyTitle: review.property.title,
+      rating: review.rating,
+      comment: review.comment ?? '',
+      status: review.status,
+      createdAt: review.createdAt.toISOString(),
+    };
+  }
+
+  /** GET admin/login-history — admin-panel login attempts (team activity page). */
+  async getLoginHistory() {
+    const attempts = await this.prismaService.loginAttempt.findMany({
+      include: { user: { select: { fullName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return {
+      items: attempts.map((a) => ({
+        id: a.id,
+        adminName: a.user.fullName,
+        ip: a.ip,
+        at: a.createdAt.toISOString(),
+        success: a.success,
+      })),
+    };
+  }
+
+  /** GET admin/audit-log — append-only moderation action history. */
+  async getAuditLog() {
+    const entries = await this.prismaService.adminAuditLogEntry.findMany({
+      include: { actor: { select: { fullName: true } } },
+      orderBy: { at: 'desc' },
+      take: 100,
+    });
+    return {
+      items: entries.map((e) => ({
+        id: e.id,
+        actorName: e.actor.fullName,
+        action: e.action,
+        subjectId: e.subjectId,
+        at: e.at.toISOString(),
+      })),
+    };
+  }
+
   async createAdmin(
     creatorId: string | undefined,
     createAdminDto: CreateAdminDto,
@@ -346,21 +615,16 @@ export class AdminService {
     if (adminCount > 0) {
       if (!creatorId) {
         throw new UnauthorizedException(
-          this.getTranslation(
-            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
-            'Only super-admins can create new admins.',
-          ),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
       const superAdmin = await this.prismaService.user.findUnique({
         where: { id: creatorId },
       });
-      if (!superAdmin || superAdmin.role === 'ADMIN') {
+
+      if (!superAdmin || superAdmin.role !== 'ADMIN') {
         throw new ForbiddenException(
-          this.getTranslation(
-            'admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN',
-            'Only super-admins can create new admins.',
-          ),
+          I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
     }
@@ -370,7 +634,7 @@ export class AdminService {
     });
     if (existingUser) {
       throw new ConflictException(
-        this.getTranslation('auth.EMAIL_EXISTS', 'Email already exists.'),
+        I18nContext.current()?.t('auth.EMAIL_EXISTS'),
       );
     }
     // 3. Hash password and persist new Admin
@@ -456,6 +720,130 @@ export class AdminService {
       disabled: !admin.isActive,
       lastLoginAt: admin.lastLoginAt?.toISOString() || null,
       createdAt: admin.createdAt.toISOString(),
+    };
+  }
+
+  async getStats(): Promise<AdminStats> {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+
+    // 1. Execute all database queries concurrently in a single Promise.all
+    const [
+      revenueAggregate,
+      activeListingsCount,
+      pendingCounts,
+      approvedCounts,
+      rejectedCounts,
+      recentTransactions,
+    ] = await Promise.all([
+      // DB-native aggregate for total revenue & transaction count
+      this.prismaService.paymentTransaction.aggregate({
+        where: { status: 'SUCCESS' },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+
+      // Active listings count
+      this.prismaService.property.count({
+        where: { status: 'APPROVED' },
+      }),
+
+      // Pending moderations (Property, Verification, Request, Review)
+      Promise.all([
+        this.prismaService.property.count({ where: { status: 'PENDING' } }),
+        this.prismaService.identityVerification.count({
+          where: { status: 'PENDING' },
+        }),
+        this.prismaService.tenantRequest.count({
+          where: { status: 'PENDING' },
+        }),
+        this.prismaService.propertyReview.count({
+          where: { status: 'PENDING' },
+        }),
+      ]),
+
+      // Approved moderations
+      Promise.all([
+        this.prismaService.property.count({ where: { status: 'APPROVED' } }),
+        this.prismaService.identityVerification.count({
+          where: { status: 'APPROVED' },
+        }),
+        this.prismaService.tenantRequest.count({
+          where: { status: 'APPROVED' },
+        }),
+        this.prismaService.propertyReview.count({
+          where: { status: 'APPROVED' },
+        }),
+      ]),
+
+      // Rejected moderations
+      Promise.all([
+        this.prismaService.property.count({ where: { status: 'REJECTED' } }),
+        this.prismaService.identityVerification.count({
+          where: { status: 'REJECTED' },
+        }),
+        this.prismaService.tenantRequest.count({
+          where: { status: 'REJECTED' },
+        }),
+        this.prismaService.propertyReview.count({
+          where: { status: 'REJECTED' },
+        }),
+      ]),
+
+      // Transactions over the last 12 months for monthly chart
+      this.prismaService.paymentTransaction.findMany({
+        where: {
+          status: 'SUCCESS',
+          createdAt: { gte: twelveMonthsAgo },
+        },
+        select: {
+          amount: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    // 2. Sum moderation totals
+    const pendingModeration = pendingCounts.reduce(
+      (sum, count) => sum + count,
+      0,
+    );
+    const totalApproved = approvedCounts.reduce((sum, count) => sum + count, 0);
+    const totalRejected = rejectedCounts.reduce((sum, count) => sum + count, 0);
+
+    // 3. Group transactions cleanly by month using Intl.DateTimeFormat
+    const monthlyMap = new Map<
+      string,
+      { month: string; revenue: number; transactions: number }
+    >();
+    const monthFormatter = new Intl.DateTimeFormat('ar-EG', { month: 'long' });
+
+    for (const t of recentTransactions) {
+      const monthName = monthFormatter.format(t.createdAt);
+      const existing = monthlyMap.get(monthName) ?? {
+        month: monthName,
+        revenue: 0,
+        transactions: 0,
+      };
+      existing.revenue += t.amount;
+      existing.transactions += 1;
+      monthlyMap.set(monthName, existing);
+    }
+
+    return {
+      summary: {
+        totalRevenue: revenueAggregate._sum.amount ?? 0,
+        totalTransactions: revenueAggregate._count._all,
+        activeListings: activeListingsCount,
+        pendingModeration,
+      },
+      monthlyRevenue: Array.from(monthlyMap.values()),
+      moderationDistribution: [
+        { label: 'تمت الموافقة', value: totalApproved },
+        { label: 'قيد المراجعة', value: pendingModeration },
+        { label: 'تم الرفض', value: totalRejected },
+      ],
     };
   }
 }

@@ -2,10 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
-import { lstat, mkdir, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import {
   PrivateObjectStorage,
+  TemporaryPrivateObject,
   UploadPrivateObjectInput,
   UploadPrivateObjectResult,
 } from './private-object-storage.interface';
@@ -81,8 +82,37 @@ export class LocalPrivateObjectStorageService implements PrivateObjectStorage {
       expiresAt: Date.now() + expiresInSeconds * 1000,
     });
 
-    // A protected admin delivery endpoint or production signed-URL adapter is intentionally out of scope.
-    return `private-local://read/${token}`;
+    return `/api/storage/private/${token}`;
+  }
+
+  async readTemporaryObject(token: string): Promise<TemporaryPrivateObject> {
+    this.removeExpiredTemporaryReadTokens();
+    if (!/^[0-9a-f-]{36}$/i.test(token)) {
+      throw new Error('Invalid temporary read token');
+    }
+
+    const metadata = this.temporaryReadTokens.get(token);
+    if (!metadata || metadata.expiresAt <= Date.now()) {
+      this.temporaryReadTokens.delete(token);
+      throw new Error('Temporary read token is invalid or expired');
+    }
+
+    const objectPath = this.resolveObjectPath(metadata.objectKey);
+    try {
+      const objectStats = await this.readObjectStats(objectPath);
+      if (!objectStats.isFile() || objectStats.isSymbolicLink()) {
+        throw new Error('Private object is not a regular file');
+      }
+      return {
+        data: await readFile(objectPath),
+        contentType: this.contentTypeFor(metadata.objectKey),
+      };
+    } catch (error: unknown) {
+      if (this.isMissingFileError(error)) {
+        throw new Error('Private object does not exist');
+      }
+      throw error;
+    }
   }
 
   async delete(objectKey: string): Promise<void> {
@@ -115,6 +145,14 @@ export class LocalPrivateObjectStorageService implements PrivateObjectStorage {
       default:
         return '.bin';
     }
+  }
+
+  private contentTypeFor(
+    objectKey: string,
+  ): TemporaryPrivateObject['contentType'] {
+    if (objectKey.endsWith('.png')) return 'image/png';
+    if (objectKey.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
   }
 
   private resolveObjectPath(objectKey: string): string {

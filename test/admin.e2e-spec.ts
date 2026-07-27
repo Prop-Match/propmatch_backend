@@ -58,13 +58,21 @@ describe('AdminController (e2e)', () => {
     });
     landlordId = landlord.id;
 
+    const governorate = await prisma.governorate.findFirstOrThrow({
+      where: { nameEn: 'Dakahlia' },
+    });
+    const city = await prisma.city.findFirstOrThrow({
+      where: { governorateId: governorate.id, nameEn: 'Mansoura' },
+    });
+
     const property = await prisma.property.create({
       data: {
         ownerId: landlord.id,
         title: `Pending property ${suffix}`,
         description: 'A property awaiting moderation.',
-        governorate: 'الدقهلية',
-        city: 'المنصورة',
+        countryId: governorate.countryId,
+        governorateId: governorate.id,
+        cityId: city.id,
         district: 'حي أول',
         manualAddress: 'شارع الجامعة',
         propertyType: 'APARTMENT',
@@ -83,6 +91,12 @@ describe('AdminController (e2e)', () => {
 
   afterAll(async () => {
     await prisma.notification.deleteMany({
+      where: { userId: { in: [adminId, landlordId] } },
+    });
+    await prisma.adminAuditLogEntry.deleteMany({
+      where: { actorId: { in: [adminId, landlordId] } },
+    });
+    await prisma.loginAttempt.deleteMany({
       where: { userId: { in: [adminId, landlordId] } },
     });
     await prisma.property.deleteMany({ where: { id: propertyId } });
@@ -152,7 +166,7 @@ describe('AdminController (e2e)', () => {
       .post(`/admin/properties/${propertyId}/review`)
       .set('Authorization', `Bearer ${token}`)
       .send({ decision: 'approve' })
-      .expect(201);
+      .expect(200);
 
     const body = res.body as { status: string };
     expect(body.status).toBe('APPROVED');

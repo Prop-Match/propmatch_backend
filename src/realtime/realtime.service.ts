@@ -1,12 +1,15 @@
+import { UserRole } from '@generated/prisma/enums';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RealtimeGateway } from './realtime.gateway';
 import {
   SOCKET_EVENTS,
+  SupportMessagePayload,
+  SupportTicketPayload,
   type NotificationPayload,
   type NotificationType,
   type QueueItem,
 } from './realtime.contract';
+import { RealtimeGateway } from './realtime.gateway';
 
 /**
  * The realtime API the rest of the team calls
@@ -42,7 +45,11 @@ export class RealtimeService {
    * and the fetched one render differently for the same thing. */
 
   /** A new eKYC submission needs review. (Sprint: "a new user registers".) */
-  kycSubmitted(input: { userId: string; userName: string; submittedAt?: Date }): void {
+  kycSubmitted(input: {
+    userId: string;
+    userName: string;
+    submittedAt?: Date;
+  }): void {
     this.announce({
       id: `q_${input.userId}`,
       type: 'kyc',
@@ -111,7 +118,6 @@ export class RealtimeService {
     this.gateway.emitToAdmins(SOCKET_EVENTS.adminQueueItem, item);
   }
 
-
   /**
    * Persist a NOTIFICATION and push it to the user live. Returns the row.
    * Persist-then-emit, never the reverse: if the emit fails the row still
@@ -139,7 +145,7 @@ export class RealtimeService {
 
     const payload: NotificationPayload = {
       id: row.id,
-      type: row.type as NotificationType,
+      type: row.type,
       title: row.title,
       message: row.message,
       link: row.link,
@@ -149,6 +155,31 @@ export class RealtimeService {
     // userId routes the event; it is not part of the client payload.
     this.gateway.emitToUser(userId, SOCKET_EVENTS.notification, payload);
     return payload;
+  }
+
+  emitMessage(userId: string, payload: unknown): void {
+    this.gateway.emitToUser(userId, SOCKET_EVENTS.message, payload);
+  }
+
+  async emitToRole(
+    role: UserRole,
+    type: NotificationType,
+    payload: NotificationPayload,
+  ) {
+    const users = await this.prisma.user.findMany({ where: { role } });
+    for (const user of users) {
+      this.gateway.emitToUser(user.id, SOCKET_EVENTS.notification, payload);
+    }
+  }
+  supportTicketCreated(input: SupportTicketPayload): void {
+    this.gateway.emitToAdmins(SOCKET_EVENTS.supportTicketCreated, input);
+  }
+  supportMessageRecieved(userId: string, payload: SupportMessagePayload): void {
+    this.gateway.emitToUser(
+      userId,
+      SOCKET_EVENTS.supportMessageReceived,
+      payload,
+    );
   }
 }
 

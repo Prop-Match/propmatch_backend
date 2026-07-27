@@ -56,6 +56,10 @@ enum PaymentStatus {
   FAILED
 }
 
+enum PaymentProvider {
+  PAYMOB
+}
+
 enum NotificationType {
   EKYC_APPROVED
   PROPERTY_APPROVED
@@ -65,6 +69,7 @@ enum NotificationType {
   REVIEW_APPROVED
   NEW_TENANT_REQUEST
   NEW_OFFER_RECEIVED
+  NEW_MESSAGE
 }
 
 enum TenantRequestStatus {
@@ -105,6 +110,9 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
+  //forget password
+  resetToken           String?               @map("reset_token")
+  resetTokenExpiry     DateTime?             @map("reset_token_expiry")
   // Profiles & Settings
   identityVerification IdentityVerification?
   userQuota            UserQuota?
@@ -135,6 +143,16 @@ model User {
   paymentTransactions PaymentTransaction[]
   leaseContracts      LeaseContract[]
   notifications       Notification[]
+  sentMessages        Message[]
+
+  // Admin activity (team page)
+  loginAttempts   LoginAttempt[]
+  auditLogEntries AdminAuditLogEntry[]
+
+  // Customer support
+  supportTickets  SupportTicket[]  @relation("UserTickets")
+  assignedTickets SupportTicket[]  @relation("AdminAssignedTickets")
+  supportMessages SupportMessage[]
 
   @@map("user")
 }
@@ -171,7 +189,7 @@ model UserQuota {
   userId            String   @unique @map("user_id") @db.Uuid
   user              User     @relation(fields: [userId], references: [id])
   freeListingsLeft  Int      @default(1) @map("free_listings_left")
-  optimizerUsesLeft Int      @default(2) @map("optimizer_uses_left")
+  optimizerUsesLeft Int      @default(3) @map("optimizer_uses_left")
   freeOffersLeft    Int      @default(3) @map("free_offers_left")
   lastResetDate     DateTime @default(now()) @map("last_reset_date")
   updatedAt         DateTime @updatedAt @map("updated_at")
@@ -185,8 +203,9 @@ model Property {
   owner                  User           @relation("PropertyOwner", fields: [ownerId], references: [id])
   title                  String
   description            String
-  governorate            String
-  city                   String
+  country                Country        @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  governorate            Governorate    @relation(fields: [governorateId], references: [id], onDelete: Restrict)
+  city                   City           @relation(fields: [cityId], references: [id], onDelete: Restrict)
   district               String
   manualAddress          String         @map("manual_address")
   propertyType           PropertyType   @map("property_type")
@@ -214,6 +233,9 @@ model Property {
   favorites        Favorite[]
   matchConnections MatchConnection[]
   ownerOffers      OwnerOffer[]
+  governorateId    Int
+  cityId           Int
+  countryId        Int
 
   @@map("property")
 }
@@ -313,22 +335,39 @@ model MatchConnection {
   status     ConnectionStatus @default(INTERESTED)
   createdAt  DateTime         @default(now()) @map("created_at")
   updatedAt  DateTime         @updatedAt @map("updated_at")
+  messages   Message[]
 
   @@map("match_connection")
 }
 
+model Message {
+  id                String   @id @default(uuid()) @db.Uuid
+  matchConnectionId String   @map("match_connection_id") @db.Uuid
+  senderId          String   @map("sender_id") @db.Uuid
+  body              String   @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  matchConnection MatchConnection @relation(fields: [matchConnectionId], references: [id], onDelete: Cascade)
+  sender          User            @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([matchConnectionId, createdAt])
+  @@index([senderId])
+  @@map("message")
+}
+
 model PaymentTransaction {
-  id                  String        @id @default(uuid()) @db.Uuid
-  userId              String        @map("user_id") @db.Uuid
-  user                User          @relation(fields: [userId], references: [id])
-  paymobOrderId       String        @unique @map("paymob_order_id")
-  paymobTransactionId String?       @map("paymob_transaction_id")
-  amount              Float
-  currency            String        @default("EGP")
-  paymentType         PaymentType   @map("payment_type")
-  status              PaymentStatus @default(PENDING)
-  paidAt              DateTime?     @map("paid_at")
-  createdAt           DateTime      @default(now()) @map("created_at")
+  id                    String          @id @default(uuid()) @db.Uuid
+  userId                String          @map("user_id") @db.Uuid
+  user                  User            @relation(fields: [userId], references: [id])
+  provider              PaymentProvider @default(PAYMOB)
+  providerOrderId       String          @unique @map("provider_order_id")
+  providerTransactionId String?         @map("provider_transaction_id")
+  amount                Float
+  currency              String          @default("EGP")
+  paymentType           PaymentType     @map("payment_type")
+  status                PaymentStatus   @default(PENDING)
+  paidAt                DateTime?       @map("paid_at")
+  createdAt             DateTime        @default(now()) @map("created_at")
 
   @@map("payment_transaction")
 }
@@ -377,4 +416,143 @@ model Notification {
   createdAt DateTime         @default(now()) @map("created_at")
 
   @@map("notification")
+}
+
+/**
+ * Admin-panel login attempts (team activity page). Only ADMIN-role accounts are recorded.
+ */
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  ip        String
+  success   Boolean
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("login_attempt")
+}
+
+/**
+ * Append-only record of sensitive admin moderation actions (team activity page).
+ */
+model AdminAuditLogEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String   @map("actor_id") @db.Uuid
+  actor     User     @relation(fields: [actorId], references: [id])
+  action    String
+  subjectId String   @map("subject_id") @db.Uuid
+  at        DateTime @default(now())
+
+  @@index([at])
+  @@map("admin_audit_log_entry")
+}
+
+model Country {
+  id           Int           @id @default(autoincrement())
+  nameAr       String        @map("name_ar")
+  nameEn       String        @map("name_en")
+  code         String        @unique
+  image        String
+  status       Boolean       @default(true)
+  governorates Governorate[]
+  properties   Property[]
+
+  @@map("country")
+}
+
+model Governorate {
+  id         Int        @id @default(autoincrement())
+  countryId  Int        @map("country_id")
+  country    Country    @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  nameAr     String     @map("name_ar")
+  nameEn     String     @map("name_en")
+  status     Boolean    @default(true)
+  cities     City[]
+  properties Property[]
+
+  @@map("governorate")
+}
+
+model City {
+  id            Int         @id @default(autoincrement())
+  governorateId Int         @map("governorate_id")
+  governorate   Governorate @relation(fields: [governorateId], references: [id], onDelete: Cascade)
+  nameAr        String      @map("name_ar")
+  nameEn        String      @map("name_en")
+  status        Boolean     @default(true)
+  properties    Property[]
+  districts     District[]
+
+  @@map("city")
+}
+
+model District {
+  id     Int     @id @default(autoincrement())
+  cityId Int     @map("city_id")
+  city   City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  nameAr String  @map("name_ar")
+  nameEn String  @map("name_en")
+  status Boolean @default(false)
+
+  @@map("district")
+}
+
+enum TicketStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  WAITING
+  CLOSED
+}
+
+enum SupportAuthor {
+  AI
+  USER
+  ADMIN
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+model SupportTicket {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @map("user_id") @db.Uuid
+  user             User             @relation("UserTickets", fields: [userId], references: [id])
+  status           TicketStatus     @default(NEW)
+  assignedAdminId  String?          @map("assigned_admin_id") @db.Uuid
+  assignedAdmin    User?            @relation("AdminAssignedTickets", fields: [assignedAdminId], references: [id])
+  messages         SupportMessage[]
+  lastMessageAt    DateTime         @default(now()) @map("last_message_at")
+  escalationReason String?          @map("escalation_reason") @db.Text
+  priority         SupportPriority  @default(NORMAL)
+  aiSummary        String?          @map("ai_summary") @db.Text
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@index([userId, updatedAt])
+  @@index([assignedAdminId, status])
+  @@index([status, lastMessageAt])
+  @@map("support_ticket")
+}
+
+model SupportMessage {
+  id         String        @id @default(uuid()) @db.Uuid
+  ticketId   String        @map("ticket_id") @db.Uuid
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorType SupportAuthor
+  authorName String        @map("author_name")
+  authorId   String?       @map("author_id") @db.Uuid
+  author     User?         @relation(fields: [authorId], references: [id])
+  content    String
+  internal   Boolean       @default(false)
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@map("support_message")
 }

@@ -2,6 +2,14 @@
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
 
+## PropMatch modules
+
+The legal chatbot is exposed through the authenticated NestJS gateway and
+delegates RAG work to the standalone FastAPI service. See
+[`src/legal-support/README.md`](./src/legal-support/README.md) for endpoints,
+environment variables, streaming behavior, and the service-to-service security
+boundary.
+
 [circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
 [circleci-url]: https://circleci.com/gh/nestjs/nest
 
@@ -60,6 +68,52 @@ To initialize and sync the database in your local environment, follow these step
 ```bash
 $ npm install
 ```
+
+## Semantic embeddings: Cohere primary, local fallback
+
+Property indexing creates a Cohere embedding and a local embedding for every
+approved property. Search uses Cohere first and automatically falls back to the
+local model only for transient Cohere failures (network errors, timeouts, 429,
+and 5xx responses). Invalid credentials and invalid Cohere responses remain
+configuration errors.
+
+The local sidecar loads
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` once on CPU.
+Cohere and local vectors use separate Chroma collections because their vector
+dimensions and semantic spaces differ.
+
+```bash
+cd local_embeddings_service
+python -m venv .venv
+.venv\\Scripts\\python -m pip install -r requirements.txt
+.venv\\Scripts\\python -m uvicorn app:app --env-file ..\\.env --host 127.0.0.1 --port 8001
+```
+
+Set these values in `backend/.env`:
+
+```env
+COHERE_API_KEY=replace-with-a-server-side-key
+COHERE_EMBEDDING_MODEL=embed-v4.0
+COHERE_EMBEDDING_DIMENSION=1024
+LOCAL_EMBEDDINGS_ENABLED=true
+EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+CHROMA_PATH=./chroma_data
+CHROMA_COHERE_COLLECTION=propmatch_properties_cohere_v1
+CHROMA_LOCAL_COLLECTION=propmatch_properties_local_v1
+LOCAL_EMBEDDINGS_URL=http://127.0.0.1:8001
+```
+
+Verify the local flow with `python verify.py` from `local_embeddings_service`.
+After the local sidecar is running, reindex existing approved properties once
+so both collections are populated:
+
+```bash
+npm run embeddings:reindex
+```
+
+To test Cohere without the local sidecar, set
+`LOCAL_EMBEDDINGS_ENABLED=false`, restart the backend, and run the same reindex
+command. Cohere remains the only active embedding provider in that mode.
 
 ## Compile and run the project
 

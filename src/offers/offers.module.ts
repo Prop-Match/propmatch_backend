@@ -1,14 +1,11 @@
 import { Module } from '@nestjs/common';
+import { CommonModule } from '../common/common.module';
 import { OffersController } from './offers.controller';
 import { OffersService } from './offers.service';
 
-/**
- * PRO-12/13 offers. RealtimeService (for notifying the tenant) and
- * PrismaService are both global, so nothing extra is imported here.
- */
 @Module({
+  imports: [CommonModule],
   controllers: [OffersController],
   providers: [OffersService],
-  exports: [OffersService],
 })
 export class OffersModule {}

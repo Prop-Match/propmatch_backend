@@ -7,5 +7,22 @@
   "REASON_REQUIRED": "A rejection reason is required.",
   "ALREADY_REVIEWED": "This item has already been reviewed.",
   "NOT_FOUND": "Not found.",
-  "ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN": "Only super-admins can create new admins."
+  "ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN": "Only super-admins can create new admins.",
+  "TITLE_KYC_APPROVED": "Identity Verification Approved",
+  "TITLE_KYC_REJECTED": "Identity Verification Rejected",
+  "MSG_KYC_APPROVED": "Your identity verification has been approved.",
+  "MSG_KYC_REJECTED": "Your identity verification has been rejected. Reason: {reason}",
+  "TITLE_PROPERTY_APPROVED": "Property Listing Approved",
+  "TITLE_PROPERTY_REJECTED": "Property Listing Rejected",
+  "MSG_PROPERTY_APPROVED": "Your property \"{title}\" has been approved and is now live.",
+  "MSG_PROPERTY_REJECTED": "We couldn't approve your property. Reason: {reason}",
+  "TITLE_REQUEST_APPROVED": "Request Approved",
+  "TITLE_REQUEST_REJECTED": "Request Rejected",
+  "MSG_REQUEST_APPROVED": "Your request has been approved.",
+  "MSG_REQUEST_REJECTED": "Your request has been rejected. Reason: {reason}",
+  "TITLE_REVIEW_APPROVED": "Review Approved",
+  "TITLE_REVIEW_REJECTED": "Review Rejected",
+  "MSG_REVIEW_APPROVED": "Your review has been approved and published.",
+  "MSG_REVIEW_REJECTED": "Your review has been rejected. Reason: {reason}",
+  "REVIEW_SUCCESS_MESSAGE": "Review operation completed successfully. Status: {status}"
 }
