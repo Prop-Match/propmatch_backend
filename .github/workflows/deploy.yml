@@ -1,0 +1,45 @@
+name: Deploy backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pull main and update Docker containers
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            set -eu
+
+            cd ~/propmatch_backend
+
+            if [ "$(git branch --show-current)" != "main" ]; then
+              echo "Deployment directory must be checked out on the main branch."
+              exit 1
+            fi
+
+            git pull --ff-only origin main
+
+            docker compose build
+            docker compose up -d postgres
+            docker compose run --rm migrate
+            docker compose up -d --no-deps --wait --wait-timeout 120 backend
+            docker compose ps
