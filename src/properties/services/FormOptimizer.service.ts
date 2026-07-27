@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Observable } from 'rxjs';
+import { SbgChatService } from '../../common/services/sbg-chat.service';
 
 @Injectable()
 export class FormOptimizerService {
   private readonly logger = new Logger(FormOptimizerService.name);
+
+  constructor(private readonly sbgChatService: SbgChatService) {}
 
   private createFallbackDescription(
     description: unknown,
@@ -71,62 +74,17 @@ export class FormOptimizerService {
       (async () => {
         try {
           const { description, ...context } = payload;
-          const apiKey = process.env.SBG_API_KEY;
           const systemPrompt =
             'You are an expert real estate copywriter. Write a polished Arabic rental-listing description using only the supplied details. Keep it between 80 and 120 words, use two or three complete sentences, do not invent facts, and end with sentence-ending punctuation. Return only the final description, with no heading or commentary.';
           const content = `Original Description: ${description || 'N/A'}\nContext: ${JSON.stringify(context)}`;
           let finalText: string;
 
           try {
-            if (!apiKey) throw new Error('SBG_API_KEY is not defined');
-            const requestPayload = {
-              model_id: process.env.SBG_CHAT_MODEL || 'openai.gpt-oss-120b-1:0',
-              messages: [{ role: 'user', content }],
-              system_prompt: systemPrompt,
-              max_tokens: 700,
-            };
-            const baseUrl = (
-              process.env.SBG_BASE_URL || 'http://apiaccess.iti.net.eg'
-            ).replace(/\/$/, '');
-            const response = await fetch(`${baseUrl}/api/v1/student/chat`, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(requestPayload),
-              signal: AbortSignal.timeout(10_000),
+            finalText = await this.sbgChatService.complete({
+              systemPrompt,
+              userContent: content,
+              maxTokens: 700,
             });
-
-            if (!response.ok) {
-              throw new Error(
-                `LLM API error: ${response.status} ${response.statusText}`,
-              );
-            }
-
-            const data: any = await response.json();
-            const generatedText = [
-              data.output_text,
-              data.reply,
-              data.content,
-              data.choices?.[0]?.message?.content,
-              data.choices?.[0]?.text,
-              typeof data.message === 'string'
-                ? data.message
-                : data.message?.content,
-            ].find(
-              (value): value is string =>
-                typeof value === 'string' && value.trim().length > 0,
-            );
-
-            finalText =
-              generatedText ||
-              this.createFallbackDescription(description, context);
-            if (!generatedText) {
-              this.logger.warn(
-                `SBG returned no completed text (status=${String(data.status ?? 'unknown')}); used deterministic fallback.`,
-              );
-            }
           } catch (error) {
             this.logger.warn(
               'SBG optimizer is unavailable; used deterministic fallback.',
