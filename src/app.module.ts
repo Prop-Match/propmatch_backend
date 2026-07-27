@@ -23,6 +23,7 @@ import { VerificationModule } from './verification/verification.module';
 import { CustomerSupportModule } from './customer-support/customer-support.module';
 import { QuotaModule } from './quota/quota.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { FavoritesModule } from './favorites/favorites.module';
 
 /**
  * Nest copies `src/i18n` to `dist/i18n`, while compiled modules live under
@@ -67,6 +68,7 @@ const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
     CustomerSupportModule,
     QuotaModule,
     NotificationsModule,
+    FavoritesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
