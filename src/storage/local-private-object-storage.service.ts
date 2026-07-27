@@ -38,7 +38,7 @@ export class LocalPrivateObjectStorageService implements PrivateObjectStorage {
       throw new Error('Private object data must not be empty');
     }
 
-    const objectKey = `${this.environmentPrefix()}/identity/${randomUUID()}${this.extensionFor(input.contentType)}`;
+    const objectKey = `${this.environmentPrefix()}/${input.category ?? 'identity'}/${randomUUID()}${this.extensionFor(input.contentType)}`;
     const objectPath = this.resolveObjectPath(objectKey);
 
     await mkdir(path.dirname(objectPath), { recursive: true, mode: 0o700 });
@@ -142,6 +142,8 @@ export class LocalPrivateObjectStorageService implements PrivateObjectStorage {
         return '.png';
       case 'image/webp':
         return '.webp';
+      case 'application/pdf':
+        return '.pdf';
       default:
         return '.bin';
     }
@@ -152,13 +154,17 @@ export class LocalPrivateObjectStorageService implements PrivateObjectStorage {
   ): TemporaryPrivateObject['contentType'] {
     if (objectKey.endsWith('.png')) return 'image/png';
     if (objectKey.endsWith('.webp')) return 'image/webp';
+    if (objectKey.endsWith('.pdf')) return 'application/pdf';
     return 'image/jpeg';
   }
 
   private resolveObjectPath(objectKey: string): string {
+    const allowedPrefixes = ['identity', 'contracts'].map(
+      (category) => `${this.environmentPrefix()}/${category}/`,
+    );
     if (
       !objectKey ||
-      !objectKey.startsWith(`${this.environmentPrefix()}/identity/`) ||
+      !allowedPrefixes.some((prefix) => objectKey.startsWith(prefix)) ||
       objectKey.includes('\0') ||
       objectKey.includes('\\') ||
       path.isAbsolute(objectKey) ||
