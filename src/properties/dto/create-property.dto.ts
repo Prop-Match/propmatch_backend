@@ -1,4 +1,5 @@
 import { PropertyType } from '@generated/prisma/enums';
+import { Transform, TransformFnParams, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -11,6 +12,15 @@ import {
   MinLength,
   ArrayMinSize,
 } from 'class-validator';
+
+function multipartBoolean({ value }: TransformFnParams): unknown {
+  const candidate: unknown = value;
+  return candidate === 'true'
+    ? true
+    : candidate === 'false'
+      ? false
+      : candidate;
+}
 
 export class CreatePropertyDto {
   @IsString()
@@ -54,32 +64,39 @@ export class CreatePropertyDto {
   // ── Financials & dimensions ─────────────────────────────────────────
 
   /** Frontend sends "rentAmount" → maps to Prisma "monthlyRent" */
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   rentAmount: number;
 
   /** Frontend sends "areaM2" → maps to Prisma "area" */
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   areaM2: number;
 
   /** Frontend sends "bedrooms" → maps to Prisma "rooms" */
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   bedrooms: number;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   bathrooms: number;
 
   // ── Booleans ────────────────────────────────────────────────────────
 
+  @Transform(multipartBoolean)
   @IsBoolean()
   isFurnished: boolean;
 
+  @Transform(multipartBoolean)
   @IsBoolean()
   hasElevator: boolean;
 
+  @Transform(multipartBoolean)
   @IsBoolean()
   hasParking: boolean;
 

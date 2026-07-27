@@ -49,29 +49,45 @@ flowchart LR
   `reason: "NO_RELEVANT_SEMANTIC_MATCH"`. The response deliberately does
   **not** expose raw vector distance, embeddings, threshold, or collection
   details.
+
+### Deterministic match reasons
+
+Each returned item also carries up to three `matchReasons`, each with a stable
+code and Arabic display text. Reasons are generated locally after approved
+property hydration and never make another embedding, vector, or AI request.
+Their fixed priority is location mention, property-type mention, bedroom
+mention, furnished mention, then the general `MATCHES_SEARCH_INTENT` reason.
+Only facts explicitly found in the free-text query and the hydrated property
+are used; because this endpoint has no structured filters, it emits no budget
+or hard-filter claims. The general semantic reason is present only for items
+that already passed the configured semantic threshold.
+
 - **Failure behaviour:** unavailable embedding/vector dependencies produce
   HTTP 503 with `SEMANTIC_SEARCH_UNAVAILABLE`; an empty Chroma result is a
   successful empty response.
 
 ## Hard filters and retrieval paths
 
-`PropertiesService.semanticSearch` is an ID hydration path. Its only
-authoritative SQL filter is `status: 'APPROVED'`; that check happens after the
-Chroma lookup. It does not accept or enforce budget, bedrooms, property type,
-city/location, or furnishing filters. Therefore it must not be used as the
-final implementation of filtered tenant matching without adding SQL filters.
+`PropertiesService.semanticSearch` is an ID hydration path. `status:
+'APPROVED'` remains authoritative after Chroma lookup. Broad free-text queries
+use the configured semantic threshold. When the submitted query explicitly
+mentions furnished/unfurnished wording, a supported property type, or a city/
+district found on hydrated candidates, the service deterministically filters
+those facts and ranks that valid subset by its unchanged semantic similarity.
+This keeps exact stated requirements from being overridden by semantic ranking;
+it does not infer budget or bedroom constraints.
 
 `PropertiesService.search` is the existing, currently un-routed hybrid-search
 seam. It builds a Prisma `where` clause before its optional Chroma ID lookup:
 
-| Constraint | Location and behaviour |
-| --- | --- |
-| Approved/available status | `PropertiesService.search` and `getAll`: `status: 'APPROVED'`; semantic hydration: `status: 'APPROVED'`. “Available” has no separate property-status field in this schema. |
-| Maximum budget | `search`: `rentAmount.lte = maxRent`; `getAll` likewise. |
-| Minimum bedrooms | `search`: `bedrooms.gte = bedrooms`; `getAll` uses exact equality instead. |
-| Property type | `search` and `getAll`: equality filter. |
-| City / required location | `search` and `getAll`: city equality only. The rule-based offers path checks whether `preferredLocations` contains `property.district`; it is scoring, not a hard filter. |
-| Mandatory furnishing | `search`: when truthy, only `isFurnished: true`; `getAll`: exact boolean when supplied. The offers path only awards points when a furnished property satisfies a furnished request; it does not exclude other properties. |
+| Constraint                | Location and behaviour                                                                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Approved/available status | `PropertiesService.search` and `getAll`: `status: 'APPROVED'`; semantic hydration: `status: 'APPROVED'`. “Available” has no separate property-status field in this schema.                                                |
+| Maximum budget            | `search`: `rentAmount.lte = maxRent`; `getAll` likewise.                                                                                                                                                                  |
+| Minimum bedrooms          | `search`: `bedrooms.gte = bedrooms`; `getAll` uses exact equality instead.                                                                                                                                                |
+| Property type             | `search` and `getAll`: equality filter.                                                                                                                                                                                   |
+| City / required location  | `search` and `getAll`: city equality only. The rule-based offers path checks whether `preferredLocations` contains `property.district`; it is scoring, not a hard filter.                                                 |
+| Mandatory furnishing      | `search`: when truthy, only `isFurnished: true`; `getAll`: exact boolean when supplied. The offers path only awards points when a furnished property satisfies a furnished request; it does not exclude other properties. |
 
 The public routed browse endpoint, `GET /api/properties`, calls `getAll`, not
 `search`. As a result, the `search` hybrid/Chroma code is a competing dormant

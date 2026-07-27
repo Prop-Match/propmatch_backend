@@ -84,7 +84,7 @@ export class AuthService {
             userQuota: {
               create: {
                 freeListingsLeft: 1,
-                optimizerUsesLeft: 2,
+                optimizerUsesLeft: 3,
                 freeOffersLeft: 3,
               },
             },
