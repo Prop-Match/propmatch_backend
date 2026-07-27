@@ -17,6 +17,7 @@
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "prisma:seed": "tsc -p tsconfig.seed.json && NODE_PATH=.seed-build node .seed-build/prisma/seed.js",
+    "embeddings:reindex": "ts-node -r tsconfig-paths/register -r ./scripts/resolve-generated-prisma.cjs src/scripts/reindex-property-embeddings.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
