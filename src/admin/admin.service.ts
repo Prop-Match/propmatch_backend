@@ -204,6 +204,11 @@ export class AdminService {
       },
     });
     await this.audit(adminId, `kyc:${reviewDecisionDto.decision}`, userId);
+    // Rejections don't get a push notification: the ERD's NotificationType
+    // enum has no EKYC_REJECTED value, and the bell renders strictly by
+    // `type` (requirements.md §6) — sending EKYC_APPROVED here would show a
+    // rejected user an approval-styled notification. The user still sees
+    // the RESUBMISSION_REQUIRED status on their next profile fetch.
     if (isApproved) {
       await this.realtimeService.notifyUser(userId, {
         type: NotificationType.EKYC_APPROVED,
@@ -213,18 +218,6 @@ export class AdminService {
         message:
           I18nContext.current()?.t('admin.MSG_KYC_APPROVED') ||
           'تمت الموافقة على توثيق هويتك بنجاح.',
-        link: '/profile',
-      });
-    } else {
-      await this.realtimeService.notifyUser(userId, {
-        type: NotificationType.EKYC_APPROVED,
-        title:
-          I18nContext.current()?.t('admin.TITLE_KYC_REJECTED') ||
-          'تم رفض توثيق الهوية',
-        message:
-          I18nContext.current()?.t('admin.MSG_KYC_REJECTED', {
-            args: { reason: reviewDecisionDto.reason ?? 'يرجى إعادة التقديم' },
-          }) || `تم رفض توثيق هويتك. السبب: ${reviewDecisionDto.reason ?? ''}`,
         link: '/profile',
       });
     }
