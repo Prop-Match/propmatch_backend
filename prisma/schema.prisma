@@ -67,6 +67,7 @@ enum PaymentProvider {
 
 enum OwnerPlan {
   FREE
+  OWNER_PLUS
   PREMIUM
 }
 
