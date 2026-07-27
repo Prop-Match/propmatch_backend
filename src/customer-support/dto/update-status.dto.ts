@@ -1,7 +1,8 @@
-import { IsEnum, IsNotEmpty } from 'class-validator';
-import { TicketStatus } from './../../../generated/prisma/enums';
+import { IsIn } from 'class-validator';
+import { WIRE_TICKET_STATUSES } from '../ticket-status.mapper';
+import type { WireTicketStatus } from '../ticket-status.mapper';
+
 export class UpdateStatusDto {
-  @IsEnum(TicketStatus)
-  @IsNotEmpty()
-  ticketStatus!: TicketStatus;
+  @IsIn(WIRE_TICKET_STATUSES)
+  status!: WireTicketStatus;
 }
