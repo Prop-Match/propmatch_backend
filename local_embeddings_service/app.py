@@ -30,6 +30,7 @@ class EmbedRequest(BaseModel):
 
 
 class UpsertRequest(BaseModel):
+    collection: str = Field(default=COLLECTION_NAME, min_length=1)
     id: str
     document: str = Field(min_length=1)
     embedding: list[float] = Field(min_length=1)
@@ -37,6 +38,7 @@ class UpsertRequest(BaseModel):
 
 
 class QueryRequest(BaseModel):
+    collection: str = Field(default=COLLECTION_NAME, min_length=1)
     embedding: list[float] = Field(min_length=1)
     n_results: int = Field(default=10, ge=1, le=100)
 
@@ -47,12 +49,12 @@ def get_model() -> SentenceTransformer:
     return SentenceTransformer(MODEL_NAME, device="cpu")
 
 
-@lru_cache(maxsize=1)
-def get_collection() -> Any:
+@lru_cache(maxsize=4)
+def get_collection(collection_name: str = COLLECTION_NAME) -> Any:
     CHROMA_PATH.mkdir(parents=True, exist_ok=True)
     client = chromadb.PersistentClient(path=str(CHROMA_PATH))
     return client.get_or_create_collection(
-        name=COLLECTION_NAME,
+        name=collection_name,
         metadata={"hnsw:space": "cosine", "embedding_model": MODEL_NAME},
         embedding_function=None,
     )
@@ -86,13 +88,13 @@ def embed(request: EmbedRequest) -> dict[str, Any]:
 @app.post("/upsert")
 def upsert(request: UpsertRequest) -> dict[str, str]:
     try:
-        get_collection().upsert(
+        get_collection(request.collection).upsert(
             ids=[request.id],
             documents=[request.document],
             embeddings=[request.embedding],
             metadatas=[request.metadata],
         )
-        return {"status": "upserted", "collection": COLLECTION_NAME}
+        return {"status": "upserted", "collection": request.collection}
     except Exception as error:  # pragma: no cover - Chroma failures
         logger.exception("Chroma upsert failed")
         raise HTTPException(status_code=503, detail="Local Chroma upsert failed") from error
@@ -101,7 +103,7 @@ def upsert(request: UpsertRequest) -> dict[str, str]:
 @app.post("/query")
 def query(request: QueryRequest) -> dict[str, Any]:
     try:
-        return get_collection().query(
+        return get_collection(request.collection).query(
             query_embeddings=[request.embedding],
             n_results=request.n_results,
             include=["documents", "metadatas", "distances"],
