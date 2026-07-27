@@ -10,8 +10,12 @@ import { PrismaService } from './../../prisma/prisma.service';
 import { PaymobService } from './providers/paymob.service';
 
 const PAYMENT_AMOUNTS: Record<PaymentType, number> = {
+  PREMIUM_OWNER: 999,
+  OWNER_PLUS: 499,
+  BOOST_LISTING: 349,
+  AI_ADDON: 199,
+  DOCS_PACK: 299,
   NEW_LISTING: 100,
-  BOOST_LISTING: 75,
   REFILL_MATCHES: 30,
   OFFER_PACK: 50,
 };
@@ -185,38 +189,73 @@ export class PaymentsService {
         where: { userId },
       });
 
-      if (paymentType === 'NEW_LISTING') {
-        if (quota) {
-          await tx.userQuota.update({
-            where: { userId },
-            data: { freeListingsLeft: { increment: 1 } },
-          });
-        } else {
-          await tx.userQuota.create({
-            data: {
-              userId,
-              freeListingsLeft: 2, // 1 default + 1 purchased
-              freeOffersLeft: 3,
-              optimizerUsesLeft: 3,
-            },
-          });
-        }
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      if (paymentType === 'PREMIUM_OWNER') {
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: {
+            userId,
+            planType: 'PREMIUM',
+            planExpiresAt: expiresAt,
+            maxActiveListings: 5,
+            freeListingsLeft: 5,
+            freeOffersLeft: 50,
+            optimizerUsesLeft: 20,
+          },
+          update: {
+            planType: 'PREMIUM',
+            planExpiresAt: expiresAt,
+            maxActiveListings: 5,
+            freeListingsLeft: { increment: 5 },
+            freeOffersLeft: { increment: 50 },
+            optimizerUsesLeft: { increment: 20 },
+          },
+        });
+      } else if (paymentType === 'OWNER_PLUS') {
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: {
+            userId,
+            planType: 'OWNER_PLUS',
+            planExpiresAt: expiresAt,
+            maxActiveListings: 3,
+            freeListingsLeft: 3,
+            freeOffersLeft: 10,
+            optimizerUsesLeft: 10,
+          },
+          update: {
+            planType: 'OWNER_PLUS',
+            planExpiresAt: expiresAt,
+            maxActiveListings: 3,
+            freeListingsLeft: { increment: 3 },
+            freeOffersLeft: { increment: 10 },
+            optimizerUsesLeft: { increment: 10 },
+          },
+        });
+      } else if (paymentType === 'AI_ADDON') {
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: {
+            userId,
+            optimizerUsesLeft: 13,
+          },
+          update: {
+            optimizerUsesLeft: { increment: 10 },
+          },
+        });
+      } else if (paymentType === 'NEW_LISTING') {
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: { userId, freeListingsLeft: 2 },
+          update: { freeListingsLeft: { increment: 1 } },
+        });
       } else if (paymentType === 'OFFER_PACK') {
-        if (quota) {
-          await tx.userQuota.update({
-            where: { userId },
-            data: { freeOffersLeft: { increment: 1 } },
-          });
-        } else {
-          await tx.userQuota.create({
-            data: {
-              userId,
-              freeListingsLeft: 1,
-              freeOffersLeft: 4, // 3 default + 1 purchased
-              optimizerUsesLeft: 3,
-            },
-          });
-        }
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: { userId, freeOffersLeft: 4 },
+          update: { freeOffersLeft: { increment: 1 } },
+        });
       }
     });
   }

@@ -45,6 +45,9 @@ export class QuotaService {
     const q = await this.prisma.userQuota.findUnique({ where: { userId } });
     if (!q) return null;
     return {
+      planType: q.planType,
+      planExpiresAt: q.planExpiresAt ? q.planExpiresAt.toISOString() : null,
+      maxActiveListings: q.maxActiveListings,
       freeListingsLeft: q.freeListingsLeft,
       optimizerUsesLeft: q.optimizerUsesLeft,
       freeOffersLeft: q.freeOffersLeft,

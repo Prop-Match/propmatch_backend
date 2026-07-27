@@ -44,8 +44,12 @@ enum ConnectionStatus {
 }
 
 enum PaymentType {
+  PREMIUM_OWNER
+  OWNER_PLUS
   NEW_LISTING
   BOOST_LISTING
+  AI_ADDON
+  DOCS_PACK
   REFILL_MATCHES
   OFFER_PACK
 }
@@ -185,14 +189,17 @@ model IdentityVerification {
 }
 
 model UserQuota {
-  id                String   @id @default(uuid()) @db.Uuid
-  userId            String   @unique @map("user_id") @db.Uuid
-  user              User     @relation(fields: [userId], references: [id])
-  freeListingsLeft  Int      @default(1) @map("free_listings_left")
-  optimizerUsesLeft Int      @default(3) @map("optimizer_uses_left")
-  freeOffersLeft    Int      @default(3) @map("free_offers_left")
-  lastResetDate     DateTime @default(now()) @map("last_reset_date")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @unique @map("user_id") @db.Uuid
+  user              User      @relation(fields: [userId], references: [id])
+  planType          String    @default("FREE") @map("plan_type")
+  planExpiresAt     DateTime? @map("plan_expires_at")
+  maxActiveListings Int       @default(1) @map("max_active_listings")
+  freeListingsLeft  Int       @default(1) @map("free_listings_left")
+  optimizerUsesLeft Int       @default(3) @map("optimizer_uses_left")
+  freeOffersLeft    Int       @default(3) @map("free_offers_left")
+  lastResetDate     DateTime  @default(now()) @map("last_reset_date")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@map("user_quota")
 }
