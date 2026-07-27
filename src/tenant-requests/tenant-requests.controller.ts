@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { TenantRequestsService } from './tenant-requests.service';
 import { CreateTenantRequestDto } from './dto/create-tenant-request.dto';
+import { ExtractTenantRequestDto } from './dto/extract-tenant-request.dto';
+import { TenantRequestExtractionService } from './tenant-request-extraction.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
@@ -24,7 +26,10 @@ import { Roles } from '../auth/decorators/roles.decorator';
 @Controller('tenant/requests')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TenantRequestsController {
-  constructor(private readonly tenantRequestsService: TenantRequestsService) {}
+  constructor(
+    private readonly tenantRequestsService: TenantRequestsService,
+    private readonly tenantRequestExtractionService: TenantRequestExtractionService,
+  ) {}
 
   @Get()
   @Roles('TENANT')
@@ -40,6 +45,14 @@ export class TenantRequestsController {
     @Body() dto: CreateTenantRequestDto,
   ) {
     return this.tenantRequestsService.create(req.user.userId, dto);
+  }
+
+  /** Returns reviewable suggestions only; it never persists a tenant request. */
+  @Post('extract')
+  @Roles('TENANT')
+  @UseGuards(VerifiedGuard)
+  async extract(@Body() dto: ExtractTenantRequestDto) {
+    return this.tenantRequestExtractionService.extract(dto.text);
   }
 
   @Post(':id/close')

@@ -129,7 +129,7 @@ export class PropertiesController {
   ) {
     // PRO-18: spend one optimizer use BEFORE opening the stream. If the quota
     // is gone this throws QUOTA_EXHAUSTED → Nest returns a JSON 403 (the stream
-    // has not started), which the frontend turns into the REFILL_MATCHES
+    // has not started), which the frontend turns into the AI_ADDON
     // paywall. Once SSE is committed a 403 would be impossible.
     await this.quotaService.consumeOptimizer(req.user.userId);
 
