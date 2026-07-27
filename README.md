@@ -69,14 +69,18 @@ To initialize and sync the database in your local environment, follow these step
 $ npm install
 ```
 
-## Local semantic embeddings
+## Semantic embeddings: Cohere primary, local fallback
 
-Property indexing and semantic search use SBG embeddings when the approved
-gateway model is available. If it is unavailable, use the local Python sidecar.
-The local fallback loads `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
-once on CPU and stores vectors in `propmatch_documents_local_v1`. Collections
-cannot be shared between embedding models because vector dimensions and semantic
-spaces differ.
+Property indexing creates a Cohere embedding and a local embedding for every
+approved property. Search uses Cohere first and automatically falls back to the
+local model only for transient Cohere failures (network errors, timeouts, 429,
+and 5xx responses). Invalid credentials and invalid Cohere responses remain
+configuration errors.
+
+The local sidecar loads
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` once on CPU.
+Cohere and local vectors use separate Chroma collections because their vector
+dimensions and semantic spaces differ.
 
 ```bash
 cd local_embeddings_service
@@ -88,14 +92,28 @@ python -m venv .venv
 Set these values in `backend/.env`:
 
 ```env
-EMBEDDING_PROVIDER=local
+COHERE_API_KEY=replace-with-a-server-side-key
+COHERE_EMBEDDING_MODEL=embed-v4.0
+COHERE_EMBEDDING_DIMENSION=1024
+LOCAL_EMBEDDINGS_ENABLED=true
 EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 CHROMA_PATH=./chroma_data
-CHROMA_COLLECTION=propmatch_documents_local_v1
+CHROMA_COHERE_COLLECTION=propmatch_properties_cohere_v1
+CHROMA_LOCAL_COLLECTION=propmatch_properties_local_v1
 LOCAL_EMBEDDINGS_URL=http://127.0.0.1:8001
 ```
 
 Verify the local flow with `python verify.py` from `local_embeddings_service`.
+After the local sidecar is running, reindex existing approved properties once
+so both collections are populated:
+
+```bash
+npm run embeddings:reindex
+```
+
+To test Cohere without the local sidecar, set
+`LOCAL_EMBEDDINGS_ENABLED=false`, restart the backend, and run the same reindex
+command. Cohere remains the only active embedding provider in that mode.
 
 ## Compile and run the project
 

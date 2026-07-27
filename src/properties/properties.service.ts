@@ -93,9 +93,13 @@ export class PropertiesService {
     if (q) {
       try {
         if (!this.embeddingService || !this.chromaService) throw new Error();
-        const vector = await this.embeddingService.createEmbedding(q);
+        const vector = await this.embeddingService.createPrimaryEmbedding(
+          q,
+          'search_query',
+        );
         const matches = await this.chromaService.query({
-          embedding: vector,
+          provider: vector.provider,
+          embedding: vector.embedding,
           limit: 20,
         });
         const ids = matches.map((match) => match.propertyId);
@@ -132,11 +136,13 @@ export class PropertiesService {
       if (!this.embeddingService || !this.chromaService) {
         throw new Error('semantic search dependencies unavailable');
       }
-      const embedding = await this.embeddingService.createEmbedding(
+      const vector = await this.embeddingService.createPrimaryEmbedding(
         query.query,
+        'search_query',
       );
       const matches = await this.chromaService.query({
-        embedding,
+        provider: vector.provider,
+        embedding: vector.embedding,
         // Retrieve bounded recall candidates once. Explicit facts detected in
         // the free-text query are applied after hydration; broad queries still
         // use the configured semantic threshold below.

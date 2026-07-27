@@ -52,13 +52,38 @@ export class PropertyApprovalIndexingService {
         : property.governorate.nameEn,
       city: isAr ? property.city.nameAr : property.city.nameEn,
     });
-    const embedding = await this.embeddingService.createEmbedding(document);
-    await this.chromaService.upsert(
-      `property:${property.id}`,
-      document,
-      embedding,
-      metadata,
-    );
+    const vectorId = `property:${property.id}`;
+    // Keep independent indexes because Cohere and the local model have
+    // different dimensions and cannot share a Chroma collection.
+    const indexingTasks = [
+      this.embeddingService
+        .createCohereEmbedding(document, 'search_document')
+        .then((embedding) =>
+          this.chromaService.upsert(
+            'cohere',
+            vectorId,
+            document,
+            embedding,
+            metadata,
+          ),
+        ),
+    ];
+    if (this.embeddingService.isLocalEmbeddingEnabled()) {
+      indexingTasks.push(
+        this.embeddingService
+          .createLocalEmbedding(document)
+          .then((embedding) =>
+            this.chromaService.upsert(
+              'local',
+              vectorId,
+              document,
+              embedding,
+              metadata,
+            ),
+          ),
+      );
+    }
+    await Promise.all(indexingTasks);
   }
 
   logIndexingFailure(propertyId: string, error: unknown): void {
