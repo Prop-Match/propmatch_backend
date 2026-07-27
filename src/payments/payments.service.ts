@@ -1,74 +1,106 @@
-import { PaymentType } from '@generated/prisma/enums';
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from './../../prisma/prisma.service';
+import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import {
+  BOOST_DURATION_DAYS,
+  type BillablePaymentType,
+  isBillablePaymentType,
+  PREMIUM_ACTIVE_LISTING_LIMIT,
+  PREMIUM_INCLUDED_AI_USES,
+  PRICING_CATALOG,
+} from './pricing.catalog';
 import { PaymobService } from './providers/paymob.service';
-
-const PAYMENT_AMOUNTS: Record<PaymentType, number> = {
-  PREMIUM_OWNER: 999,
-  OWNER_PLUS: 499,
-  BOOST_LISTING: 349,
-  AI_ADDON: 199,
-  DOCS_PACK: 299,
-  NEW_LISTING: 100,
-  REFILL_MATCHES: 30,
-  OFFER_PACK: 50,
-};
 
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prismaService: PrismaService,
-    private readonly gatway: PaymobService,
+    private readonly gateway: PaymobService,
   ) {}
+
   async checkout(
     userId: string,
-    paymentType: string,
+    dto: CreateCheckoutDto,
   ): Promise<{
     providerOrderId: string;
     amount: number;
     currency: 'EGP';
-    paymentType: PaymentType;
+    paymentType: BillablePaymentType;
     checkoutUrl: string;
   }> {
-    const typedPaymentType = paymentType as PaymentType;
-    const amount = PAYMENT_AMOUNTS[typedPaymentType];
-    if (!amount) {
+    if (!isBillablePaymentType(dto.paymentType)) {
       throw new BadRequestException('Unsupported payment type');
     }
 
+    const product = PRICING_CATALOG[dto.paymentType];
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!user || !product.allowedRoles.some((role) => role === user.role)) {
+      throw new ForbiddenException(
+        'This product is not available to this role',
+      );
+    }
+
+    if (dto.paymentType === 'BOOST_LISTING') {
+      if (!dto.propertyId) {
+        throw new BadRequestException('propertyId is required for a boost');
+      }
+      const property = await this.prismaService.property.findFirst({
+        where: {
+          id: dto.propertyId,
+          ownerId: userId,
+          status: 'APPROVED',
+        },
+        select: { id: true },
+      });
+      if (!property) {
+        throw new NotFoundException('Eligible property not found');
+      }
+    }
+
     const { checkoutUrl, providerOrderId } =
-      await this.gatway.generatePaymentUrl(userId, typedPaymentType, amount);
+      await this.gateway.generatePaymentUrl(
+        userId,
+        dto.paymentType,
+        product.priceEgp,
+      );
 
     await this.prismaService.paymentTransaction.create({
       data: {
         userId,
-        providerOrderId: providerOrderId,
-        amount: amount,
-        paymentType: typedPaymentType,
+        providerOrderId,
+        amount: product.priceEgp,
+        paymentType: dto.paymentType,
+        targetPropertyId: dto.propertyId,
         status: 'PENDING',
       },
     });
 
     return {
-      providerOrderId: providerOrderId,
-      amount,
+      providerOrderId,
+      amount: product.priceEgp,
       currency: 'EGP',
-      paymentType: typedPaymentType,
-      checkoutUrl: checkoutUrl,
+      paymentType: dto.paymentType,
+      checkoutUrl,
     };
   }
+
   async handleWebhook(
     query: Record<string, string>,
     body: Record<string, unknown>,
-  ): Promise<{ recieved: boolean }> {
-    const result = this.gatway.processWebhook(query, body);
+  ): Promise<{ received: boolean }> {
+    const result = this.gateway.processWebhook(query, body);
     if (!result.isValid) {
       throw new BadRequestException('Invalid signature');
     }
@@ -76,12 +108,14 @@ export class PaymentsService {
     let userId = result.userId;
     let paymentType = result.paymentType;
 
-    if ((!userId || !paymentType) && result.providerOrderId) {
+    if (result.providerOrderId) {
       const transaction =
         await this.prismaService.paymentTransaction.findUnique({
           where: { providerOrderId: result.providerOrderId },
         });
       if (transaction) {
+        // The signed provider order stored at checkout is authoritative. Never
+        // grant an entitlement from client-controlled webhook metadata.
         userId = transaction.userId;
         paymentType = transaction.paymentType;
       }
@@ -103,7 +137,7 @@ export class PaymentsService {
         },
       });
     }
-    return { recieved: true };
+    return { received: true };
   }
 
   async getTransaction(userId: string, providerOrderId: string) {
@@ -116,11 +150,6 @@ export class PaymentsService {
     return transaction;
   }
 
-  /**
-   * Return-page fallback for local development and a safety net for delayed
-   * webhooks. The entitlement is still awarded only after Provider's server API
-   * confirms the order as successful.
-   */
   async reconcileTransaction(userId: string, providerOrderId: string) {
     const transaction = await this.getTransaction(userId, providerOrderId);
     if (transaction.status === 'SUCCESS') {
@@ -128,7 +157,7 @@ export class PaymentsService {
     }
 
     const { isSuccessful, transactionId } =
-      await this.gatway.checkTransactionStatus(providerOrderId);
+      await this.gateway.checkTransactionStatus(providerOrderId);
     if (isSuccessful && transactionId) {
       await this.processSuccessfulPayment(
         transaction.userId,
@@ -152,6 +181,7 @@ export class PaymentsService {
       ),
     );
   }
+
   private async processSuccessfulPayment(
     userId: string,
     paymentType: string,
@@ -161,23 +191,31 @@ export class PaymentsService {
     const existing = await this.prismaService.paymentTransaction.findFirst({
       where: { providerTransactionId: transactionId },
     });
-    if (existing) {
-      return;
-    }
+    if (existing) return;
 
     await this.prismaService.$transaction(async (tx) => {
+      let targetPropertyId: string | null = null;
       if (providerOrderId) {
-        await tx.paymentTransaction.update({
-          where: { providerOrderId: providerOrderId },
+        const transaction = await tx.paymentTransaction.update({
+          where: { providerOrderId },
           data: {
             status: 'SUCCESS',
             providerTransactionId: transactionId,
             paidAt: new Date(),
           },
         });
+        targetPropertyId = transaction.targetPropertyId;
       } else {
-        await tx.paymentTransaction.updateMany({
+        const transaction = await tx.paymentTransaction.findFirst({
           where: { userId, status: 'PENDING' },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (!transaction) {
+          throw new NotFoundException('Pending payment transaction not found');
+        }
+        targetPropertyId = transaction.targetPropertyId;
+        await tx.paymentTransaction.update({
+          where: { id: transaction.id },
           data: {
             status: 'SUCCESS',
             providerTransactionId: transactionId,
@@ -185,76 +223,68 @@ export class PaymentsService {
           },
         });
       }
-      const quota = await tx.userQuota.findUnique({
-        where: { userId },
-      });
 
-      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      if (!isBillablePaymentType(paymentType)) {
+        this.logger.warn(
+          `No entitlement granted for legacy payment: ${paymentType}`,
+        );
+        return;
+      }
 
       if (paymentType === 'PREMIUM_OWNER') {
+        const current = await tx.userQuota.findUnique({ where: { userId } });
+        const startsAt =
+          current?.planExpiresAt && current.planExpiresAt.getTime() > Date.now()
+            ? current.planExpiresAt
+            : new Date();
+        const planExpiresAt = new Date(startsAt);
+        planExpiresAt.setMonth(planExpiresAt.getMonth() + 1);
+        const optimizerUsesLeft = Math.max(
+          current?.optimizerUsesLeft ?? 0,
+          PREMIUM_INCLUDED_AI_USES,
+        );
+
         await tx.userQuota.upsert({
           where: { userId },
           create: {
             userId,
             planType: 'PREMIUM',
-            planExpiresAt: expiresAt,
-            maxActiveListings: 5,
-            freeListingsLeft: 5,
-            freeOffersLeft: 50,
-            optimizerUsesLeft: 20,
+            planExpiresAt,
+            maxActiveListings: PREMIUM_ACTIVE_LISTING_LIMIT,
+            optimizerUsesLeft,
+            freeOffersLeft: 3,
           },
           update: {
             planType: 'PREMIUM',
-            planExpiresAt: expiresAt,
-            maxActiveListings: 5,
-            freeListingsLeft: { increment: 5 },
-            freeOffersLeft: { increment: 50 },
-            optimizerUsesLeft: { increment: 20 },
+            planExpiresAt,
+            maxActiveListings: PREMIUM_ACTIVE_LISTING_LIMIT,
+            optimizerUsesLeft,
           },
         });
-      } else if (paymentType === 'OWNER_PLUS') {
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: {
-            userId,
-            planType: 'OWNER_PLUS',
-            planExpiresAt: expiresAt,
-            maxActiveListings: 3,
-            freeListingsLeft: 3,
-            freeOffersLeft: 10,
-            optimizerUsesLeft: 10,
-          },
-          update: {
-            planType: 'OWNER_PLUS',
-            planExpiresAt: expiresAt,
-            maxActiveListings: 3,
-            freeListingsLeft: { increment: 3 },
-            freeOffersLeft: { increment: 10 },
-            optimizerUsesLeft: { increment: 10 },
-          },
+      } else if (paymentType === 'BOOST_LISTING') {
+        if (!targetPropertyId) {
+          throw new BadRequestException('Boost payment has no target property');
+        }
+        const boostedUntil = new Date();
+        boostedUntil.setDate(boostedUntil.getDate() + BOOST_DURATION_DAYS);
+        const updated = await tx.property.updateMany({
+          where: { id: targetPropertyId, ownerId: userId },
+          data: { isBoosted: true, boostedUntil },
         });
+        if (updated.count !== 1) {
+          throw new NotFoundException('Boost target property not found');
+        }
       } else if (paymentType === 'AI_ADDON') {
         await tx.userQuota.upsert({
           where: { userId },
-          create: {
-            userId,
-            optimizerUsesLeft: 13,
-          },
-          update: {
-            optimizerUsesLeft: { increment: 10 },
-          },
+          create: { userId, optimizerUsesLeft: 1 },
+          update: { optimizerUsesLeft: { increment: 1 } },
         });
-      } else if (paymentType === 'NEW_LISTING') {
+      } else if (paymentType === 'DOCS_PACK') {
         await tx.userQuota.upsert({
           where: { userId },
-          create: { userId, freeListingsLeft: 2 },
-          update: { freeListingsLeft: { increment: 1 } },
-        });
-      } else if (paymentType === 'OFFER_PACK') {
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: { userId, freeOffersLeft: 4 },
-          update: { freeOffersLeft: { increment: 1 } },
+          create: { userId, documentationPackCredits: 1 },
+          update: { documentationPackCredits: { increment: 1 } },
         });
       }
     });
@@ -262,24 +292,26 @@ export class PaymentsService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async reconcilePendingTransactions(): Promise<void> {
-    this.logger.log('Starting Payment Reconciliation Cron Job...');
+    await this.prismaService.property.updateMany({
+      where: {
+        isBoosted: true,
+        boostedUntil: { lte: new Date() },
+      },
+      data: { isBoosted: false, boostedUntil: null },
+    });
 
-    // Find all transactions that are PENDING and older than 30 minutes
     const pendingTransactions =
       await this.prismaService.paymentTransaction.findMany({
         where: {
           status: 'PENDING',
-          createdAt: { lte: new Date(Date.now() - 30 * 60000) },
+          createdAt: { lte: new Date(Date.now() - 30 * 60_000) },
         },
       });
+
     for (const transaction of pendingTransactions) {
-      // Ask the gateway (Paymob, Stripe, etc.) to double-check the real status
       const { isSuccessful, transactionId } =
-        await this.gatway.checkTransactionStatus(transaction.providerOrderId);
+        await this.gateway.checkTransactionStatus(transaction.providerOrderId);
       if (isSuccessful && transactionId) {
-        this.logger.log(
-          `Reconciliation found missed successful payment for Order: ${transaction.providerOrderId}`,
-        );
         await this.processSuccessfulPayment(
           transaction.userId,
           transaction.paymentType,
@@ -288,7 +320,5 @@ export class PaymentsService {
         );
       }
     }
-
-    this.logger.log('Payment Reconciliation complete.');
   }
 }

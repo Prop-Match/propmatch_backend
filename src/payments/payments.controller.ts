@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { PaymentsService } from './payments.service';
 @Controller('payments')
 export class PaymentsController {
@@ -19,9 +20,9 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   async checkout(
     @Req() req: { user: { userId: string } },
-    @Body('paymentType') paymentType: string,
+    @Body() dto: CreateCheckoutDto,
   ) {
-    return this.paymentsService.checkout(req.user.userId, paymentType);
+    return this.paymentsService.checkout(req.user.userId, dto);
   }
 
   @Post('reconcile-pending')
