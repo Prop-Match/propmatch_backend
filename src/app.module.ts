@@ -24,6 +24,7 @@ import { CustomerSupportModule } from './customer-support/customer-support.modul
 import { QuotaModule } from './quota/quota.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { FavoritesModule } from './favorites/favorites.module';
+import { LeaseContractsModule } from './lease-contracts/lease-contracts.module';
 
 /**
  * Nest copies `src/i18n` to `dist/i18n`, while compiled modules live under
@@ -69,6 +70,7 @@ const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
     QuotaModule,
     NotificationsModule,
     FavoritesModule,
+    LeaseContractsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

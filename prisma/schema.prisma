@@ -98,6 +98,18 @@ enum PartnerLeadStatus {
   CONVERTED
 }
 
+/**
+ * Handshake model for lease contracts: the landlord drafts, the tenant
+ * reviews and either approves (which is what actually triggers PDF
+ * generation) or rejects back to drafting. Neither party can unilaterally
+ * produce a signed-looking PDF the other never saw.
+ */
+enum LeaseContractStatus {
+  DRAFTING
+  PENDING_TENANT_APPROVAL
+  APPROVED
+}
+
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   fullName     String    @map("full_name")
@@ -324,18 +336,19 @@ model Favorite {
 }
 
 model MatchConnection {
-  id         String           @id @default(uuid()) @db.Uuid
-  tenantId   String           @map("tenant_id") @db.Uuid
-  tenant     User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
-  propertyId String           @map("property_id") @db.Uuid
-  property   Property         @relation(fields: [propertyId], references: [id])
-  ownerId    String           @map("owner_id") @db.Uuid
-  owner      User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
-  matchScore Float            @map("match_score")
-  status     ConnectionStatus @default(INTERESTED)
-  createdAt  DateTime         @default(now()) @map("created_at")
-  updatedAt  DateTime         @updatedAt @map("updated_at")
-  messages   Message[]
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  tenant         User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
+  propertyId     String           @map("property_id") @db.Uuid
+  property       Property         @relation(fields: [propertyId], references: [id])
+  ownerId        String           @map("owner_id") @db.Uuid
+  owner          User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
+  matchScore     Float            @map("match_score")
+  status         ConnectionStatus @default(INTERESTED)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  messages       Message[]
+  leaseContracts LeaseContract[]
 
   @@map("match_connection")
 }
@@ -373,21 +386,31 @@ model PaymentTransaction {
 }
 
 model LeaseContract {
-  id                String   @id @default(uuid()) @db.Uuid
-  generatedByUserId String   @map("generated_by_user_id") @db.Uuid
-  generatedBy       User     @relation(fields: [generatedByUserId], references: [id])
-  ownerName         String   @map("owner_name")
-  ownerNationalId   String   @map("owner_national_id")
-  tenantName        String   @map("tenant_name")
-  tenantNationalId  String   @map("tenant_national_id")
-  propertyAddress   String   @map("property_address")
-  customClauses     String?  @map("custom_clauses") @db.Text
-  pdfUrl            String?  @map("pdf_url")
-  startDate         DateTime @map("start_date")
-  endDate           DateTime @map("end_date")
-  rentAmount        Float    @map("rent_amount")
-  createdAt         DateTime @default(now()) @map("created_at")
+  id                 String              @id @default(uuid()) @db.Uuid
+  matchConnectionId  String              @map("match_connection_id") @db.Uuid
+  matchConnection    MatchConnection     @relation(fields: [matchConnectionId], references: [id])
+  generatedByUserId  String              @map("generated_by_user_id") @db.Uuid
+  generatedBy        User                @relation(fields: [generatedByUserId], references: [id])
+  ownerName          String              @map("owner_name")
+  ownerNationalId    String?             @map("owner_national_id")
+  tenantName         String              @map("tenant_name")
+  tenantNationalId   String?             @map("tenant_national_id")
+  propertyAddress    String              @map("property_address")
+  customClauses      String[]            @map("custom_clauses")
+  witness1Name       String?             @map("witness1_name")
+  witness1NationalId String?             @map("witness1_national_id")
+  witness2Name       String?             @map("witness2_name")
+  witness2NationalId String?             @map("witness2_national_id")
+  pdfUrl             String?             @map("pdf_url")
+  startDate          DateTime            @map("start_date")
+  endDate            DateTime            @map("end_date")
+  rentAmount         Float               @map("rent_amount")
+  status             LeaseContractStatus @default(DRAFTING)
+  changeRequestNote  String?             @map("change_request_note") @db.Text
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
 
+  @@unique([matchConnectionId])
   @@map("lease_contract")
 }
 
