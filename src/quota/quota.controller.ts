@@ -1,4 +1,4 @@
-import { Controller, Get, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Request, UseGuards } from '@nestjs/common';
 import { QuotaService } from './quota.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -17,5 +17,10 @@ export class QuotaController {
   @Get()
   async getMyQuota(@Request() req: { user: { userId: string } }) {
     return this.quotaService.getQuota(req.user.userId);
+  }
+
+  @Post('documentation-pack/consume')
+  async consumeDocumentationPack(@Request() req: { user: { userId: string } }) {
+    return this.quotaService.consumeDocumentationPack(req.user.userId);
   }
 }

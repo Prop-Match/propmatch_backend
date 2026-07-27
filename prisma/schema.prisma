@@ -44,10 +44,15 @@ enum ConnectionStatus {
 }
 
 enum PaymentType {
-  NEW_LISTING
+  PREMIUM_OWNER
   BOOST_LISTING
-  REFILL_MATCHES
-  OFFER_PACK
+  AI_ADDON
+  DOCS_PACK
+  LEGACY_OWNER_PLUS
+  LEGACY_NEW_LISTING
+  LEGACY_BOOST_LISTING
+  LEGACY_REFILL_MATCHES
+  LEGACY_OFFER_PACK
 }
 
 enum PaymentStatus {
@@ -58,6 +63,11 @@ enum PaymentStatus {
 
 enum PaymentProvider {
   PAYMOB
+}
+
+enum OwnerPlan {
+  FREE
+  PREMIUM
 }
 
 enum NotificationType {
@@ -185,14 +195,20 @@ model IdentityVerification {
 }
 
 model UserQuota {
-  id                String   @id @default(uuid()) @db.Uuid
-  userId            String   @unique @map("user_id") @db.Uuid
-  user              User     @relation(fields: [userId], references: [id])
-  freeListingsLeft  Int      @default(1) @map("free_listings_left")
-  optimizerUsesLeft Int      @default(3) @map("optimizer_uses_left")
-  freeOffersLeft    Int      @default(3) @map("free_offers_left")
-  lastResetDate     DateTime @default(now()) @map("last_reset_date")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                       String    @id @default(uuid()) @db.Uuid
+  userId                   String    @unique @map("user_id") @db.Uuid
+  user                     User      @relation(fields: [userId], references: [id])
+  planType                 OwnerPlan @default(FREE) @map("plan_type")
+  planExpiresAt            DateTime? @map("plan_expires_at")
+  maxActiveListings        Int       @default(1) @map("max_active_listings")
+  // Legacy counters retained for a safe rollout. Listing capacity is derived
+  // from active properties; optimizer uses are the paid AI allowance.
+  freeListingsLeft         Int       @default(0) @map("free_listings_left")
+  optimizerUsesLeft        Int       @default(0) @map("optimizer_uses_left")
+  freeOffersLeft           Int       @default(3) @map("free_offers_left")
+  documentationPackCredits Int       @default(0) @map("documentation_pack_credits")
+  lastResetDate            DateTime  @default(now()) @map("last_reset_date")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   @@map("user_quota")
 }
@@ -220,6 +236,7 @@ model Property {
   contactRevealed        Boolean        @default(false) @map("contact_revealed")
   status                 PropertyStatus @default(PENDING)
   isBoosted              Boolean        @default(false) @map("is_boosted")
+  boostedUntil           DateTime?      @map("boosted_until")
 
   // Admin Approval
   approvedBy     String?   @map("approved_by") @db.Uuid
@@ -365,6 +382,7 @@ model PaymentTransaction {
   amount                Float
   currency              String          @default("EGP")
   paymentType           PaymentType     @map("payment_type")
+  targetPropertyId      String?         @map("target_property_id") @db.Uuid
   status                PaymentStatus   @default(PENDING)
   paidAt                DateTime?       @map("paid_at")
   createdAt             DateTime        @default(now()) @map("created_at")

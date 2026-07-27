@@ -6,8 +6,8 @@ import { PrismaService } from './prisma.service';
  *
  * Dev's modular seed builds users/properties/requests but no `UserQuota` rows,
  * so the freemium gate (GET /api/quota, the AI-optimizer drain -> 403
- * QUOTA_EXHAUSTED / REFILL_MATCHES) can't be exercised from a clean seed.
- * This module gives the demo landlord a known starting quota.
+ * QUOTA_EXHAUSTED / AI_ADDON) can't be exercised from a clean seed.
+ * This module gives the demo landlord a known Premium Owner entitlement.
  *
  * Runs AFTER seed-admin-demo (alphabetical order in the seed runner), so the
  * `landlord@propmatch.local` user already exists. Tenants intentionally get no
@@ -41,25 +41,37 @@ async function main() {
     },
   });
 
-  // Small, testable starting balances so the optimizer gate can be drained
-  // quickly: 5 optimizer uses -> 5 successful calls, then 403 REFILL_MATCHES.
+  const planExpiresAt = new Date();
+  planExpiresAt.setMonth(planExpiresAt.getMonth() + 1);
+
+  // The demo landlord already owns two active properties, so seed the aligned
+  // Premium Owner plan: five active units, unlimited direct offers, and five
+  // included AI uses.
   await prisma.userQuota.upsert({
     where: { userId: landlord.id },
     update: {
-      freeListingsLeft: 3,
+      planType: 'PREMIUM',
+      planExpiresAt,
+      maxActiveListings: 5,
+      freeListingsLeft: 0,
       optimizerUsesLeft: 5,
-      freeOffersLeft: 5,
+      freeOffersLeft: 3,
     },
     create: {
+      planType: 'PREMIUM',
+      planExpiresAt,
+      maxActiveListings: 5,
       userId: landlord.id,
-      freeListingsLeft: 3,
+      freeListingsLeft: 0,
       optimizerUsesLeft: 5,
-      freeOffersLeft: 5,
+      freeOffersLeft: 3,
     },
   });
 
-  console.log('Seeded demo quota:');
-  console.log('  landlord@propmatch.local -> listings 3 / optimizer 5 / offers 5');
+  console.log('Seeded Premium Owner demo entitlement:');
+  console.log(
+    '  landlord@propmatch.local -> 5 active units / unlimited direct offers / 5 AI uses',
+  );
 
   await prisma.onModuleDestroy();
 }
