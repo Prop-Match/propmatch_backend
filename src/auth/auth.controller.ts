@@ -11,10 +11,14 @@ import {
 } from '@nestjs/common';
 import type { Request as ExpressRequest } from 'express';
 import { AuthService } from './auth.service';
+import { Public } from './decorators/public.decorator';
+import { ForgetPasswordDto } from './dto/forget-password.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SigninDto } from './dto/signin.dto';
 import { SignupDto } from './dto/signup.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -49,5 +53,17 @@ export class AuthController {
   @Post('refresh')
   async refresh(@Body() refreshDto: RefreshDto) {
     return await this.authService.refresh(refreshDto);
+  }
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post(['forgot-password', 'forget-password'])
+  async forgetPassword(@Body() dto: ForgetPasswordDto) {
+    return await this.authService.forgetPassword(dto.email);
+  }
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto.token, dto.newPassword);
   }
 }
