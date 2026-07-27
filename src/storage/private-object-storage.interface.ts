@@ -1,6 +1,8 @@
 export type UploadPrivateObjectInput = {
   data: Buffer;
   contentType: string;
+  /** Object key subfolder, e.g. 'identity' (default) or 'contracts'. */
+  category?: string;
 };
 
 export type UploadPrivateObjectResult = {
@@ -9,7 +11,7 @@ export type UploadPrivateObjectResult = {
 
 export type TemporaryPrivateObject = {
   data: Buffer;
-  contentType: 'image/jpeg' | 'image/png' | 'image/webp';
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
 };
 
 export interface PrivateObjectStorage {
