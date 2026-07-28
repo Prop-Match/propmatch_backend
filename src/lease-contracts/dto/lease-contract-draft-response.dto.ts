@@ -13,7 +13,18 @@ export class LeaseContractDraftResponseDto {
   startDate!: string;
   endDate!: string;
   createdAt!: string;
+  updatedAt?: string;
   disclaimer!: ContractDraftDisclaimerDto;
+  tenantReviewStatus?: string;
+  tenantChangeRequest?: string | null;
+  tenantChangeRequestedAt?: string | null;
+  tenantReviewConfirmedAt?: string | null;
+  draftRevision?: number;
+  tenantReviewedRevision?: number | null;
+  canEdit?: boolean;
+  canRequestChanges?: boolean;
+  canConfirmReview?: boolean;
+  canDownloadPdf?: boolean;
 }
 
 export class ContractDraftDisclaimerDto {

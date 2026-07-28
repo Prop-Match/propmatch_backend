@@ -133,6 +133,12 @@ enum LeaseContractStatus {
   APPROVED
 }
 
+enum TenantContractReviewStatus {
+  PENDING_REVIEW
+  CHANGES_REQUESTED
+  REVIEW_CONFIRMED
+}
+
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   fullName     String    @map("full_name")
@@ -485,6 +491,12 @@ model LeaseContract {
   endDate            DateTime            @map("end_date")
   rentAmount         Float               @map("rent_amount")
   status             LeaseContractStatus @default(DRAFTING)
+  tenantReviewStatus TenantContractReviewStatus @default(PENDING_REVIEW) @map("tenant_review_status")
+  tenantChangeRequest String? @map("tenant_change_request") @db.Text
+  tenantChangeRequestedAt DateTime? @map("tenant_change_requested_at")
+  tenantReviewConfirmedAt DateTime? @map("tenant_review_confirmed_at")
+  draftRevision Int @default(1) @map("draft_revision")
+  tenantReviewedRevision Int? @map("tenant_reviewed_revision")
   changeRequestNote  String?             @map("change_request_note") @db.Text
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")

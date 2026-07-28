@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
 import { LeaseContractsService } from './lease-contracts.service';
 import { PdfRendererService } from './pdf-renderer.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 const ownerId = '11111111-1111-1111-1111-111111111111';
 const tenantId = '22222222-2222-2222-2222-222222222222';
@@ -52,6 +53,12 @@ describe('LeaseContractsService draft API', () => {
     changeRequestNote: null,
     createdAt: new Date('2026-07-28T00:00:00.000Z'),
     updatedAt: new Date('2026-07-28T00:00:00.000Z'),
+    tenantReviewStatus: 'PENDING_REVIEW',
+    tenantChangeRequest: null,
+    tenantChangeRequestedAt: null,
+    tenantReviewConfirmedAt: null,
+    draftRevision: 1,
+    tenantReviewedRevision: null,
     ...overrides,
   });
 
@@ -60,7 +67,8 @@ describe('LeaseContractsService draft API', () => {
       matchConnection: { findFirst: jest.fn().mockResolvedValue(match) },
       leaseContract: {
         findUnique: jest.fn().mockResolvedValue(null),
-        upsert: jest.fn().mockResolvedValue(record()),
+        create: jest.fn().mockResolvedValue(record({ tenantReviewStatus: 'PENDING_REVIEW', draftRevision: 1, tenantChangeRequest: null, tenantChangeRequestedAt: null, tenantReviewConfirmedAt: null, tenantReviewedRevision: null })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       identityVerification: { findUnique: jest.fn() },
     };
@@ -71,6 +79,7 @@ describe('LeaseContractsService draft API', () => {
         LeaseContractsService,
         { provide: PrismaService, useValue: prisma },
         { provide: PdfRendererService, useValue: renderer },
+        { provide: RealtimeService, useValue: { notifyUser: jest.fn() } },
         { provide: PRIVATE_OBJECT_STORAGE, useValue: storage },
       ],
     }).compile();
@@ -86,9 +95,9 @@ describe('LeaseContractsService draft API', () => {
 
   it('allows the connected landlord to create a DRAFTING-only contract response', async () => {
     const response = await service.saveDraft(ownerId, matchId, validDraft());
-    expect(prisma.leaseContract.upsert).toHaveBeenCalledWith(
+    expect(prisma.leaseContract.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        create: expect.objectContaining({
+        data: expect.objectContaining({
           matchConnectionId: matchId,
           generatedByUserId: ownerId,
           status: 'DRAFTING',
@@ -151,18 +160,52 @@ describe('LeaseContractsService draft API', () => {
   });
 
   it('allows either party to generate an in-memory PDF only from a saved DRAFTING contract', async () => {
-    prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId } }));
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ tenantReviewStatus: 'REVIEW_CONFIRMED', matchConnection: { ownerId, tenantId } }));
     await expect(service.downloadDraftPdf(ownerId, '55555555-5555-5555-5555-555555555555')).resolves.toEqual(Buffer.from('%PDF-test'));
     await expect(service.downloadDraftPdf(tenantId, '55555555-5555-5555-5555-555555555555')).resolves.toEqual(Buffer.from('%PDF-test'));
     expect(renderer.renderHtmlToPdf).toHaveBeenCalledWith(expect.stringContaining('Owner Name'));
-    expect(prisma.leaseContract.upsert).not.toHaveBeenCalled();
+    expect(prisma.leaseContract.create).not.toHaveBeenCalled();
     expect(storage.upload).not.toHaveBeenCalled();
   });
 
-  it('rejects unrelated readers and non-draft PDF requests', async () => {
+  it('rejects unrelated readers and PDFs before both parties confirm review', async () => {
     prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId } }));
     await expect(service.downloadDraftPdf(otherId, '55555555-5555-5555-5555-555555555555')).rejects.toThrow(ForbiddenException);
-    prisma.leaseContract.findUnique.mockResolvedValue(record({ status: 'PENDING_TENANT_APPROVAL', matchConnection: { ownerId, tenantId } }));
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ tenantReviewStatus: 'PENDING_REVIEW', matchConnection: { ownerId, tenantId } }));
     await expect(service.downloadDraftPdf(ownerId, '55555555-5555-5555-5555-555555555555')).rejects.toThrow(ConflictException);
+  });
+
+  it('lists only connected contracts in updatedAt descending order with calculated permissions', async () => {
+    prisma.leaseContract.findMany = jest.fn().mockResolvedValue([
+      { ...record({ id: 'new', updatedAt: new Date('2026-07-29'), matchConnectionId: 'new-match' }), matchConnection: { ownerId, tenantId, propertyId: 'p1', property: { title: 'New' } } },
+      { ...record({ id: 'old', updatedAt: new Date('2026-07-28'), tenantReviewStatus: 'CHANGES_REQUESTED' }), matchConnection: { ownerId, tenantId, propertyId: 'p2', property: { title: 'Old' } } },
+    ]);
+    const response = await service.listForUser(ownerId);
+    expect(prisma.leaseContract.findMany).toHaveBeenCalledWith(expect.objectContaining({ orderBy: { updatedAt: 'desc' } }));
+    expect(response.items.map((item) => item.id)).toEqual(['new', 'old']);
+    expect(response.items[0]).toEqual(expect.objectContaining({ canEdit: true, canRequestChanges: false, canConfirmReview: false }));
+    expect(response.items[0]).not.toHaveProperty('ownerNationalId');
+  });
+
+  it('conditionally records a tenant change request without changing revision', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId } }));
+    await service.requestChanges(tenantId, '55555555-5555-5555-5555-555555555555', { message: 'Please change the start date' });
+    expect(prisma.leaseContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ tenantReviewStatus: 'PENDING_REVIEW' }) }));
+    expect(prisma.leaseContract.updateMany.mock.calls[0][0].data).not.toHaveProperty('draftRevision');
+  });
+
+  it('rejects a duplicate change request and a confirmed draft with stable conflicts', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ tenantReviewStatus: 'CHANGES_REQUESTED', matchConnection: { ownerId, tenantId } }));
+    await expect(service.requestChanges(tenantId, '55555555-5555-5555-5555-555555555555', { message: 'Again please' })).rejects.toThrow(ConflictException);
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ tenantReviewStatus: 'REVIEW_CONFIRMED', matchConnection: { ownerId, tenantId } }));
+    await expect(service.requestChanges(tenantId, '55555555-5555-5555-5555-555555555555', { message: 'Again please' })).rejects.toThrow(ConflictException);
+  });
+
+  it('conditionally confirms exactly the expected revision and is idempotent after confirmation', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId }, draftRevision: 3 }));
+    await service.confirmReview(tenantId, '55555555-5555-5555-5555-555555555555', { expectedRevision: 3 });
+    expect(prisma.leaseContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ draftRevision: 3, tenantReviewStatus: 'PENDING_REVIEW' }) }));
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId }, tenantReviewStatus: 'REVIEW_CONFIRMED', tenantReviewConfirmedAt: new Date() }));
+    await expect(service.confirmReview(tenantId, '55555555-5555-5555-5555-555555555555', { expectedRevision: 1 })).resolves.toEqual(expect.objectContaining({ tenantReviewStatus: 'REVIEW_CONFIRMED' }));
   });
 });

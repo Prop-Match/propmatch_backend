@@ -103,3 +103,35 @@ clauses, open every rendered page locally, and verify RTL connected glyphs,
 wrapping, margins, and visible disclaimer. Do not store the generated test PDF
 under public or tracked application directories. PDF download is implemented;
 electronic approval, signing, and legal authentication remain out of scope.
+
+## Tenant draft review
+
+`GET /api/contracts` returns only contracts whose connected match contains the
+authenticated landlord or tenant, newest update first. `GET /api/contracts/:id`
+and `GET /api/contracts/:id/pdf` retain that same party-only boundary.
+
+The review-only endpoints are:
+
+- `POST /api/contracts/:id/review/request-changes` with `{ "message": "..." }`
+- `POST /api/contracts/:id/review/confirm` with `{ "expectedRevision": 1 }`
+
+New drafts begin in `PENDING_REVIEW`. A tenant can request changes, producing
+`CHANGES_REQUESTED`; a landlord save then increments `draftRevision`, clears the
+request, and returns the row to `PENDING_REVIEW`. A tenant can confirm the
+current revision, producing irreversible `REVIEW_CONFIRMED`. Confirmation is a
+review acknowledgement only: it is not a signature, approval, or legal
+authentication.
+
+All transitions use conditional database writes. Draft saves reject a row
+confirmed concurrently with `409 CONTRACT_DRAFT_LOCKED`; confirmation requires
+both `PENDING_REVIEW` and the supplied revision (`409 CONTRACT_REVISION_CHANGED`
+otherwise). Duplicate change requests return
+`CONTRACT_CHANGES_ALREADY_REQUESTED`, and repeated confirmations return the
+original confirmed row unchanged. Both parties can continue to read and
+download the protected draft PDF in every review state.
+
+The pre-existing `POST /api/matches/:matchConnectionId/contract/approve`
+endpoint is a deprecated legacy workflow outside this review model. It is not
+called by the review UI and requires the legacy `PENDING_TENANT_APPROVAL`
+lifecycle state, so it cannot make a `REVIEW_CONFIRMED` draft editable or
+overwrite its review revision/timestamps.

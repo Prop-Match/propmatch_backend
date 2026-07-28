@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
 import { RejectDraftDto } from './dto/reject-draft.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
+import { ConfirmContractReviewDto, RequestContractChangesDto } from './dto/contract-review.dto';
 import { LeaseContractsService } from './lease-contracts.service';
 
 /**
@@ -148,6 +149,11 @@ export class LeaseContractByIdController {
     private readonly configService: ConfigService,
   ) {}
 
+  @Get()
+  list(@Request() req: { user: { userId: string } }) {
+    return this.leaseContractsService.listForUser(req.user.userId);
+  }
+
   @Get(':id')
   async getById(
     @Request() req: { user: { userId: string } },
@@ -175,6 +181,18 @@ export class LeaseContractByIdController {
       'Cache-Control': 'private, no-store',
     });
     res.send(pdf);
+  }
+
+  @Post(':id/review/request-changes')
+  @UseGuards(VerifiedGuard)
+  requestChanges(@Request() req: { user: { userId: string } }, @Param('id') id: string, @Body() dto: RequestContractChangesDto) {
+    return this.leaseContractsService.requestChanges(req.user.userId, id, dto);
+  }
+
+  @Post(':id/review/confirm')
+  @UseGuards(VerifiedGuard)
+  confirmReview(@Request() req: { user: { userId: string } }, @Param('id') id: string, @Body() dto: ConfirmContractReviewDto) {
+    return this.leaseContractsService.confirmReview(req.user.userId, id, dto);
   }
 
   private withAbsolutePdfUrl<T extends { pdfUrl: string | null }>(
