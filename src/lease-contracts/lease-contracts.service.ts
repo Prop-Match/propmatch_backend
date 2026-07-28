@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
 import { RejectDraftDto } from './dto/reject-draft.dto';
@@ -58,10 +59,18 @@ export class LeaseContractsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pdfRenderer: PdfRendererService,
+    private readonly realtime: RealtimeService,
     @Inject(PRIVATE_OBJECT_STORAGE)
     private readonly storage: PrivateObjectStorage,
     private readonly realtime: RealtimeService,
   ) {}
+
+  /** Every lease-contract notification deep-links to the same entry point —
+   * it branches by role/status on its own (drafting canvas, read-only
+   * review, or the final /contracts/[id] redirect once generated). */
+  private contractLink(matchConnectionId: string): string {
+    return `/contracts/new?matchConnectionId=${matchConnectionId}`;
+  }
 
   /**
    * What the Hybrid Contract Builder canvas needs to render before any
@@ -191,6 +200,12 @@ export class LeaseContractsService {
       where: { matchConnectionId },
       data: { status: 'PENDING_TENANT_APPROVAL', changeRequestNote: null },
     });
+    await this.realtime.notifyUser(match.tenantId, {
+      type: 'CONTRACT_READY_FOR_REVIEW',
+      title: 'عقد إيجار بانتظار مراجعتك',
+      message: 'أرسل المالك مسودة العقد لمراجعتك.',
+      link: this.contractLink(matchConnectionId),
+    });
     return this.toResponse(updated);
   }
 
@@ -259,6 +274,12 @@ export class LeaseContractsService {
         status: 'APPROVED',
       },
     });
+    await this.realtime.notifyUser(match.ownerId, {
+      type: 'CONTRACT_APPROVED',
+      title: 'تمت الموافقة على العقد',
+      message: 'وافق المستأجر على العقد وتم توليد ملف PDF.',
+      link: `/contracts/${updated.id}`,
+    });
     return this.toResponse(updated);
   }
 
@@ -278,6 +299,12 @@ export class LeaseContractsService {
         status: 'DRAFTING',
         changeRequestNote: dto.note?.trim() || null,
       },
+    });
+    await this.realtime.notifyUser(match.ownerId, {
+      type: 'CONTRACT_REJECTED',
+      title: 'طلب المستأجر تعديلات على العقد',
+      message: 'طلب المستأجر إجراء تعديلات على مسودة العقد.',
+      link: this.contractLink(matchConnectionId),
     });
     return this.toResponse(updated);
   }

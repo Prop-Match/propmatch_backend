@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Request,
   UseGuards,
@@ -12,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SendMessageDto } from './dto/send-message.dto';
 import { MessagesService } from './messages.service';
+
 @Controller('matches')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('TENANT', 'LANDLORD')
@@ -32,5 +35,20 @@ export class MessagesController {
     @Body() dto: SendMessageDto,
   ) {
     return this.messages.send(r.user.userId, id, dto);
+  }
+
+  @Patch('messages/:messageId') update(
+    @Request() r: { user: { userId: string } },
+    @Param('messageId') messageId: string,
+    @Body() dto: { body: string },
+  ) {
+    return this.messages.updateMessage(r.user.userId, messageId, dto.body);
+  }
+
+  @Delete('messages/:messageId') delete(
+    @Request() r: { user: { userId: string } },
+    @Param('messageId') messageId: string,
+  ) {
+    return this.messages.deleteMessage(r.user.userId, messageId);
   }
 }

@@ -161,7 +161,7 @@ export class CustomerSupportService {
       data: {
         ticketId,
         authorType: SupportAuthor.ADMIN,
-        authorName: admin?.fullName ?? 'الدعم الفني',
+        authorName: 'الدعم الفني',
         authorId: adminId,
         content: dto.content?.trim() ?? '',
         internal: dto.internal ?? false,
@@ -277,9 +277,10 @@ export class CustomerSupportService {
     return this.getTicketDetail(ticketId);
   }
   async updateStatus(ticketId: string, status: WireTicketStatus) {
+    const normalized = (String(status || "").toLowerCase()) as WireTicketStatus;
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
-      data: { status: ticketStatusToDb(status) },
+      data: { status: ticketStatusToDb(normalized) },
     });
     return this.getTicketDetail(ticketId);
   }
@@ -290,7 +291,7 @@ export class CustomerSupportService {
         id: m.id,
         authorType: m.authorType,
         author: m.authorType,
-        authorName: m.authorName,
+        authorName: m.authorType === SupportAuthor.ADMIN || String(m.authorType).toUpperCase() === 'ADMIN' ? 'الدعم الفني' : m.authorName,
         content: m.content,
         internal: m.internal,
         attachmentUrl: m.attachmentUrl ?? null,

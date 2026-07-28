@@ -38,7 +38,9 @@ describe('LegalSupportService', () => {
       ),
     );
 
-    await expect(service.chat('عقد إيجار', user)).resolves.toMatchObject({
+    await expect(
+      service.chat({ message: 'عقد إيجار' }, user),
+    ).resolves.toMatchObject({
       id: 'msg-1',
       content: 'إجابة',
     });
@@ -47,7 +49,7 @@ describe('LegalSupportService', () => {
     expect(url).toBe('http://localhost:8001/legal-chat');
     expect(init).toMatchObject({
       method: 'POST',
-      body: JSON.stringify({ message: 'عقد إيجار' }),
+      body: JSON.stringify({ message: 'عقد إيجار', attachments: [] }),
       headers: {
         'X-Internal-Service-Key': 'internal-test-key',
         'X-PropMatch-User-Id': 'user-1',
@@ -63,9 +65,9 @@ describe('LegalSupportService', () => {
     });
     fetchMock.mockResolvedValue(upstream);
 
-    await expect(service.openStream('قانون الإيجار', user)).resolves.toBe(
-      upstream,
-    );
+    await expect(
+      service.openStream({ message: 'قانون الإيجار' }, user),
+    ).resolves.toBe(upstream);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://localhost:8001/legal-chat/stream');
     expect(init).toMatchObject({
@@ -81,9 +83,9 @@ describe('LegalSupportService', () => {
       }),
     );
 
-    await expect(service.chat('عقد', user)).rejects.toMatchObject<
-      Partial<HttpException>
-    >({ status: 502 });
+    await expect(
+      service.chat({ message: 'عقد' }, user),
+    ).rejects.toMatchObject<Partial<HttpException>>({ status: 502 });
   });
 
   it('fails clearly when the internal service boundary is not configured', async () => {
@@ -92,7 +94,7 @@ describe('LegalSupportService', () => {
     } as unknown as ConfigService;
 
     await expect(
-      new LegalSupportService(missingConfig).chat('عقد', user),
+      new LegalSupportService(missingConfig).chat({ message: 'عقد' }, user),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(fetchMock).not.toHaveBeenCalled();
   });

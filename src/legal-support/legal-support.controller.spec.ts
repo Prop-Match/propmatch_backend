@@ -90,10 +90,10 @@ describe('LegalSupportController', () => {
 
     expect((response.body as { content: string }).content).toBe('إجابة');
 
-    expect(chat).toHaveBeenCalledWith('عقد إيجار', {
-      userId: 'user-1',
-      role: 'TENANT',
-    });
+    expect(chat).toHaveBeenCalledWith(
+      { message: 'عقد إيجار', attachments: undefined },
+      { userId: 'user-1', role: 'TENANT' },
+    );
   });
 
   it('rejects blank messages before FastAPI is called', async () => {

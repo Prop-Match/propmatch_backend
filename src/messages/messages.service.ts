@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { decryptText, encryptText } from './crypto.util';
 
 @Injectable()
 export class MessagesService {
@@ -68,7 +69,7 @@ export class MessagesService {
           m.tenantId === userId ? m.owner.fullName : m.tenant.fullName,
         connectionStatus: 'CONNECTED',
         lastMessagePreview: m.messages[0]
-          ? m.messages[0].body.slice(0, 100)
+          ? decryptText(m.messages[0].body).slice(0, 100)
           : null,
         lastMessageAt: m.messages[0]?.createdAt.toISOString() ?? null,
       }))
@@ -95,6 +96,7 @@ export class MessagesService {
     });
     return rows.map((m) => ({
       ...m,
+      body: decryptText(m.body),
       createdAt: m.createdAt.toISOString(),
       isMine: m.senderId === userId,
     }));
@@ -118,11 +120,14 @@ export class MessagesService {
       throw new BadRequestException('Empty message.');
     if (body.length > 1000)
       throw new BadRequestException('Invalid message body.');
+
+    const encryptedBody = encryptText(body);
+
     const message = await this.prisma.message.create({
       data: {
         matchConnectionId: id,
         senderId: userId,
-        body,
+        body: encryptedBody,
         attachmentUrl: hasAttachment ? input.attachmentUrl : null,
         attachmentType: hasAttachment ? input.attachmentType : null,
         attachmentName: hasAttachment ? (input.attachmentName ?? null) : null,
@@ -143,6 +148,7 @@ export class MessagesService {
     });
     const payload = {
       ...message,
+      body,
       createdAt: message.createdAt.toISOString(),
     };
     const recipientId =
@@ -162,5 +168,46 @@ export class MessagesService {
     });
 
     return { ...payload, isMine: true };
+  }
+
+  async updateMessage(userId: string, messageId: string, body: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+    });
+    if (!message) throw new NotFoundException('الرسالة غير موجودة');
+    if (message.senderId !== userId) throw new BadRequestException('لا يمكنك تعديل رسالة شخص آخر');
+
+    const diffMinutes = (Date.now() - message.createdAt.getTime()) / (1000 * 60);
+    if (diffMinutes > 15) {
+      throw new BadRequestException('لا يمكنك تعديل الرسالة بعد مرور 15 دقيقة من إرسالها');
+    }
+
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: { body: encryptText(body.trim()) },
+    });
+
+    return {
+      ...updated,
+      body: body.trim(),
+      createdAt: updated.createdAt.toISOString(),
+      isMine: true,
+    };
+  }
+
+  async deleteMessage(userId: string, messageId: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+    });
+    if (!message) throw new NotFoundException('الرسالة غير موجودة');
+    if (message.senderId !== userId) throw new BadRequestException('لا يمكنك حذف رسالة شخص آخر');
+
+    const diffMinutes = (Date.now() - message.createdAt.getTime()) / (1000 * 60);
+    if (diffMinutes > 15) {
+      throw new BadRequestException('لا يمكنك حذف الرسالة بعد مرور 15 دقيقة من إرسالها');
+    }
+
+    await this.prisma.message.delete({ where: { id: messageId } });
+    return { success: true, id: messageId };
   }
 }

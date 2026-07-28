@@ -21,7 +21,10 @@ export type NotificationType =
   | 'REVIEW_APPROVED'
   | 'NEW_TENANT_REQUEST'
   | 'NEW_OFFER_RECEIVED'
-  | 'NEW_MESSAGE';
+  | 'NEW_MESSAGE'
+  | 'CONTRACT_READY_FOR_REVIEW'
+  | 'CONTRACT_APPROVED'
+  | 'CONTRACT_REJECTED';
 
 export interface NotificationPayload {
   id: string;
