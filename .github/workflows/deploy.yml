@@ -1,4 +1,4 @@
-name: Deploy backend
+name: Backend CI & Deploy
 
 on:
   push:
@@ -14,8 +14,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --ci
+      - run: npm run build
+
   deploy:
     name: Deploy to EC2
+    needs: ci
     runs-on: ubuntu-latest
 
     steps:
