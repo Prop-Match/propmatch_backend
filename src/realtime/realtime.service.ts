@@ -181,6 +181,15 @@ export class RealtimeService {
       payload,
     );
   }
+
+  /**
+   * Broadcast a support message to every admin (not just the assignee), so any
+   * agent viewing the ticket or the queue updates in real time — matching the
+   * always-delivered user side.
+   */
+  supportMessageToAdmins(payload: SupportMessagePayload): void {
+    this.gateway.emitToAdmins(SOCKET_EVENTS.supportMessageReceived, payload);
+  }
 }
 
 const iso = (d?: Date): string => (d ?? new Date()).toISOString();

@@ -47,8 +47,10 @@ export class ChatUploadStorageService {
   }
 
   async store(file: Express.Multer.File): Promise<StoredChatAttachment> {
-    const type = this.classify(file.mimetype);
-    if (!type || !EXT_BY_MIME[file.mimetype]) {
+    // MediaRecorder sends e.g. "audio/webm;codecs=opus" — strip params before lookup.
+    const mime = (file.mimetype || '').split(';')[0].trim().toLowerCase();
+    const type = this.classify(mime);
+    if (!type || !EXT_BY_MIME[mime]) {
       throw new BadRequestException('نوع الملف غير مدعوم');
     }
     const cap = type === 'IMAGE' ? MAX_IMAGE_BYTES : MAX_AV_BYTES;
@@ -58,7 +60,7 @@ export class ChatUploadStorageService {
     }
 
     await mkdir(this.root, { recursive: true });
-    const filename = `${randomUUID()}${EXT_BY_MIME[file.mimetype]}`;
+    const filename = `${randomUUID()}${EXT_BY_MIME[mime]}`;
     await writeFile(path.join(this.root, filename), file.buffer);
 
     return {

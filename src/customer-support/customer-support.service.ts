@@ -240,8 +240,10 @@ export class CustomerSupportService {
       ...attachment,
     };
 
+    // Realtime to every admin (assignee or not) so an open ticket updates live.
+    this.realtime.supportMessageToAdmins(payload);
+
     if (ticket.assignedAdminId) {
-      this.realtime.supportMessageRecieved(ticket.assignedAdminId, payload);
       await this.realtime.notifyUser(ticket.assignedAdminId, {
         type: NotificationType.NEW_MESSAGE,
         title: 'رد جديد من المستخدم',
