@@ -39,15 +39,60 @@ export class QuotaService {
    * the frontend `UserQuota` contract — the UI must tolerate null.
    */
   async getQuota(userId: string) {
-    const q = await this.prisma.userQuota.findUnique({ where: { userId } });
-    if (!q) return null;
-    const premiumActive =
-      q.planType === 'PREMIUM' &&
-      q.planExpiresAt !== null &&
-      q.planExpiresAt.getTime() > Date.now();
-    const activeUnitLimit = premiumActive
-      ? PREMIUM_ACTIVE_LISTING_LIMIT
-      : FREE_ACTIVE_LISTING_LIMIT;
+    let q = await this.prisma.userQuota.findUnique({ where: { userId } });
+    if (!q) {
+      q = await this.prisma.userQuota.create({
+        data: {
+          userId,
+          freeListingsLeft: 1,
+          freeOffersLeft: 3,
+          optimizerUsesLeft: 3,
+          planType: 'FREE',
+          maxActiveListings: 1,
+        },
+      });
+    }
+
+    const now = new Date();
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+    // Check plan expiration
+    let currentPlanType = q.planType;
+    if (
+      q.planExpiresAt &&
+      q.planExpiresAt.getTime() < now.getTime() &&
+      q.planType !== 'FREE'
+    ) {
+      currentPlanType = 'FREE';
+    }
+
+    // Monthly Auto-Renewal with Carryover
+    const daysSinceReset = now.getTime() - q.lastResetDate.getTime();
+    if (daysSinceReset >= THIRTY_DAYS_MS) {
+      // Carry over unused quota + add monthly allotment (3 optimizer, 3 offers)
+      const newOptimizer = q.optimizerUsesLeft + 3;
+      const newOffers = q.freeOffersLeft + 3;
+
+      q = await this.prisma.userQuota.update({
+        where: { userId },
+        data: {
+          optimizerUsesLeft: newOptimizer,
+          freeOffersLeft: newOffers,
+          planType: currentPlanType,
+          lastResetDate: now,
+        },
+      });
+    } else if (currentPlanType !== q.planType) {
+      q = await this.prisma.userQuota.update({
+        where: { userId },
+        data: { planType: currentPlanType },
+      });
+    }
+
+    const isPremium = q.planType === 'PREMIUM';
+    const isOwnerPlus = q.planType === 'OWNER_PLUS';
+
+    const activeUnitLimit = isPremium ? 5 : isOwnerPlus ? 3 : 1;
     const activeUnitCount = await this.prisma.property.count({
       where: {
         ownerId: userId,
@@ -56,15 +101,13 @@ export class QuotaService {
     });
 
     return {
-      planType: premiumActive ? 'PREMIUM' : 'FREE',
-      planExpiresAt: premiumActive ? q.planExpiresAt?.toISOString() : null,
+      planType: q.planType,
+      planExpiresAt: q.planExpiresAt ? q.planExpiresAt.toISOString() : null,
       maxActiveListings: activeUnitLimit,
       activeUnitCount,
-      offersUnlimited: premiumActive,
       freeListingsLeft: q.freeListingsLeft,
       optimizerUsesLeft: q.optimizerUsesLeft,
       freeOffersLeft: q.freeOffersLeft,
-      documentationPackCredits: q.documentationPackCredits,
       lastResetDate: q.lastResetDate.toISOString(),
     };
   }
@@ -88,31 +131,5 @@ export class QuotaService {
       select: { optimizerUsesLeft: true },
     });
     return updated.optimizerUsesLeft;
-  }
-
-  async consumeDocumentationPack(
-    userId: string,
-  ): Promise<{ documentationPackCredits: number }> {
-    const spent = await this.prisma.userQuota.updateMany({
-      where: { userId, documentationPackCredits: { gt: 0 } },
-      data: { documentationPackCredits: { decrement: 1 } },
-    });
-    if (spent.count !== 1) {
-      throw new ForbiddenException({
-        statusCode: 403,
-        code: 'QUOTA_EXHAUSTED',
-        message: 'لا توجد حزمة مستندات متاحة',
-        trigger: 'payment',
-        paymentType: 'DOCS_PACK',
-        priceEgp: PRICING_CATALOG.DOCS_PACK.priceEgp,
-      });
-    }
-    const updated = await this.prisma.userQuota.findUniqueOrThrow({
-      where: { userId },
-      select: { documentationPackCredits: true },
-    });
-    return {
-      documentationPackCredits: updated.documentationPackCredits,
-    };
   }
 }

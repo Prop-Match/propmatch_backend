@@ -18,9 +18,4 @@ export class QuotaController {
   async getMyQuota(@Request() req: { user: { userId: string } }) {
     return this.quotaService.getQuota(req.user.userId);
   }
-
-  @Post('documentation-pack/consume')
-  async consumeDocumentationPack(@Request() req: { user: { userId: string } }) {
-    return this.quotaService.consumeDocumentationPack(req.user.userId);
-  }
 }

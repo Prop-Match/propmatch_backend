@@ -1,87 +1,21 @@
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: propmatch_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: propmatch
+      POSTGRES_PASSWORD: propmatch
+      POSTGRES_DB: propmatch
+    ports:
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - propmatch_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U propmatch -d propmatch"]
       interval: 5s
       timeout: 5s
-      retries: 20
-    networks:
-      - internal
-
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: build
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-    command: ["npx", "prisma", "migrate", "deploy"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - internal
-    restart: "no"
-
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    restart: unless-stopped
-    init: true
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-      PORT: "3000"
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PRIVATE_STORAGE_ROOT: /app/storage/private
-    ports:
-      - "127.0.0.1:3000:3000"
-    volumes:
-      - public_uploads:/app/public
-      - private_uploads:/app/storage/private
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/api').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
+      retries: 10
 
 volumes:
-  postgres_data:
-  public_uploads:
-  private_uploads:
-
-networks:
-  internal:
-    driver: bridge
+  propmatch_pgdata:
