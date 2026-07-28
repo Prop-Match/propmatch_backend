@@ -12,23 +12,34 @@ export interface LegalSupportUser {
   role: string;
 }
 
+export interface LegalAttachment {
+  url: string;
+  type: 'IMAGE' | 'VIDEO' | 'AUDIO';
+  name?: string;
+}
+
+export interface LegalChatPayload {
+  message?: string;
+  attachments?: LegalAttachment[];
+}
+
 @Injectable()
 export class LegalSupportService {
   constructor(private readonly config: ConfigService) {}
 
-  async chat(message: string, user: LegalSupportUser): Promise<unknown> {
-    const response = await this.request('/legal-chat', message, user);
+  async chat(payload: LegalChatPayload, user: LegalSupportUser): Promise<unknown> {
+    const response = await this.request('/legal-chat', payload, user);
     return this.parseJsonResponse(response);
   }
 
   async openStream(
-    message: string,
+    payload: LegalChatPayload,
     user: LegalSupportUser,
     clientSignal?: AbortSignal,
   ): Promise<Response> {
     const response = await this.request(
       '/legal-chat/stream',
-      message,
+      payload,
       user,
       clientSignal,
       'text/event-stream',
@@ -41,7 +52,7 @@ export class LegalSupportService {
 
   private async request(
     path: string,
-    message: string,
+    payload: LegalChatPayload,
     user: LegalSupportUser,
     clientSignal?: AbortSignal,
     accept = 'application/json',
@@ -82,7 +93,10 @@ export class LegalSupportService {
           'X-PropMatch-User-Id': user.userId,
           'X-PropMatch-User-Role': user.role,
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          message: payload.message ?? '',
+          attachments: payload.attachments ?? [],
+        }),
         signal,
       });
     } catch (error) {

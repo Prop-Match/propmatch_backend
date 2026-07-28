@@ -37,10 +37,9 @@ export class CreateAdminDto {
   fullName!: string;
 
   /**
-   * Accepted but ignored: the frontend's admin sub-roles (super-admin,
-   * kyc-reviewer, etc.) have no backing Prisma model yet — every admin is
-   * created flat as ADMIN (see AdminService.createAdmin). Declared here only
-   * so the global ValidationPipe's forbidNonWhitelisted doesn't 400 on it.
+   * Admin sub-role slug (super-admin, kyc-reviewer, …). Persisted as
+   * User.adminRole and drives capability enforcement (see AdminService and
+   * CapabilitiesGuard). Omitted ⇒ SUPER_ADMIN.
    */
   @IsOptional()
   @IsString({ message: i18nValidationMessage('validation.INVALID_STRING') })

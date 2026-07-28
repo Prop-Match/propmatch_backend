@@ -11,6 +11,7 @@ export interface TransformedUser {
   email: string;
   phoneNumber: string;
   role: 'tenant' | 'landlord' | 'admin';
+  avatarUrl: string | null;
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
@@ -43,6 +44,7 @@ export function transformUserToFrontend(
     email: user.email,
     phoneNumber: user.phoneNumber,
     role: mappedRole,
+    avatarUrl: user.avatarUrl ?? null,
     isActive: user.isActive,
     lastLoginAt: user.lastLoginAt
       ? new Date(user.lastLoginAt).toISOString()

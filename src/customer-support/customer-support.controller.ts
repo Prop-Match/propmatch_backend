@@ -99,11 +99,7 @@ export class CustomerSupportController {
     @Param('id') id: string,
     @Body() dto: PostReplyDto,
   ) {
-    return this.customerSupportService.addUserReply(
-      id,
-      req.user!.userId,
-      dto.content,
-    );
+    return this.customerSupportService.addUserReply(id, req.user!.userId, dto);
   }
   // --- Admin Endpoints ---
   @Get('admin/tickets')
@@ -133,6 +129,7 @@ export class CustomerSupportController {
   async updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto) {
     return this.customerSupportService.updateStatus(id, dto.status);
   }
+
   @Get('admin/tickets/:id')
   @Roles('ADMIN')
   async getAdminTicketDetail(
