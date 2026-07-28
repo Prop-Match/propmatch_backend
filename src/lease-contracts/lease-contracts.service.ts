@@ -18,6 +18,7 @@ import {
 } from './lease-contract-template';
 import { leaseContractStatusToWire } from './lease-contract-status.mapper';
 import { PdfRendererService } from './pdf-renderer.service';
+import { buildRentalContractDraftPdfHtml } from './rental-contract-draft-pdf.template';
 
 const PDF_URL_TTL_SECONDS = 300;
 
@@ -263,6 +264,33 @@ export class LeaseContractsService {
       throw new ForbiddenException('NOT_A_PARTY_TO_THIS_CONTRACT');
     }
     return this.toResponse(record);
+  }
+
+  /** Generates bytes in memory only; the saved contract is never mutated or stored. */
+  async downloadDraftPdf(userId: string, contractId: string): Promise<Buffer> {
+    const contract = await this.prisma.leaseContract.findUnique({
+      where: { id: contractId },
+      include: { matchConnection: { select: { tenantId: true, ownerId: true } } },
+    });
+    if (!contract) throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
+    if (contract.matchConnection.tenantId !== userId && contract.matchConnection.ownerId !== userId) {
+      throw new ForbiddenException('NOT_A_PARTY_TO_THIS_CONTRACT');
+    }
+    if (contract.status !== 'DRAFTING') {
+      throw new ConflictException('PDF_DOWNLOAD_REQUIRES_DRAFTING_CONTRACT');
+    }
+    const { matchConnection: _matchConnection, ...saved } = contract;
+    return this.pdfRenderer.renderHtmlToPdf(buildRentalContractDraftPdfHtml({
+      contractId: saved.id,
+      ownerName: saved.ownerName,
+      tenantName: saved.tenantName,
+      propertyAddress: saved.propertyAddress,
+      rentAmount: saved.rentAmount,
+      startDate: saved.startDate,
+      endDate: saved.endDate,
+      customClauses: saved.customClauses,
+      generatedAt: new Date(),
+    }));
   }
 
   private async requireContract(matchConnectionId: string) {

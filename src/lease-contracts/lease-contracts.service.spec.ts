@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -17,6 +18,7 @@ describe('LeaseContractsService draft API', () => {
   let service: LeaseContractsService;
   let prisma: any;
   let storage: { upload: jest.Mock; createTemporaryReadUrl: jest.Mock };
+  let renderer: { renderHtmlToPdf: jest.Mock };
 
   const match = {
     id: matchId,
@@ -63,11 +65,12 @@ describe('LeaseContractsService draft API', () => {
       identityVerification: { findUnique: jest.fn() },
     };
     storage = { upload: jest.fn(), createTemporaryReadUrl: jest.fn() };
+    renderer = { renderHtmlToPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-test')) };
     const module = await Test.createTestingModule({
       providers: [
         LeaseContractsService,
         { provide: PrismaService, useValue: prisma },
-        { provide: PdfRendererService, useValue: { renderHtmlToPdf: jest.fn() } },
+        { provide: PdfRendererService, useValue: renderer },
         { provide: PRIVATE_OBJECT_STORAGE, useValue: storage },
       ],
     }).compile();
@@ -145,5 +148,21 @@ describe('LeaseContractsService draft API', () => {
 
     await expect(service.getById(otherId, '55555555-5555-5555-5555-555555555555'))
       .rejects.toThrow(ForbiddenException);
+  });
+
+  it('allows either party to generate an in-memory PDF only from a saved DRAFTING contract', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId } }));
+    await expect(service.downloadDraftPdf(ownerId, '55555555-5555-5555-5555-555555555555')).resolves.toEqual(Buffer.from('%PDF-test'));
+    await expect(service.downloadDraftPdf(tenantId, '55555555-5555-5555-5555-555555555555')).resolves.toEqual(Buffer.from('%PDF-test'));
+    expect(renderer.renderHtmlToPdf).toHaveBeenCalledWith(expect.stringContaining('Owner Name'));
+    expect(prisma.leaseContract.upsert).not.toHaveBeenCalled();
+    expect(storage.upload).not.toHaveBeenCalled();
+  });
+
+  it('rejects unrelated readers and non-draft PDF requests', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId } }));
+    await expect(service.downloadDraftPdf(otherId, '55555555-5555-5555-5555-555555555555')).rejects.toThrow(ForbiddenException);
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ status: 'PENDING_TENANT_APPROVAL', matchConnection: { ownerId, tenantId } }));
+    await expect(service.downloadDraftPdf(ownerId, '55555555-5555-5555-5555-555555555555')).rejects.toThrow(ConflictException);
   });
 });

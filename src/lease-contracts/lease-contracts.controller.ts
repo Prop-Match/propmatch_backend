@@ -7,9 +7,11 @@ import {
   Param,
   Post,
   Request,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
 import { RejectDraftDto } from './dto/reject-draft.dto';
@@ -156,6 +158,23 @@ export class LeaseContractByIdController {
       id,
     );
     return this.withAbsolutePdfUrl(contract);
+  }
+
+  @Get(':id/pdf')
+  async downloadDraftPdf(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.leaseContractsService.downloadDraftPdf(req.user.userId, id);
+    const safeId = id.replace(/[^a-zA-Z0-9-]/g, '');
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Length': String(pdf.length),
+      'Content-Disposition': `attachment; filename="rental-contract-draft-${safeId}.pdf"`,
+      'Cache-Control': 'private, no-store',
+    });
+    res.send(pdf);
   }
 
   private withAbsolutePdfUrl<T extends { pdfUrl: string | null }>(
