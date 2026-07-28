@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { VerifiedGuard } from '../common/guards/verified.guard';
 import { RejectDraftDto } from './dto/reject-draft.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
 import { LeaseContractsService } from './lease-contracts.service';
@@ -55,6 +56,7 @@ export class LeaseContractsController {
 
   @HttpCode(HttpStatus.OK)
   @Post('draft')
+  @UseGuards(VerifiedGuard)
   async saveDraft(
     @Request() req: { user: { userId: string } },
     @Param('matchConnectionId') matchConnectionId: string,

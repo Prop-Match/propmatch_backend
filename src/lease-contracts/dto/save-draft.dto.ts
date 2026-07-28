@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsNotEmpty,
   IsISO8601,
   IsNumber,
   IsOptional,
@@ -18,20 +19,23 @@ import {
  */
 export class SaveDraftDto {
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
   @IsPositive()
   rentAmount?: number;
 
-  @IsISO8601()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsISO8601({ strict: true })
   startDate!: string;
 
-  @IsISO8601()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsISO8601({ strict: true })
   endDate!: string;
 
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(30)
   @IsString({ each: true })
+  @IsNotEmpty({ each: true })
   @MaxLength(2000, { each: true })
   customClauses?: string[];
 
