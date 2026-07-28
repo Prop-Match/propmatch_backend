@@ -277,9 +277,10 @@ export class CustomerSupportService {
     return this.getTicketDetail(ticketId);
   }
   async updateStatus(ticketId: string, status: WireTicketStatus) {
+    const normalized = (String(status || "").toLowerCase()) as WireTicketStatus;
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
-      data: { status: ticketStatusToDb(status) },
+      data: { status: ticketStatusToDb(normalized) },
     });
     return this.getTicketDetail(ticketId);
   }
