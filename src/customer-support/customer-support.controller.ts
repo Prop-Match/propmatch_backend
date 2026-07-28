@@ -17,6 +17,7 @@ import { CustomerSupportService } from './customer-support.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
+import { PostTicketStatusDto } from './dto/post-ticket-status.dto';
 
 import { ConfigService } from '@nestjs/config';
 import type { Response as ExpressResponse } from 'express';
@@ -100,11 +101,7 @@ export class CustomerSupportController {
     @Param('id') id: string,
     @Body() dto: PostReplyDto,
   ) {
-    return this.customerSupportService.addUserReply(
-      id,
-      req.user!.userId,
-      dto.content,
-    );
+    return this.customerSupportService.addUserReply(id, req.user!.userId, dto);
   }
   // --- Admin Endpoints ---
   @Get('admin/tickets')
@@ -132,6 +129,16 @@ export class CustomerSupportController {
   @Roles('ADMIN')
   async updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto) {
     return this.customerSupportService.updateStatus(id, dto.ticketStatus);
+  }
+
+  // Contract alias: the frontend + mock use POST with { status }. Same behaviour.
+  @Post('admin/tickets/:id/status')
+  @Roles('ADMIN')
+  async updateStatusViaPost(
+    @Param('id') id: string,
+    @Body() dto: PostTicketStatusDto,
+  ) {
+    return this.customerSupportService.updateStatus(id, dto.status);
   }
   @Get('admin/tickets/:id')
   @Roles('ADMIN')

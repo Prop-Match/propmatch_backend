@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from 'generated/prisma/client';
@@ -477,6 +478,43 @@ export class PropertiesService {
       items: properties.map((p) => transformPropertyToSummary(p)),
       total,
     };
+  }
+
+  /** Confirm the property exists and belongs to this landlord, or throw 404. */
+  private async requireOwnedProperty(ownerId: string, propertyId: string) {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId, ownerId },
+      select: { id: true, status: true },
+    });
+    if (!property) throw new NotFoundException('العقار غير موجود');
+    return property;
+  }
+
+  /**
+   * PRO-14 — boost a listing. Boosting is always a paid action (no free tier),
+   * so this returns the coded paywall the frontend turns into the BOOST_LISTING
+   * PaymentSheet. The isBoosted flip happens on payment success.
+   */
+  async boost(ownerId: string, propertyId: string) {
+    await this.requireOwnedProperty(ownerId, propertyId);
+    throw new ForbiddenException({
+      statusCode: 403,
+      code: 'QUOTA_EXHAUSTED',
+      message: 'ترقية الإعلان تتطلب دفعًا',
+      trigger: 'payment',
+      paymentType: 'BOOST_LISTING',
+      priceEgp: 75,
+    });
+  }
+
+  /** Soft-archive a listing (ERD: never delete). */
+  async archive(ownerId: string, propertyId: string) {
+    await this.requireOwnedProperty(ownerId, propertyId);
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: { status: 'ARCHIVED' },
+    });
+    return { ok: true };
   }
 
   /**

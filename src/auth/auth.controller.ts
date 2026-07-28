@@ -29,6 +29,14 @@ export class AuthController {
       ip,
     );
   }
+  // Always 200 with { sent: true } — never reveals whether the account exists.
+  // (Reset-email delivery is a follow-up; the contract only needs this shape.)
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  forgotPassword(@Body('email') _email?: string) {
+    return { sent: true };
+  }
+
   @Post('register')
   async signUp(@Body() signupDto: SignupDto) {
     return await this.authService.signup(

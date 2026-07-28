@@ -82,7 +82,16 @@ export class MessagesService {
     const rows = await this.prisma.message.findMany({
       where: { matchConnectionId: id },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { id: true, senderId: true, body: true, createdAt: true },
+      select: {
+        id: true,
+        senderId: true,
+        body: true,
+        createdAt: true,
+        attachmentUrl: true,
+        attachmentType: true,
+        attachmentName: true,
+        attachmentDurationMs: true,
+      },
     });
     return rows.map((m) => ({
       ...m,
@@ -91,14 +100,46 @@ export class MessagesService {
     }));
   }
 
-  async send(userId: string, id: string, input: { body: string }) {
+  async send(
+    userId: string,
+    id: string,
+    input: {
+      body?: string;
+      attachmentUrl?: string;
+      attachmentType?: 'IMAGE' | 'VIDEO' | 'AUDIO';
+      attachmentName?: string;
+      attachmentDurationMs?: number;
+    },
+  ) {
     const connection = await this.connectionFor(userId, id);
-    const body = input.body.trim();
-    if (!body || body.length > 1000)
+    const body = (input.body ?? '').trim();
+    const hasAttachment = Boolean(input.attachmentUrl && input.attachmentType);
+    if (!body && !hasAttachment)
+      throw new BadRequestException('Empty message.');
+    if (body.length > 1000)
       throw new BadRequestException('Invalid message body.');
     const message = await this.prisma.message.create({
-      data: { matchConnectionId: id, senderId: userId, body },
-      select: { id: true, senderId: true, body: true, createdAt: true },
+      data: {
+        matchConnectionId: id,
+        senderId: userId,
+        body,
+        attachmentUrl: hasAttachment ? input.attachmentUrl : null,
+        attachmentType: hasAttachment ? input.attachmentType : null,
+        attachmentName: hasAttachment ? (input.attachmentName ?? null) : null,
+        attachmentDurationMs: hasAttachment
+          ? (input.attachmentDurationMs ?? null)
+          : null,
+      },
+      select: {
+        id: true,
+        senderId: true,
+        body: true,
+        createdAt: true,
+        attachmentUrl: true,
+        attachmentType: true,
+        attachmentName: true,
+        attachmentDurationMs: true,
+      },
     });
     const payload = {
       ...message,

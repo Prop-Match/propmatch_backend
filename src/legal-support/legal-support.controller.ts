@@ -25,7 +25,10 @@ export class LegalSupportController {
   @Post()
   @HttpCode(HttpStatus.OK)
   chat(@Request() request: AuthenticatedRequest, @Body() dto: LegalChatDto) {
-    return this.legalSupport.chat(dto.message, request.user);
+    return this.legalSupport.chat(
+      { message: dto.message, attachments: dto.attachments },
+      request.user,
+    );
   }
 
   @Post('stream')
@@ -39,7 +42,7 @@ export class LegalSupportController {
     response.once('close', () => abortController.abort());
 
     const upstream = await this.legalSupport.openStream(
-      dto.message,
+      { message: dto.message, attachments: dto.attachments },
       request.user,
       abortController.signal,
     );

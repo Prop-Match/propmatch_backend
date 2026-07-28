@@ -110,6 +110,28 @@ export class PropertiesController {
     return this.propertiesService.getMyProperties(req.user.userId);
   }
 
+  // PRO-14 — boost a listing (returns the BOOST_LISTING paywall).
+  @Post('landlord/properties/:id/boost')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
+  async boostProperty(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.propertiesService.boost(req.user.userId, id);
+  }
+
+  // Soft-archive a listing.
+  @Post('landlord/properties/:id/archive')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
+  async archiveProperty(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.propertiesService.archive(req.user.userId, id);
+  }
+
   @Get('properties/:id')
   @UseGuards(JwtAuthGuard)
   async getPropertyById(

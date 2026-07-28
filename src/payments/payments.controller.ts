@@ -11,12 +11,18 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { PaymentsService } from './payments.service';
 @Controller('payments')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
+  // Every paymentType (NEW_LISTING/BOOST_LISTING/OFFER_PACK/REFILL_MATCHES)
+  // fulfils a landlord quota/property action — tenants have no quota — so
+  // only landlords may initiate a checkout.
   @Post('checkout')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
   async checkout(
     @Req() req: { user: { userId: string } },
     @Body('paymentType') paymentType: string,

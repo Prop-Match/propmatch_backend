@@ -17,6 +17,18 @@ enum UserRole {
   ADMIN
 }
 
+// Admin sub-role (only meaningful when role == ADMIN). NULL is treated as
+// SUPER_ADMIN for backward-compatibility with admins created before this column.
+enum AdminRole {
+  SUPER_ADMIN
+  LISTINGS_MANAGER
+  KYC_REVIEWER
+  FINANCE_ADMIN
+  REVIEWS_MANAGER
+  CUSTOMER_SUPPORT
+  READ_ONLY
+}
+
 enum VerificationStatus {
   PENDING
   APPROVED
@@ -105,6 +117,7 @@ model User {
   phoneNumber  String    @map("phone_number")
   passwordHash String    @map("password_hash")
   role         UserRole  @default(TENANT)
+  adminRole    AdminRole? @map("admin_role")
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -122,6 +135,8 @@ model User {
   // Offers & Partner Strategic Lead Routing
   ownerOffers  OwnerOffer[]
   partnerLeads PartnerLead[]
+  tenantListingOffers TenantOffer[] @relation("TenantListingOffers")
+  ownerListingOffers  TenantOffer[] @relation("OwnerListingOffers")
 
   // Reviews
   propertyReviews PropertyReview[] @relation("ReviewWriter")
@@ -230,6 +245,7 @@ model Property {
   favorites        Favorite[]
   matchConnections MatchConnection[]
   ownerOffers      OwnerOffer[]
+  tenantOffers     TenantOffer[]
   governorateId    Int
   cityId           Int
   countryId        Int
@@ -308,6 +324,39 @@ model OwnerOffer {
   @@map("owner_offer")
 }
 
+// Forward-marketplace: a tenant makes a priced offer directly on a landlord's
+// listing (no tenant request required). Supports a single landlord counter.
+// On ACCEPTED a MatchConnection (CONNECTED) is created, reusing the existing
+// messaging / contact-reveal plumbing.
+model TenantOffer {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  tenant         User              @relation("TenantListingOffers", fields: [tenantId], references: [id])
+  propertyId     String            @map("property_id") @db.Uuid
+  property       Property          @relation(fields: [propertyId], references: [id])
+  ownerId        String            @map("owner_id") @db.Uuid
+  owner          User              @relation("OwnerListingOffers", fields: [ownerId], references: [id])
+  message        String            @db.Text
+  proposedPrice  Float             @map("proposed_price")
+  counterPrice   Float?            @map("counter_price")
+  counterMessage String?           @map("counter_message") @db.Text
+  status         TenantOfferStatus @default(PENDING)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  @@index([ownerId])
+  @@index([tenantId])
+  @@map("tenant_offer")
+}
+
+enum TenantOfferStatus {
+  PENDING // tenant submitted, awaiting landlord
+  COUNTERED // landlord countered, awaiting tenant
+  ACCEPTED // agreed → MatchConnection created
+  DECLINED // landlord declined
+  WITHDRAWN // tenant withdrew
+}
+
 model Favorite {
   id         String   @id @default(uuid()) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
@@ -337,11 +386,21 @@ model MatchConnection {
   @@map("match_connection")
 }
 
+enum MessageAttachmentType {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
 model Message {
   id                String   @id @default(uuid()) @db.Uuid
   matchConnectionId String   @map("match_connection_id") @db.Uuid
   senderId          String   @map("sender_id") @db.Uuid
   body              String   @db.Text
+  attachmentUrl        String?                @map("attachment_url")
+  attachmentType       MessageAttachmentType? @map("attachment_type")
+  attachmentName       String?                @map("attachment_name")
+  attachmentDurationMs Int?                   @map("attachment_duration_ms")
   createdAt         DateTime @default(now()) @map("created_at")
 
   matchConnection MatchConnection @relation(fields: [matchConnectionId], references: [id], onDelete: Cascade)
@@ -547,6 +606,10 @@ model SupportMessage {
   authorId   String?       @map("author_id") @db.Uuid
   author     User?         @relation(fields: [authorId], references: [id])
   content    String
+  attachmentUrl        String?                @map("attachment_url")
+  attachmentType       MessageAttachmentType? @map("attachment_type")
+  attachmentName       String?                @map("attachment_name")
+  attachmentDurationMs Int?                   @map("attachment_duration_ms")
   internal   Boolean       @default(false)
   createdAt  DateTime      @default(now()) @map("created_at")
 
