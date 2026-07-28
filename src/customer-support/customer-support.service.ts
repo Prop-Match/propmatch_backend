@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import {
   BadGatewayException,
   BadRequestException,
@@ -21,6 +22,8 @@ import {
 } from './../../generated/prisma/enums';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
+import { ticketStatusToDb, ticketStatusToWire } from './ticket-status.mapper';
+import type { WireTicketStatus } from './ticket-status.mapper';
 
 /** Normalize the optional attachment fields off a reply DTO (empty ⇒ nulls). */
 function attachmentFields(dto: PostReplyDto) {
@@ -106,7 +109,7 @@ export class CustomerSupportService {
           t.messages[0]?.content.slice(0, 50) ??
           'تذكرة دعم فني',
         userName: t.user.fullName,
-        status: t.status,
+        status: ticketStatusToWire(t.status),
         priority: t.priority,
         assignedAdminName: t.assignedAdmin?.fullName ?? null,
         lastMessageAt: t.lastMessageAt.toISOString(),
@@ -132,7 +135,7 @@ export class CustomerSupportService {
           t.messages[0]?.content.slice(0, 50) ??
           'تذكرة دعم فني',
         userName: t.user.fullName,
-        status: t.status,
+        status: ticketStatusToWire(t.status),
         priority: t.priority,
         assignedAdminName: t.assignedAdmin?.fullName ?? null,
         lastMessageAt: t.lastMessageAt.toISOString(),
@@ -271,10 +274,10 @@ export class CustomerSupportService {
     });
     return this.getTicketDetail(ticketId);
   }
-  async updateStatus(ticketId: string, status: TicketStatus) {
+  async updateStatus(ticketId: string, status: WireTicketStatus) {
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
-      data: { status },
+      data: { status: ticketStatusToDb(status) },
     });
     return this.getTicketDetail(ticketId);
   }
@@ -303,7 +306,7 @@ export class CustomerSupportService {
         ticket.messages[0]?.content.slice(0, 50) ??
         'تذكرة دعم فني',
       userName: ticket.user.fullName,
-      status: ticket.status,
+      status: ticketStatusToWire(ticket.status),
       priority: ticket.priority,
       escalationReason: ticket.escalationReason,
       aiSummary: ticket.aiSummary,

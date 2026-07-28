@@ -56,10 +56,15 @@ enum ConnectionStatus {
 }
 
 enum PaymentType {
-  NEW_LISTING
+  PREMIUM_OWNER
   BOOST_LISTING
-  REFILL_MATCHES
-  OFFER_PACK
+  AI_ADDON
+  DOCS_PACK
+  LEGACY_OWNER_PLUS
+  LEGACY_NEW_LISTING
+  LEGACY_BOOST_LISTING
+  LEGACY_REFILL_MATCHES
+  LEGACY_OFFER_PACK
 }
 
 enum PaymentStatus {
@@ -70,6 +75,12 @@ enum PaymentStatus {
 
 enum PaymentProvider {
   PAYMOB
+}
+
+enum OwnerPlan {
+  FREE
+  OWNER_PLUS
+  PREMIUM
 }
 
 enum NotificationType {
@@ -110,6 +121,18 @@ enum PartnerLeadStatus {
   CONVERTED
 }
 
+/**
+ * Handshake model for lease contracts: the landlord drafts, the tenant
+ * reviews and either approves (which is what actually triggers PDF
+ * generation) or rejects back to drafting. Neither party can unilaterally
+ * produce a signed-looking PDF the other never saw.
+ */
+enum LeaseContractStatus {
+  DRAFTING
+  PENDING_TENANT_APPROVAL
+  APPROVED
+}
+
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   fullName     String    @map("full_name")
@@ -117,12 +140,16 @@ model User {
   phoneNumber  String    @map("phone_number")
   passwordHash String    @map("password_hash")
   role         UserRole  @default(TENANT)
+  avatarUrl    String?   @map("avatar_url")
   adminRole    AdminRole? @map("admin_role")
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
+  //forget password
+  resetToken           String?               @map("reset_token")
+  resetTokenExpiry     DateTime?             @map("reset_token_expiry")
   // Profiles & Settings
   identityVerification IdentityVerification?
   userQuota            UserQuota?
@@ -197,14 +224,20 @@ model IdentityVerification {
 }
 
 model UserQuota {
-  id                String   @id @default(uuid()) @db.Uuid
-  userId            String   @unique @map("user_id") @db.Uuid
-  user              User     @relation(fields: [userId], references: [id])
-  freeListingsLeft  Int      @default(1) @map("free_listings_left")
-  optimizerUsesLeft Int      @default(3) @map("optimizer_uses_left")
-  freeOffersLeft    Int      @default(3) @map("free_offers_left")
-  lastResetDate     DateTime @default(now()) @map("last_reset_date")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                       String    @id @default(uuid()) @db.Uuid
+  userId                   String    @unique @map("user_id") @db.Uuid
+  user                     User      @relation(fields: [userId], references: [id])
+  planType                 OwnerPlan @default(FREE) @map("plan_type")
+  planExpiresAt            DateTime? @map("plan_expires_at")
+  maxActiveListings        Int       @default(1) @map("max_active_listings")
+  // Legacy counters retained for a safe rollout. Listing capacity is derived
+  // from active properties; optimizer uses are the paid AI allowance.
+  freeListingsLeft         Int       @default(0) @map("free_listings_left")
+  optimizerUsesLeft        Int       @default(0) @map("optimizer_uses_left")
+  freeOffersLeft           Int       @default(3) @map("free_offers_left")
+  documentationPackCredits Int       @default(0) @map("documentation_pack_credits")
+  lastResetDate            DateTime  @default(now()) @map("last_reset_date")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   @@map("user_quota")
 }
@@ -232,6 +265,7 @@ model Property {
   contactRevealed        Boolean        @default(false) @map("contact_revealed")
   status                 PropertyStatus @default(PENDING)
   isBoosted              Boolean        @default(false) @map("is_boosted")
+  boostedUntil           DateTime?      @map("boosted_until")
 
   // Admin Approval
   approvedBy     String?   @map("approved_by") @db.Uuid
@@ -370,18 +404,19 @@ model Favorite {
 }
 
 model MatchConnection {
-  id         String           @id @default(uuid()) @db.Uuid
-  tenantId   String           @map("tenant_id") @db.Uuid
-  tenant     User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
-  propertyId String           @map("property_id") @db.Uuid
-  property   Property         @relation(fields: [propertyId], references: [id])
-  ownerId    String           @map("owner_id") @db.Uuid
-  owner      User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
-  matchScore Float            @map("match_score")
-  status     ConnectionStatus @default(INTERESTED)
-  createdAt  DateTime         @default(now()) @map("created_at")
-  updatedAt  DateTime         @updatedAt @map("updated_at")
-  messages   Message[]
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  tenant         User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
+  propertyId     String           @map("property_id") @db.Uuid
+  property       Property         @relation(fields: [propertyId], references: [id])
+  ownerId        String           @map("owner_id") @db.Uuid
+  owner          User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
+  matchScore     Float            @map("match_score")
+  status         ConnectionStatus @default(INTERESTED)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  messages       Message[]
+  leaseContracts LeaseContract[]
 
   @@map("match_connection")
 }
@@ -421,6 +456,7 @@ model PaymentTransaction {
   amount                Float
   currency              String          @default("EGP")
   paymentType           PaymentType     @map("payment_type")
+  targetPropertyId      String?         @map("target_property_id") @db.Uuid
   status                PaymentStatus   @default(PENDING)
   paidAt                DateTime?       @map("paid_at")
   createdAt             DateTime        @default(now()) @map("created_at")
@@ -429,21 +465,31 @@ model PaymentTransaction {
 }
 
 model LeaseContract {
-  id                String   @id @default(uuid()) @db.Uuid
-  generatedByUserId String   @map("generated_by_user_id") @db.Uuid
-  generatedBy       User     @relation(fields: [generatedByUserId], references: [id])
-  ownerName         String   @map("owner_name")
-  ownerNationalId   String   @map("owner_national_id")
-  tenantName        String   @map("tenant_name")
-  tenantNationalId  String   @map("tenant_national_id")
-  propertyAddress   String   @map("property_address")
-  customClauses     String?  @map("custom_clauses") @db.Text
-  pdfUrl            String?  @map("pdf_url")
-  startDate         DateTime @map("start_date")
-  endDate           DateTime @map("end_date")
-  rentAmount        Float    @map("rent_amount")
-  createdAt         DateTime @default(now()) @map("created_at")
+  id                 String              @id @default(uuid()) @db.Uuid
+  matchConnectionId  String              @map("match_connection_id") @db.Uuid
+  matchConnection    MatchConnection     @relation(fields: [matchConnectionId], references: [id])
+  generatedByUserId  String              @map("generated_by_user_id") @db.Uuid
+  generatedBy        User                @relation(fields: [generatedByUserId], references: [id])
+  ownerName          String              @map("owner_name")
+  ownerNationalId    String?             @map("owner_national_id")
+  tenantName         String              @map("tenant_name")
+  tenantNationalId   String?             @map("tenant_national_id")
+  propertyAddress    String              @map("property_address")
+  customClauses      String[]            @map("custom_clauses")
+  witness1Name       String?             @map("witness1_name")
+  witness1NationalId String?             @map("witness1_national_id")
+  witness2Name       String?             @map("witness2_name")
+  witness2NationalId String?             @map("witness2_national_id")
+  pdfUrl             String?             @map("pdf_url")
+  startDate          DateTime            @map("start_date")
+  endDate            DateTime            @map("end_date")
+  rentAmount         Float               @map("rent_amount")
+  status             LeaseContractStatus @default(DRAFTING)
+  changeRequestNote  String?             @map("change_request_note") @db.Text
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
 
+  @@unique([matchConnectionId])
   @@map("lease_contract")
 }
 

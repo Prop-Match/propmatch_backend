@@ -6,12 +6,18 @@ import { PropertyEmbeddingService } from './property-embedding.service';
 describe('PropertyApprovalIndexingService', () => {
   const findUnique = jest.fn();
   const build = jest.fn();
-  const createEmbedding = jest.fn();
+  const createCohereEmbedding = jest.fn();
+  const createLocalEmbedding = jest.fn();
+  const isLocalEmbeddingEnabled = jest.fn();
   const upsert = jest.fn();
   const service = new PropertyApprovalIndexingService(
     { property: { findUnique } } as unknown as PrismaService,
     { build },
-    { createEmbedding } as unknown as PropertyEmbeddingService,
+    {
+      createCohereEmbedding,
+      createLocalEmbedding,
+      isLocalEmbeddingEnabled,
+    } as unknown as PropertyEmbeddingService,
     { upsert } as unknown as ChromaPropertyService,
   );
 
@@ -41,7 +47,9 @@ describe('PropertyApprovalIndexingService', () => {
       document: 'safe document',
       metadata: { city: 'Cairo' },
     });
-    createEmbedding.mockResolvedValue([0.1, 0.2]);
+    createCohereEmbedding.mockResolvedValue([0.1, 0.2]);
+    createLocalEmbedding.mockResolvedValue([0.3, 0.4]);
+    isLocalEmbeddingEnabled.mockReturnValue(true);
     upsert.mockResolvedValue(undefined);
   });
 
@@ -58,11 +66,23 @@ describe('PropertyApprovalIndexingService', () => {
       governorate: property.governorate.nameAr,
       city: property.city.nameAr,
     });
-    expect(createEmbedding).toHaveBeenCalledWith('safe document');
+    expect(createCohereEmbedding).toHaveBeenCalledWith(
+      'safe document',
+      'search_document',
+    );
+    expect(createLocalEmbedding).toHaveBeenCalledWith('safe document');
     expect(upsert).toHaveBeenCalledWith(
+      'cohere',
       'property:property-1',
       'safe document',
       [0.1, 0.2],
+      { city: 'Cairo' },
+    );
+    expect(upsert).toHaveBeenCalledWith(
+      'local',
+      'property:property-1',
+      'safe document',
+      [0.3, 0.4],
       { city: 'Cairo' },
     );
   });
@@ -75,7 +95,8 @@ describe('PropertyApprovalIndexingService', () => {
       await service.indexApprovedProperty('property-1');
 
       expect(build).not.toHaveBeenCalled();
-      expect(createEmbedding).not.toHaveBeenCalled();
+      expect(createCohereEmbedding).not.toHaveBeenCalled();
+      expect(createLocalEmbedding).not.toHaveBeenCalled();
       expect(upsert).not.toHaveBeenCalled();
     },
   );
@@ -84,15 +105,18 @@ describe('PropertyApprovalIndexingService', () => {
     await service.indexApprovedProperty('property-1');
     await service.indexApprovedProperty('property-1');
 
+    expect(upsert).toHaveBeenCalledTimes(4);
     expect(upsert).toHaveBeenNthCalledWith(
       1,
+      'cohere',
       'property:property-1',
       expect.any(String),
       expect.any(Array),
       expect.any(Object),
     );
     expect(upsert).toHaveBeenNthCalledWith(
-      2,
+      4,
+      'local',
       'property:property-1',
       expect.any(String),
       expect.any(Array),

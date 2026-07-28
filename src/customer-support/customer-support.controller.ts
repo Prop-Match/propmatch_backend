@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  Patch,
   Post,
   Request,
   Res,
@@ -125,10 +124,11 @@ export class CustomerSupportController {
   async assignTicket(@Request() req: RequestWithUser, @Param('id') id: string) {
     return this.customerSupportService.assignToAdmin(id, req.user!.userId);
   }
-  @Patch('admin/tickets/:id/status')
+  @HttpCode(HttpStatus.OK)
+  @Post('admin/tickets/:id/status')
   @Roles('ADMIN')
   async updateStatus(@Param('id') id: string, @Body() dto: UpdateStatusDto) {
-    return this.customerSupportService.updateStatus(id, dto.ticketStatus);
+    return this.customerSupportService.updateStatus(id, dto.status);
   }
 
   // Contract alias: the frontend + mock use POST with { status }. Same behaviour.

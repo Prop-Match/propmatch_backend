@@ -4,13 +4,13 @@ import { SemanticMatchingConfig } from '../config/semantic-matching.config';
 
 describe('PropertiesService.semanticSearch', () => {
   const findMany = jest.fn();
-  const createEmbedding = jest.fn();
+  const createPrimaryEmbedding = jest.fn();
   const query = jest.fn();
   const createService = (minSimilarity = 0.65) =>
     new PropertiesService(
       { property: { findMany } } as never,
       {} as never,
-      { createEmbedding } as never,
+      { createPrimaryEmbedding } as never,
       { query } as never,
       { minSimilarity } as SemanticMatchingConfig,
     );
@@ -25,7 +25,10 @@ describe('PropertiesService.semanticSearch', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    createEmbedding.mockResolvedValue([0.1, 0.2]);
+    createPrimaryEmbedding.mockResolvedValue({
+      provider: 'cohere',
+      embedding: [0.1, 0.2],
+    });
   });
 
   it('hydrates only approved records in vector relevance order and deduplicates ids', async () => {
@@ -39,8 +42,15 @@ describe('PropertiesService.semanticSearch', () => {
 
     const result = await createService().semanticSearch({ query: 'near university', limit: 5 });
 
-    expect(createEmbedding).toHaveBeenCalledWith('near university');
-    expect(query).toHaveBeenCalledWith({ embedding: [0.1, 0.2], limit: 20 });
+    expect(createPrimaryEmbedding).toHaveBeenCalledWith(
+      'near university',
+      'search_query',
+    );
+    expect(query).toHaveBeenCalledWith({
+      provider: 'cohere',
+      embedding: [0.1, 0.2],
+      limit: 20,
+    });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['b', 'a'] }, status: 'APPROVED' } }));
     expect(result.items.map((item) => item.id)).toEqual(['b', 'a']);
     expect(result.items.map((item) => item.semanticSimilarity)).toEqual([0.9, 0.8]);
@@ -66,7 +76,7 @@ describe('PropertiesService.semanticSearch', () => {
   });
 
   it('sanitizes embedding and vector provider failures', async () => {
-    createEmbedding.mockRejectedValue(new Error('provider details'));
+    createPrimaryEmbedding.mockRejectedValue(new Error('provider details'));
     await expect(createService().semanticSearch({ query: 'test', limit: 10 })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 

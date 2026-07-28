@@ -1,11 +1,14 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
+import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
@@ -13,6 +16,7 @@ import { RefreshDto } from './dto/refresh.dto';
 @Injectable()
 export class AuthService {
   constructor(
+    private readonly mailService: MailService,
     private readonly userService: UsersService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
@@ -83,8 +87,8 @@ export class AuthService {
         ? {
             userQuota: {
               create: {
-                freeListingsLeft: 1,
-                optimizerUsesLeft: 3,
+                freeListingsLeft: 0,
+                optimizerUsesLeft: 0,
                 freeOffersLeft: 3,
               },
             },
@@ -151,5 +155,85 @@ export class AuthService {
         I18nContext.current()?.t('auth.INVALID_REFRESH_TOKEN'),
       );
     }
+  }
+  async forgetPassword(email: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+    if (!user) {
+      throw new UnauthorizedException(
+        I18nContext.current()?.t('auth.USER_NOT_FOUND'),
+      );
+    }
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+    const expiry = new Date(Date.now() + 60 * 60 * 1000);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken: hashedToken,
+        resetTokenExpiry: expiry,
+      },
+    });
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${rawToken}`;
+    console.log(
+      `[AUTH DEBUG] Password reset URL for ${user.email}: ${resetUrl}`,
+    );
+    await this.mailService.sendPasswordResetEmail(user.email, rawToken);
+
+    return {
+      message:
+        I18nContext.current()?.t('auth.PASSWORD_RESET_SENT') ||
+        'تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.',
+    };
+  }
+
+  async resetPassword(
+    rawToken: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+    const user = await this.prisma.user.findFirst({
+      where: {
+        resetToken: hashedToken,
+        resetTokenExpiry: { gt: new Date() }, // Ensure token has not expired
+      },
+    });
+    if (!user) {
+      throw new BadRequestException(
+        I18nContext.current()?.t('auth.INVALID_RESET_TOKEN') ||
+          'رابط إعادة التعيين غير صالحة أو انتهت صلاحيتها.',
+      );
+    }
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        resetToken: null,
+        resetTokenExpiry: null,
+      },
+    });
+    return { message: 'تم تغيير كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.' };
+  }
+
+  async updateProfile(
+    userId: string,
+    dto: { fullName?: string; phoneNumber?: string; avatarUrl?: string | null },
+  ) {
+    const updated = await this.userService.updateProfile(userId, dto);
+    return transformUserToFrontend(updated);
+  }
+
+  async deleteAccount(userId: string) {
+    await this.userService.deleteAccount(userId);
+    return { message: 'تم حذف الحساب بنجاح' };
   }
 }

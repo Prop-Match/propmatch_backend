@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { PaymentsService } from './payments.service';
@@ -25,9 +26,9 @@ export class PaymentsController {
   @Roles('LANDLORD')
   async checkout(
     @Req() req: { user: { userId: string } },
-    @Body('paymentType') paymentType: string,
+    @Body() dto: CreateCheckoutDto,
   ) {
-    return this.paymentsService.checkout(req.user.userId, paymentType);
+    return this.paymentsService.checkout(req.user.userId, dto);
   }
 
   @Post('reconcile-pending')

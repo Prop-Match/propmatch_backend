@@ -791,6 +791,84 @@
       ]
     },
     {
+      "name": "Tenant Request Extraction",
+      "id": "27573463-tenant-request-extraction-folder",
+      "item": [
+        {
+          "name": "Extract Tenant Request - Detailed Arabic",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"عايز شقة مفروشة غرفتين في حي الجامعة وميزانيتي من 7000 لـ 9000 جنيه وتكون في مكان هادي\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
+            "description": "Verified TENANT only. Expected suggestions include 7000–9000, APARTMENT, 2 bedrooms, furnished, and quiet-area lifestyle text; flexibilityScore remains null unless explicitly numeric."
+          },
+          "response": []
+        },
+        {
+          "name": "Extract Tenant Request - Incomplete Arabic",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"محتاج شقة هادية قريبة من المواصلات\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
+            "description": "Expected: APARTMENT may be suggested from شقة; unstated budget, bedrooms, location, furnishing, and flexibility remain null and appear in missingFields."
+          },
+          "response": []
+        },
+        {
+          "name": "Extract Tenant Request - Empty Text Validation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"   \"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
+            "description": "Expected HTTP 400 validation response."
+          },
+          "response": []
+        },
+        {
+          "name": "Extract Tenant Request - Provider Unavailable",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"أبحث عن شقة هادئة\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
+            "description": "Use only when SBG is intentionally unavailable. Expected sanitized 503 code TENANT_REQUEST_EXTRACTION_UNAVAILABLE."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Hello World",
       "id": "27573463-hello-world-uuid",
       "request": {

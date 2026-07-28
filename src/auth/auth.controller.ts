@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Request,
@@ -11,10 +13,14 @@ import {
 } from '@nestjs/common';
 import type { Request as ExpressRequest } from 'express';
 import { AuthService } from './auth.service';
+import { Public } from './decorators/public.decorator';
+import { ForgetPasswordDto } from './dto/forget-password.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SigninDto } from './dto/signin.dto';
 import { SignupDto } from './dto/signup.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -53,9 +59,37 @@ export class AuthController {
     return await this.authService.getMe(req.user.userId);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  async updateProfile(
+    @Request() req: { user: { userId: string } },
+    @Body()
+    dto: { fullName?: string; phoneNumber?: string; avatarUrl?: string | null },
+  ) {
+    return await this.authService.updateProfile(req.user.userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('account')
+  async deleteAccount(@Request() req: { user: { userId: string } }) {
+    return await this.authService.deleteAccount(req.user.userId);
+  }
+
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(@Body() refreshDto: RefreshDto) {
     return await this.authService.refresh(refreshDto);
+  }
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post(['forgot-password', 'forget-password'])
+  async forgetPassword(@Body() dto: ForgetPasswordDto) {
+    return await this.authService.forgetPassword(dto.email);
+  }
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto.token, dto.newPassword);
   }
 }
