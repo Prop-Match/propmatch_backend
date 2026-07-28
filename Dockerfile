@@ -79,7 +79,8 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/tsconfig*.json ./
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
+# Strip any CRLF (Windows checkout) so the shebang isn't `#!/bin/sh\r`, then make executable.
+RUN sed -i 's/\r$//' ./docker-entrypoint.sh && chmod +x ./docker-entrypoint.sh
 
 EXPOSE 3001
 ENTRYPOINT ["./docker-entrypoint.sh"]
