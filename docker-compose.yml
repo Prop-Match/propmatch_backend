@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: build
+      target: builder
     env_file:
       - .env
     environment:

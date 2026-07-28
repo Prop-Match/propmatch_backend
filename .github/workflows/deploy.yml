@@ -36,7 +36,6 @@ jobs:
     steps:
       - name: Pull main and update Docker containers
         uses: appleboy/ssh-action@v1.2.5
-        continue-on-error: true
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
