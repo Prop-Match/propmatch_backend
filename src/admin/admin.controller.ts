@@ -20,6 +20,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminService } from './admin.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
+import { CapabilitiesGuard } from './guards/capabilities.guard';
+import { RequireCapability } from './decorators/require-capability.decorator';
 
 interface RequestWithUser {
   user?: { userId: string };
@@ -32,6 +34,12 @@ export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
   }
 }
 
+// Every admin route requires the ADMIN role. Routes that MUTATE state or expose
+// sensitive data additionally require a specific capability (CapabilitiesGuard +
+// @RequireCapability), so an admin sub-role (e.g. customer-support, read-only)
+// can no longer perform actions outside its remit. Plain dashboard views carry
+// no capability requirement and remain visible to every admin, including
+// read-only.
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -54,8 +62,9 @@ export class AdminController {
   }
 
   @Get('kyc/:id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('kyc:review')
   async getKyc(@Param('id') id: string) {
     const kyc = await this.adminService.getKyc(id);
     const origin = this.publicBackendOrigin();
@@ -79,8 +88,9 @@ export class AdminController {
 
   @HttpCode(HttpStatus.OK)
   @Post('kyc/:userId/review')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('kyc:review')
   async reviewKyc(
     @Request() req: { user: { userId: string } },
     @Param('userId') userId: string,
@@ -91,8 +101,9 @@ export class AdminController {
 
   @HttpCode(HttpStatus.OK)
   @Post('properties/:propertyId/review')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('property:approve', 'property:reject')
   async reviewProperty(
     @Request() req: { user: { userId: string } },
     @Param('propertyId') propertyId: string,
@@ -102,16 +113,18 @@ export class AdminController {
   }
 
   @Get('properties/:propertyId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('property:approve', 'property:reject')
   async getPropertyReviewDetail(@Param('propertyId') propertyId: string) {
     return this.adminService.getPropertyReviewDetail(propertyId);
   }
 
   @HttpCode(HttpStatus.OK)
   @Post('requests/:requestId/review')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('request:approve', 'request:reject')
   async reviewRequest(
     @Request() req: { user: { userId: string } },
     @Param('requestId') requestId: string,
@@ -121,16 +134,18 @@ export class AdminController {
   }
 
   @Get('requests/:requestId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('request:approve', 'request:reject')
   async getRequestReviewDetail(@Param('requestId') requestId: string) {
     return this.adminService.getRequestReviewDetail(requestId);
   }
 
   @HttpCode(HttpStatus.OK)
   @Post('reviews/:reviewId/review')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('review:moderate')
   async reviewUserReview(
     @Request() req: { user: { userId: string } },
     @Param('reviewId') reviewId: string,
@@ -140,26 +155,31 @@ export class AdminController {
   }
 
   @Get('reviews/:reviewId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('review:moderate')
   async getReviewDetail(@Param('reviewId') reviewId: string) {
     return this.adminService.getReviewDetail(reviewId);
   }
 
   @Get('login-history')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('audit:view')
   async getLoginHistory() {
     return this.adminService.getLoginHistory();
   }
 
   @Get('audit-log')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('audit:view')
   async getAuditLog() {
     return this.adminService.getAuditLog();
   }
 
+  // Bootstrap-friendly: OptionalJwtAuthGuard lets the very first admin be
+  // created when none exists; otherwise the service enforces super-admin.
   @Post('register')
   @UseGuards(OptionalJwtAuthGuard)
   async registerAdmin(
@@ -177,8 +197,9 @@ export class AdminController {
   }
 
   @Patch('team/:id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('admin:manage')
   async updateTeamMember(
     @Param('id') id: string,
     @Body() dto: { role?: string; disabled?: boolean },
@@ -188,8 +209,9 @@ export class AdminController {
 
   @HttpCode(HttpStatus.OK)
   @Post('team/:id/reset-password')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
+  @RequireCapability('admin:manage')
   async resetPassword(@Param('id') id: string) {
     //Todo: create reset password implementation
     return { sent: true };

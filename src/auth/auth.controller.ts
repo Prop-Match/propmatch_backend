@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Request,
@@ -33,6 +35,14 @@ export class AuthController {
       ip,
     );
   }
+  // Always 200 with { sent: true } — never reveals whether the account exists.
+  // (Reset-email delivery is a follow-up; the contract only needs this shape.)
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  forgotPassword(@Body('email') _email?: string) {
+    return { sent: true };
+  }
+
   @Post('register')
   async signUp(@Body() signupDto: SignupDto) {
     return await this.authService.signup(
@@ -47,6 +57,22 @@ export class AuthController {
   @Get('me')
   async getMe(@Request() req: { user: { userId: string } }) {
     return await this.authService.getMe(req.user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  async updateProfile(
+    @Request() req: { user: { userId: string } },
+    @Body()
+    dto: { fullName?: string; phoneNumber?: string; avatarUrl?: string | null },
+  ) {
+    return await this.authService.updateProfile(req.user.userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('account')
+  async deleteAccount(@Request() req: { user: { userId: string } }) {
+    return await this.authService.deleteAccount(req.user.userId);
   }
 
   @HttpCode(HttpStatus.OK)

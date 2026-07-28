@@ -223,4 +223,17 @@ export class AuthService {
     });
     return { message: 'تم تغيير كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول.' };
   }
+
+  async updateProfile(
+    userId: string,
+    dto: { fullName?: string; phoneNumber?: string; avatarUrl?: string | null },
+  ) {
+    const updated = await this.userService.updateProfile(userId, dto);
+    return transformUserToFrontend(updated);
+  }
+
+  async deleteAccount(userId: string) {
+    await this.userService.deleteAccount(userId);
+    return { message: 'تم حذف الحساب بنجاح' };
+  }
 }

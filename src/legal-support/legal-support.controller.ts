@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   HttpCode,
@@ -25,7 +26,13 @@ export class LegalSupportController {
   @Post()
   @HttpCode(HttpStatus.OK)
   chat(@Request() request: AuthenticatedRequest, @Body() dto: LegalChatDto) {
-    return this.legalSupport.chat(dto.message, request.user);
+    if (!dto.message?.trim() && (!dto.attachments || dto.attachments.length === 0)) {
+      throw new BadRequestException('يجب كتابة رسالة أو إرفاق ملف');
+    }
+    return this.legalSupport.chat(
+      { message: dto.message, attachments: dto.attachments },
+      request.user,
+    );
   }
 
   @Post('stream')
@@ -35,11 +42,14 @@ export class LegalSupportController {
     @Body() dto: LegalChatDto,
     @Res() response: ExpressResponse,
   ): Promise<void> {
+    if (!dto.message?.trim() && (!dto.attachments || dto.attachments.length === 0)) {
+      throw new BadRequestException('يجب كتابة رسالة أو إرفاق ملف');
+    }
     const abortController = new AbortController();
     response.once('close', () => abortController.abort());
 
     const upstream = await this.legalSupport.openStream(
-      dto.message,
+      { message: dto.message, attachments: dto.attachments },
       request.user,
       abortController.signal,
     );

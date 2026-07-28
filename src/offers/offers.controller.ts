@@ -48,6 +48,10 @@ export class OffersController {
     return this.offersService.getReceivedOffers(req.user.userId);
   }
 
+  // Verification asymmetry (intentional): browsing/triage is open pre-verification
+  // so tenants can view and reject offers before completing eKYC — only ACCEPT,
+  // which reveals contact details and forms a binding match, requires an approved
+  // identity. Do not add VerifiedGuard to view/reject without a product decision.
   @Post('tenant/offers/:id/view')
   @Roles('TENANT')
   viewOffer(@Request() req: AuthedRequest, @Param('id') id: string) {

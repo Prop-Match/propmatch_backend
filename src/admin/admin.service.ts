@@ -1,4 +1,4 @@
-import { NotificationType } from '@generated/prisma/enums';
+import { AdminRole, NotificationType } from '@generated/prisma/enums';
 import {
   BadRequestException,
   ConflictException,
@@ -10,6 +10,12 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { I18nContext } from 'nestjs-i18n';
+import {
+  adminRoleFromSlug,
+  capabilitiesFor,
+  roleLabelFor,
+  roleSlugFor,
+} from './capabilities';
 import { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
@@ -150,23 +156,9 @@ export class AdminService {
     return {
       id: userId,
       fullName: user.fullName,
-      role: 'super-admin',
-      roleName: 'مشرف عام',
-      capabilities: [
-        'property:approve',
-        'property:reject',
-        'kyc:review',
-        'request:approve',
-        'request:reject',
-        'review:moderate',
-        'payment:view',
-        'partner_lead:view',
-        'report:export',
-        'ticket:reply',
-        'audit:view',
-        'admin:create',
-        'admin:manage',
-      ],
+      role: roleSlugFor(user.adminRole),
+      roleName: roleLabelFor(user.adminRole),
+      capabilities: capabilitiesFor(user.adminRole),
     };
   }
 
@@ -647,6 +639,10 @@ export class AdminService {
         passwordHash: hashedPassword,
         phoneNumber: createAdminDto.phoneNumber,
         role: 'ADMIN',
+        // Persisted sub-role drives capability enforcement. Absent ⇒ SUPER_ADMIN.
+        adminRole: createAdminDto.role
+          ? (adminRoleFromSlug(createAdminDto.role) ?? 'SUPER_ADMIN')
+          : 'SUPER_ADMIN',
       },
     });
     return transformUserToFrontend(admin);
@@ -662,22 +658,8 @@ export class AdminService {
         id: admin.id,
         fullName: admin.fullName,
         email: admin.email,
-        role: 'super-admin',
-        capabilities: [
-          'property:approve',
-          'property:reject',
-          'kyc:review',
-          'request:approve',
-          'request:reject',
-          'review:moderate',
-          'payment:view',
-          'partner_lead:view',
-          'report:export',
-          'ticket:reply',
-          'audit:view',
-          'admin:create',
-          'admin:manage',
-        ],
+        role: roleSlugFor(admin.adminRole),
+        capabilities: capabilitiesFor(admin.adminRole),
         disabled: !admin.isActive,
         lastLoginAt: admin.lastLoginAt?.toISOString() || null,
         createdAt: admin.createdAt.toISOString(),
@@ -689,9 +671,13 @@ export class AdminService {
     id: string,
     dto: { role?: string; disabled?: boolean },
   ) {
-    const data: any = {};
+    const data: { isActive?: boolean; adminRole?: AdminRole } = {};
     if (dto.disabled !== undefined) {
       data.isActive = !dto.disabled;
+    }
+    if (dto.role !== undefined) {
+      const mapped = adminRoleFromSlug(dto.role);
+      if (mapped) data.adminRole = mapped;
     }
     const admin = await this.prismaService.user.update({
       where: { id },
@@ -701,22 +687,8 @@ export class AdminService {
       id: admin.id,
       fullName: admin.fullName,
       email: admin.email,
-      role: dto.role || 'super-admin',
-      capabilities: [
-        'property:approve',
-        'property:reject',
-        'kyc:review',
-        'request:approve',
-        'request:reject',
-        'review:moderate',
-        'payment:view',
-        'partner_lead:view',
-        'report:export',
-        'ticket:reply',
-        'audit:view',
-        'admin:create',
-        'admin:manage',
-      ],
+      role: roleSlugFor(admin.adminRole),
+      capabilities: capabilitiesFor(admin.adminRole),
       disabled: !admin.isActive,
       lastLoginAt: admin.lastLoginAt?.toISOString() || null,
       createdAt: admin.createdAt.toISOString(),

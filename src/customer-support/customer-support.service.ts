@@ -4,6 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import {
   BadGatewayException,
+  BadRequestException,
   ForbiddenException,
   GatewayTimeoutException,
   Injectable,
@@ -23,6 +24,27 @@ import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
 import { ticketStatusToDb, ticketStatusToWire } from './ticket-status.mapper';
 import type { WireTicketStatus } from './ticket-status.mapper';
+
+/** Normalize the optional attachment fields off a reply DTO (empty ⇒ nulls). */
+function attachmentFields(dto: PostReplyDto) {
+  const has = Boolean(dto.attachmentUrl && dto.attachmentType);
+  return {
+    attachmentUrl: has ? dto.attachmentUrl! : null,
+    attachmentType: has ? dto.attachmentType! : null,
+    attachmentName: has ? (dto.attachmentName ?? null) : null,
+    attachmentDurationMs: has ? (dto.attachmentDurationMs ?? null) : null,
+  };
+}
+
+/** Short notification preview: the text, or an attachment-type label. */
+function replyPreview(content: string | undefined, type: string | null): string {
+  const text = content?.trim();
+  if (text) return `${text.slice(0, 50)}...`;
+  if (type === 'IMAGE') return 'صورة مرفقة';
+  if (type === 'VIDEO') return 'فيديو مرفق';
+  if (type === 'AUDIO') return 'رسالة صوتية';
+  return 'مرفق';
+}
 
 @Injectable()
 export class CustomerSupportService {
@@ -131,14 +153,19 @@ export class CustomerSupportService {
       where: { id: ticketId },
     });
 
+    const attachment = attachmentFields(dto);
+    if (!dto.content?.trim() && !attachment.attachmentUrl) {
+      throw new BadRequestException('اكتب رداً أو أرفق ملفاً');
+    }
     const message = await this.prisma.supportMessage.create({
       data: {
         ticketId,
         authorType: SupportAuthor.ADMIN,
-        authorName: admin?.fullName ?? 'الدعم الفني',
+        authorName: 'الدعم الفني',
         authorId: adminId,
-        content: dto.content,
+        content: dto.content?.trim() ?? '',
         internal: dto.internal ?? false,
+        ...attachment,
       },
     });
     if (!ticket) {
@@ -157,13 +184,14 @@ export class CustomerSupportService {
       content: message.content,
       internal: message.internal,
       at: message.createdAt.toISOString(),
+      ...attachment,
     });
 
     if (!dto.internal) {
       await this.realtime.notifyUser(ticket.userId, {
         type: NotificationType.NEW_MESSAGE,
         title: 'رد جديد من الدعم الفني',
-        message: `أضاف فريق الدعم الفني رداً جديداً على تذكرتك: "${dto.content.slice(0, 50)}..."`,
+        message: `أضاف فريق الدعم الفني رداً جديداً على تذكرتك: "${replyPreview(dto.content, attachment.attachmentType)}"`,
         link: `/support/tickets/${ticketId}`,
       });
     }
@@ -171,7 +199,7 @@ export class CustomerSupportService {
     return this.getTicketDetail(ticketId);
   }
 
-  async addUserReply(ticketId: string, userId: string, content: string) {
+  async addUserReply(ticketId: string, userId: string, dto: PostReplyDto) {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
       include: { user: { select: { fullName: true } } },
@@ -179,6 +207,11 @@ export class CustomerSupportService {
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (ticket.userId !== userId) throw new ForbiddenException('Access denied');
 
+    const attachment = attachmentFields(dto);
+    if (!dto.content?.trim() && !attachment.attachmentUrl) {
+      throw new BadRequestException('اكتب رداً أو أرفق ملفاً');
+    }
+    const content = dto.content?.trim() ?? '';
     const message = await this.prisma.supportMessage.create({
       data: {
         ticketId,
@@ -186,6 +219,7 @@ export class CustomerSupportService {
         authorName: ticket.user?.fullName ?? 'المستخدم',
         authorId: userId,
         content,
+        ...attachment,
       },
     });
 
@@ -203,14 +237,17 @@ export class CustomerSupportService {
       content: message.content,
       internal: false,
       at: message.createdAt.toISOString(),
+      ...attachment,
     };
 
+    // Realtime to every admin (assignee or not) so an open ticket updates live.
+    this.realtime.supportMessageToAdmins(payload);
+
     if (ticket.assignedAdminId) {
-      this.realtime.supportMessageRecieved(ticket.assignedAdminId, payload);
       await this.realtime.notifyUser(ticket.assignedAdminId, {
         type: NotificationType.NEW_MESSAGE,
         title: 'رد جديد من المستخدم',
-        message: `أضاف ${ticket.user?.fullName ?? 'المستخدم'} رداً جديداً: "${content.slice(0, 50)}..."`,
+        message: `أضاف ${ticket.user?.fullName ?? 'المستخدم'} رداً جديداً: "${replyPreview(content, attachment.attachmentType)}"`,
         link: `/admin/tickets/${ticketId}`,
       });
     }
@@ -240,9 +277,10 @@ export class CustomerSupportService {
     return this.getTicketDetail(ticketId);
   }
   async updateStatus(ticketId: string, status: WireTicketStatus) {
+    const normalized = (String(status || "").toLowerCase()) as WireTicketStatus;
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
-      data: { status: ticketStatusToDb(status) },
+      data: { status: ticketStatusToDb(normalized) },
     });
     return this.getTicketDetail(ticketId);
   }
@@ -253,9 +291,13 @@ export class CustomerSupportService {
         id: m.id,
         authorType: m.authorType,
         author: m.authorType,
-        authorName: m.authorName,
+        authorName: m.authorType === SupportAuthor.ADMIN || String(m.authorType).toUpperCase() === 'ADMIN' ? 'الدعم الفني' : m.authorName,
         content: m.content,
         internal: m.internal,
+        attachmentUrl: m.attachmentUrl ?? null,
+        attachmentType: m.attachmentType ?? null,
+        attachmentName: m.attachmentName ?? null,
+        attachmentDurationMs: m.attachmentDurationMs ?? null,
         createdAt: m.createdAt.toISOString(),
         at: m.createdAt.toISOString(),
       }));

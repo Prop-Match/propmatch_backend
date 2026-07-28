@@ -27,11 +27,19 @@ export class UsersService {
   //   return `This action returns all users`;
   // }
 
-  // update(id: number, updateUserDto: UpdateUserDto) {
-  //   return `This action updates a #${id} user`;
-  // }
+  async updateProfile(
+    id: string,
+    data: { fullName?: string; phoneNumber?: string; avatarUrl?: string | null },
+  ): Promise<User> {
+    return this.prisma.user.update({
+      where: { id },
+      data,
+      include: { identityVerification: true },
+    });
+  }
 
-  // remove(id: number) {
-  //   return `This action removes a #${id} user`;
-  // }
+  async deleteAccount(id: string): Promise<void> {
+    await this.prisma.userQuota.deleteMany({ where: { userId: id } });
+    await this.prisma.user.delete({ where: { id } });
+  }
 }
