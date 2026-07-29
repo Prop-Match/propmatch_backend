@@ -5,7 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
-/** POST /api/partner-leads (tenant-only; leads are keyed to a tenantId) -> { items }. */
+/** POST /api/partner-leads records one internal explicit-consent lead. */
 @Controller('partner-leads')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('TENANT', 'LANDLORD')
