@@ -510,10 +510,13 @@ model LeaseContract {
 
 model PartnerLead {
   id          String             @id @default(uuid()) @db.Uuid
-  tenantId    String             @map("tenant_id") @db.Uuid
-  tenant      User               @relation(fields: [tenantId], references: [id])
+  userId      String             @map("tenant_id") @db.Uuid
+  user        User               @relation(fields: [userId], references: [id])
   serviceType PartnerServiceType @map("service_type")
-  partnerName String             @map("partner_name")
+  // Legacy routing data is intentionally optional. New consent-based leads
+  // are reviewed internally and are never assigned or sent to a partner.
+  partnerName String?            @map("partner_name")
+  consentedAt DateTime?          @map("consented_at")
   status      PartnerLeadStatus  @default(PENDING)
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")

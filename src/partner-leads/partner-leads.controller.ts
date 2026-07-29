@@ -8,7 +8,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 /** POST /api/partner-leads (tenant-only; leads are keyed to a tenantId) -> { items }. */
 @Controller('partner-leads')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('TENANT')
+@Roles('TENANT', 'LANDLORD')
 export class PartnerLeadsController {
   constructor(private readonly partnerLeadsService: PartnerLeadsService) {}
 
@@ -17,6 +17,6 @@ export class PartnerLeadsController {
     @Request() req: { user: { userId: string } },
     @Body() dto: CreatePartnerLeadDto,
   ) {
-    return this.partnerLeadsService.create(req.user.userId, dto.serviceTypes);
+    return this.partnerLeadsService.create(req.user.userId, dto);
   }
 }

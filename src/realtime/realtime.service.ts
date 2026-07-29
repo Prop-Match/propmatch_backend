@@ -113,6 +113,24 @@ export class RealtimeService {
     });
   }
 
+  /** A consent-based moving or insurance request needs admin review. */
+  partnerLeadCreated(input: {
+    leadId: string;
+    userId: string;
+    serviceType: 'MOVING' | 'INSURANCE';
+    status: 'PENDING';
+    createdAt?: Date;
+  }): void {
+    this.announce({
+      id: `q_${input.leadId}`,
+      type: 'partner-lead',
+      subjectId: input.leadId,
+      title: `${input.serviceType} assistance request`,
+      subtitle: input.status,
+      submittedAt: iso(input.createdAt),
+    });
+  }
+
   /** Escape hatch for any queue arrival not covered above. */
   announce(item: QueueItem): void {
     this.gateway.emitToAdmins(SOCKET_EVENTS.adminQueueItem, item);

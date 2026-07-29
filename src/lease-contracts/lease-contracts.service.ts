@@ -7,7 +7,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RealtimeService } from '../realtime/realtime.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
 import { RejectDraftDto } from './dto/reject-draft.dto';
@@ -62,7 +61,6 @@ export class LeaseContractsService {
     private readonly realtime: RealtimeService,
     @Inject(PRIVATE_OBJECT_STORAGE)
     private readonly storage: PrivateObjectStorage,
-    private readonly realtime: RealtimeService,
   ) {}
 
   /** Every lease-contract notification deep-links to the same entry point —
