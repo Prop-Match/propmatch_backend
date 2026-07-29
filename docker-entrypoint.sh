@@ -11,7 +11,7 @@
 set -e
 
 echo "[entrypoint] Syncing schema with prisma db push..."
-npx prisma db push --accept-data-loss
+# npx prisma db push --accept-data-loss
 
 echo "[entrypoint] Checking whether the DB needs seeding..."
 USERS=$(node -e 'const {Pool}=require("pg");const p=new Pool({connectionString:process.env.DATABASE_URL});p.query("select count(*)::int n from \"user\"").then(r=>{console.log(r.rows[0].n);return p.end()}).catch(()=>{console.log(0)})' 2>/dev/null || echo 0)
