@@ -20,7 +20,6 @@ import {
 import { leaseContractStatusToWire } from './lease-contract-status.mapper';
 import { PdfRendererService } from './pdf-renderer.service';
 import { buildRentalContractDraftPdfHtml } from './rental-contract-draft-pdf.template';
-import { RealtimeService } from '../realtime/realtime.service';
 
 const PDF_URL_TTL_SECONDS = 300;
 

@@ -6,6 +6,8 @@ export const SOCKET_EVENTS = {
   message: 'message',
   supportTicketCreated: 'support:ticket:created',
   supportMessageReceived: 'support:message:received',
+  /** Client→server + server→other-party typing relay (match + support chat). */
+  typing: 'typing',
 } as const;
 
 /** Rooms. One per user; admins additionally share the `admins` room. */
