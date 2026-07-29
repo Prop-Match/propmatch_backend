@@ -78,6 +78,24 @@ export class RealtimeService {
     });
   }
 
+  /** A previously reviewed property was edited and needs approval again. */
+  propertyEdited(input: {
+    id: string;
+    title: string;
+    district: string;
+    rentAmount: number;
+    updatedAt?: Date;
+  }): void {
+    this.announce({
+      id: `q_prop_edit_${input.id}`,
+      type: 'propertyEdit',
+      subjectId: input.id,
+      title: input.title,
+      subtitle: `${input.district} · ${input.rentAmount} ج.م/شهريًا · تعديل`,
+      submittedAt: iso(input.updatedAt),
+    });
+  }
+
   /** A new tenant request was submitted (PENDING). */
   tenantRequestSubmitted(input: {
     id: string;
@@ -109,6 +127,24 @@ export class RealtimeService {
       subjectId: input.id,
       title: `تقييم ${input.rating}★`,
       subtitle: (input.comment ?? '').slice(0, 60),
+      submittedAt: iso(input.createdAt),
+    });
+  }
+
+  /** A consent-based moving or insurance request needs admin review. */
+  partnerLeadCreated(input: {
+    leadId: string;
+    userId: string;
+    serviceType: 'MOVING' | 'INSURANCE';
+    status: 'PENDING';
+    createdAt?: Date;
+  }): void {
+    this.announce({
+      id: `q_${input.leadId}`,
+      type: 'partner-lead',
+      subjectId: input.leadId,
+      title: `${input.serviceType} assistance request`,
+      subtitle: input.status,
       submittedAt: iso(input.createdAt),
     });
   }

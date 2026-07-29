@@ -865,6 +865,141 @@
             "description": "Use only when SBG is intentionally unavailable. Expected sanitized 503 code TENANT_REQUEST_EXTRACTION_UNAVAILABLE."
           },
           "response": []
+        },
+        {
+          "name": "Download Draft PDF - Authorized Party",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }],
+            "url": { "raw": "{{baseUrl}}/contracts/{{contractId}}/pdf", "host": ["{{baseUrl}}"], "path": ["contracts", "{{contractId}}", "pdf"] },
+            "description": "Connected landlord or tenant only; downloads the saved DRAFTING contract without storing it publicly."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text", "exec": ["pm.test('returns a non-empty PDF', function () {", "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/pdf');", "  pm.expect(pm.response.responseSize).to.be.above(0);", "});"] } }],
+          "response": []
+        },
+        {
+          "name": "Download Draft PDF - Unauthorized User (403)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{other_user_jwt_token}}", "type": "text" }],
+            "url": { "raw": "{{baseUrl}}/contracts/{{contractId}}/pdf", "host": ["{{baseUrl}}"], "path": ["contracts", "{{contractId}}", "pdf"] },
+            "description": "Expected 403 for an unrelated user. Use a nonexistent ID for the controlled 404 example."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Rental Contract Drafts",
+      "item": [
+        {
+          "name": "Create Draft - Success",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rentAmount\": 12500,\n  \"startDate\": \"2026-08-01\",\n  \"endDate\": \"2027-07-31\",\n  \"customClauses\": [\"No pets without written consent.\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/matches/{{matchConnectionId}}/contract/draft",
+              "host": ["{{baseUrl}}"],
+              "path": ["matches", "{{matchConnectionId}}", "contract", "draft"]
+            },
+            "description": "Verified connected landlord only. Creates or updates a DRAFTING contract; the names and address are derived from the match."
+          },
+          "response": []
+        },
+        {
+          "name": "Read Draft - Authorized Party",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }],
+            "url": {
+              "raw": "{{baseUrl}}/contracts/{{contractId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["contracts", "{{contractId}}"]
+            },
+            "description": "Only the connected landlord or tenant may read the safe draft view."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Draft - Invalid Date Range (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"rentAmount\": 12500,\n  \"startDate\": \"2026-08-02\",\n  \"endDate\": \"2026-08-01\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/matches/{{matchConnectionId}}/contract/draft", "host": ["{{baseUrl}}"], "path": ["matches", "{{matchConnectionId}}", "contract", "draft"] },
+            "description": "Expected 400: end date must be after start date."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Draft - Negative Rent (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"rentAmount\": -1,\n  \"startDate\": \"2026-08-01\",\n  \"endDate\": \"2027-07-31\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/matches/{{matchConnectionId}}/contract/draft", "host": ["{{baseUrl}}"], "path": ["matches", "{{matchConnectionId}}", "contract", "draft"] },
+            "description": "Expected 400 validation response."
+          },
+          "response": []
+        },
+        {
+          "name": "Read Draft - Another User Forbidden (403)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{other_user_jwt_token}}", "type": "text" }],
+            "url": { "raw": "{{baseUrl}}/contracts/{{contractId}}", "host": ["{{baseUrl}}"], "path": ["contracts", "{{contractId}}"] },
+            "description": "Expected 403 because this JWT is neither party to the contract."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Partner Leads",
+      "item": [
+        {
+          "name": "Create MOVING Lead with Consent",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const body = pm.response.json();", "pm.expect(body.serviceType).to.eql('MOVING');", "pm.expect(body.status).to.eql('PENDING');", "pm.expect(body.consentedAt).to.exist;", "pm.expect(body).not.to.have.any.keys('email', 'phoneNumber', 'nationalId', 'identityVerification');"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\",\n  \"consent\": true\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
+          "response": []
+        },
+        {
+          "name": "Create INSURANCE Lead with Consent",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const body = pm.response.json();", "pm.expect(body.serviceType).to.eql('INSURANCE');", "pm.expect(body.status).to.eql('PENDING');", "pm.expect(body.consentedAt).to.exist;"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"INSURANCE\",\n  \"consent\": true\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
+          "response": []
+        },
+        {
+          "name": "Missing Consent Rejected",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(400);"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\"\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
+          "response": []
+        },
+        {
+          "name": "False Consent Rejected",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(400);"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\",\n  \"consent\": false\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
+          "response": []
+        },
+        {
+          "name": "Duplicate Pending Lead Rejected",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(409);", "pm.expect(pm.response.json().code).to.eql('PARTNER_LEAD_ALREADY_PENDING');"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\",\n  \"consent\": true\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
+          "response": []
         }
       ]
     },
@@ -907,6 +1042,21 @@
     },
     {
       "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "other_user_jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "matchConnectionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "contractId",
       "value": "",
       "type": "string"
     },

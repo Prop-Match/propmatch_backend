@@ -21,7 +21,10 @@ export type NotificationType =
   | 'REVIEW_APPROVED'
   | 'NEW_TENANT_REQUEST'
   | 'NEW_OFFER_RECEIVED'
-  | 'NEW_MESSAGE';
+  | 'NEW_MESSAGE'
+  | 'CONTRACT_READY_FOR_REVIEW'
+  | 'CONTRACT_APPROVED'
+  | 'CONTRACT_REJECTED';
 
 export interface NotificationPayload {
   id: string;
@@ -42,7 +45,7 @@ export interface MessagePayload {
 }
 
 /** The four admin moderation queues (frontend `QueueItemType`). */
-export type QueueItemType = 'kyc' | 'property' | 'request' | 'review';
+export type QueueItemType = 'kyc' | 'property' | 'request' | 'review' | 'propertyEdit' | 'partner-lead';
 
 export interface QueueItem {
   /** Frontend prefixes queue ids with `q_` to keep them distinct from entity ids. */

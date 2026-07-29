@@ -5,10 +5,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
-/** POST /api/partner-leads (tenant-only; leads are keyed to a tenantId) -> { items }. */
+/** POST /api/partner-leads records one internal explicit-consent lead. */
 @Controller('partner-leads')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('TENANT')
+@Roles('TENANT', 'LANDLORD')
 export class PartnerLeadsController {
   constructor(private readonly partnerLeadsService: PartnerLeadsService) {}
 
@@ -17,6 +17,6 @@ export class PartnerLeadsController {
     @Request() req: { user: { userId: string } },
     @Body() dto: CreatePartnerLeadDto,
   ) {
-    return this.partnerLeadsService.create(req.user.userId, dto.serviceTypes);
+    return this.partnerLeadsService.create(req.user.userId, dto);
   }
 }

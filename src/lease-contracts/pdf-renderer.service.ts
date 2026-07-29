@@ -1,5 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import type { Browser } from 'puppeteer';
+import type { Browser, Page } from 'puppeteer';
 
 /**
  * Renders HTML to a PDF buffer synchronously (no job queue — see the
@@ -19,13 +19,18 @@ export class PdfRendererService {
   ): Promise<Buffer> {
     const { default: puppeteer } = await import('puppeteer');
     let browser: Browser | undefined;
+    let page: Page | undefined;
     try {
       browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
       });
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'domcontentloaded' });
+      page = await browser.newPage();
+      page.setDefaultTimeout(15_000);
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => void request.abort());
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15_000 });
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
@@ -42,10 +47,9 @@ export class PdfRendererService {
       });
       return Buffer.from(pdf);
     } catch (error) {
-      throw new ServiceUnavailableException('PDF_GENERATION_FAILED', {
-        cause: error,
-      });
+      throw new ServiceUnavailableException('PDF_GENERATION_FAILED');
     } finally {
+      await page?.close().catch(() => undefined);
       await browser?.close();
     }
   }

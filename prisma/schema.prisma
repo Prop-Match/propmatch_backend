@@ -93,6 +93,9 @@ enum NotificationType {
   NEW_TENANT_REQUEST
   NEW_OFFER_RECEIVED
   NEW_MESSAGE
+  CONTRACT_READY_FOR_REVIEW
+  CONTRACT_APPROVED
+  CONTRACT_REJECTED
 }
 
 enum TenantRequestStatus {
@@ -131,6 +134,12 @@ enum LeaseContractStatus {
   DRAFTING
   PENDING_TENANT_APPROVAL
   APPROVED
+}
+
+enum TenantContractReviewStatus {
+  PENDING_REVIEW
+  CHANGES_REQUESTED
+  REVIEW_CONFIRMED
 }
 
 model User {
@@ -485,6 +494,12 @@ model LeaseContract {
   endDate            DateTime            @map("end_date")
   rentAmount         Float               @map("rent_amount")
   status             LeaseContractStatus @default(DRAFTING)
+  tenantReviewStatus TenantContractReviewStatus @default(PENDING_REVIEW) @map("tenant_review_status")
+  tenantChangeRequest String? @map("tenant_change_request") @db.Text
+  tenantChangeRequestedAt DateTime? @map("tenant_change_requested_at")
+  tenantReviewConfirmedAt DateTime? @map("tenant_review_confirmed_at")
+  draftRevision Int @default(1) @map("draft_revision")
+  tenantReviewedRevision Int? @map("tenant_reviewed_revision")
   changeRequestNote  String?             @map("change_request_note") @db.Text
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
@@ -495,10 +510,13 @@ model LeaseContract {
 
 model PartnerLead {
   id          String             @id @default(uuid()) @db.Uuid
-  tenantId    String             @map("tenant_id") @db.Uuid
-  tenant      User               @relation(fields: [tenantId], references: [id])
+  userId      String             @map("tenant_id") @db.Uuid
+  user        User               @relation(fields: [userId], references: [id])
   serviceType PartnerServiceType @map("service_type")
-  partnerName String             @map("partner_name")
+  // Legacy routing data is intentionally optional. New consent-based leads
+  // are reviewed internally and are never assigned or sent to a partner.
+  partnerName String?            @map("partner_name")
+  consentedAt DateTime?          @map("consented_at")
   status      PartnerLeadStatus  @default(PENDING)
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")

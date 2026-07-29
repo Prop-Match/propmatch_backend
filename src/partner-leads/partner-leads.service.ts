@@ -1,35 +1,73 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { PartnerServiceType } from './dto/create-partner-lead.dto';
+import { RealtimeService } from '../realtime/realtime.service';
+import { CreatePartnerLeadDto } from './dto/create-partner-lead.dto';
 
-/** Strategic partner routed per service type (mirrors the frontend mock). */
-const PARTNER_NAME: Record<PartnerServiceType, string> = {
-  MOVING: 'نقل المنصورة',
-  INSURANCE: 'تأمين دلتا',
-};
-
-/**
- * PRO — partner strategic lead routing. POST /partner-leads creates one PENDING
- * lead per requested service type. Matches the frontend contract
- * (`src/mocks/router.ts` /partner-leads → { items }).
- */
+/** Internal, consent-based requests. They are never routed to a partner. */
 @Injectable()
 export class PartnerLeadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PartnerLeadsService.name);
 
-  async create(tenantId: string, serviceTypes: PartnerServiceType[]) {
-    const items = await Promise.all(
-      serviceTypes.map((serviceType) =>
-        this.prisma.partnerLead.create({
-          data: {
-            tenantId,
-            serviceType,
-            partnerName: PARTNER_NAME[serviceType],
-            status: 'PENDING',
-          },
-        }),
-      ),
-    );
-    return { items };
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeService,
+  ) {}
+
+  async create(userId: string, dto: CreatePartnerLeadDto) {
+    if (dto.consent !== true) {
+      throw new BadRequestException({
+        code: 'PARTNER_LEAD_CONSENT_REQUIRED',
+        message: 'Explicit consent is required before creating the service request.',
+      });
+    }
+
+    const existing = await this.prisma.partnerLead.findFirst({
+      where: { userId, serviceType: dto.serviceType, status: 'PENDING' },
+    });
+
+    if (existing) {
+      throw new ConflictException({
+        code: 'PARTNER_LEAD_ALREADY_PENDING',
+        message: 'An equivalent partner lead is already pending review.',
+      });
+    }
+
+    const lead = await this.prisma.partnerLead.create({
+      data: {
+        userId,
+        serviceType: dto.serviceType,
+        consentedAt: new Date(),
+        status: 'PENDING',
+      },
+    });
+
+    // Existing admin queue announcements are best-effort. The database row
+    // remains the source of truth if a socket delivery is temporarily down.
+    try {
+      this.realtime.partnerLeadCreated({
+        leadId: lead.id,
+        userId,
+        serviceType: lead.serviceType,
+        status: 'PENDING',
+        createdAt: lead.createdAt,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Partner lead ${lead.id} was stored but its realtime admin notification failed: ${String(error)}`,
+      );
+    }
+
+    return {
+      id: lead.id,
+      serviceType: lead.serviceType,
+      status: lead.status,
+      consentedAt: lead.consentedAt?.toISOString() ?? null,
+      createdAt: lead.createdAt.toISOString(),
+    };
   }
 }
