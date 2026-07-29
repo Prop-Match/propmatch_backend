@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
@@ -12,6 +14,7 @@ import {
 import { Prisma } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
+import { UpdatePropertyMultipartDto } from './dto/update-property-multipart.dto';
 import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import {
   transformPropertyToDetail,
@@ -504,16 +507,228 @@ export class PropertiesService {
   async getMyProperties(ownerId: string) {
     const [properties, total] = await Promise.all([
       this.prisma.property.findMany({
-        where: { ownerId },
+        where: { ownerId, status: { not: 'ARCHIVED' } },
         include: PropertiesService.DETAIL_INCLUDE,
       }),
-      this.prisma.property.count({ where: { ownerId } }),
+      this.prisma.property.count({
+        where: { ownerId, status: { not: 'ARCHIVED' } },
+      }),
     ]);
 
     return {
       items: properties.map((p) => transformPropertyToSummary(p)),
       total,
     };
+  }
+
+  /**
+   * Replace a landlord's editable property data and submit it for moderation.
+   * `approvedAt` is intentionally retained: it distinguishes edits from brand
+   * new submissions in the admin queues without a schema migration.
+   */
+  async update(
+    ownerId: string,
+    propertyId: string,
+    dto: UpdatePropertyMultipartDto,
+    uploadedImageUrls: string[],
+  ) {
+    const existing = await this.prisma.property.findFirst({
+      where: { id: propertyId, ownerId },
+      include: { propertyImages: { orderBy: { displayOrder: 'asc' } } },
+    });
+    if (!existing) throw new NotFoundException('العقار غير موجود');
+    if (existing.status === 'ARCHIVED') {
+      throw new ForbiddenException('لا يمكن تعديل عقار مؤرشف');
+    }
+
+    const retainedIds = [...new Set(dto.existingImageIds)];
+    if (retainedIds.length !== dto.existingImageIds.length) {
+      throw new BadRequestException('قائمة الصور الحالية غير صالحة');
+    }
+    const existingById = new Map(
+      existing.propertyImages.map((image) => [image.id, image]),
+    );
+    if (retainedIds.some((id) => !existingById.has(id))) {
+      throw new BadRequestException('إحدى الصور لا تنتمي إلى هذا العقار');
+    }
+    const totalImages = retainedIds.length + uploadedImageUrls.length;
+    if (totalImages < 1) {
+      throw new BadRequestException('أضف صورة واحدة على الأقل');
+    }
+    if (totalImages > 10) {
+      throw new BadRequestException('يمكنك إضافة 10 صور كحد أقصى');
+    }
+
+    const [dbGov, dbCity] = await Promise.all([
+      this.prisma.governorate.findFirst({
+        where: {
+          OR: [
+            {
+              nameEn: {
+                equals: dto.governorate,
+                mode: 'insensitive' as const,
+              },
+            },
+            {
+              nameAr: {
+                equals: dto.governorate,
+                mode: 'insensitive' as const,
+              },
+            },
+          ],
+        },
+      }),
+      this.prisma.city.findFirst({
+        where: {
+          OR: [
+            { nameEn: { equals: dto.city, mode: 'insensitive' as const } },
+            { nameAr: { equals: dto.city, mode: 'insensitive' as const } },
+          ],
+        },
+      }),
+    ]);
+    if (!dbGov || !dbCity || dbCity.governorateId !== dbGov.id) {
+      throw new ForbiddenException('Selected region is not supported.');
+    }
+    if (!dbGov.status || !dbCity.status) {
+      throw new ForbiddenException('Selected region is disabled.');
+    }
+
+    const removedImages = existing.propertyImages.filter(
+      (image) => !retainedIds.includes(image.id),
+    );
+
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        // A rejected listing becoming active again must still respect the
+        // owner's current plan capacity.
+        if (!['PENDING', 'APPROVED'].includes(existing.status)) {
+          const quota = await tx.userQuota.findUnique({
+            where: { userId: ownerId },
+          });
+          const premiumActive =
+            quota?.planType === 'PREMIUM' &&
+            quota.planExpiresAt !== null &&
+            quota.planExpiresAt.getTime() > Date.now();
+          const activeUnitLimit = premiumActive
+            ? PREMIUM_ACTIVE_LISTING_LIMIT
+            : FREE_ACTIVE_LISTING_LIMIT;
+          const activeUnitCount = await tx.property.count({
+            where: {
+              ownerId,
+              id: { not: propertyId },
+              status: { in: ['PENDING', 'APPROVED'] },
+            },
+          });
+          if (activeUnitCount >= activeUnitLimit) {
+            throw new ForbiddenException({
+              statusCode: 403,
+              code: 'PLAN_LIMIT_REACHED',
+              message: 'وصلت إلى الحد الأقصى للوحدات النشطة في خطتك',
+              trigger: 'payment',
+              paymentType: 'PREMIUM_OWNER',
+              priceEgp: PRICING_CATALOG.PREMIUM_OWNER.priceEgp,
+              activeUnitCount,
+              activeUnitLimit,
+            });
+          }
+        }
+
+        if (removedImages.length > 0) {
+          await tx.propertyImage.deleteMany({
+            where: { id: { in: removedImages.map((image) => image.id) } },
+          });
+        }
+        await Promise.all(
+          retainedIds.map((id, index) =>
+            tx.propertyImage.update({
+              where: { id },
+              data: { displayOrder: index, isCover: index === 0 },
+            }),
+          ),
+        );
+        if (uploadedImageUrls.length > 0) {
+          await tx.propertyImage.createMany({
+            data: uploadedImageUrls.map((imageUrl, index) => ({
+              propertyId,
+              imageUrl,
+              displayOrder: retainedIds.length + index,
+              isCover: retainedIds.length === 0 && index === 0,
+            })),
+          });
+        }
+
+        return tx.property.update({
+          where: { id: propertyId },
+          data: {
+            title: dto.title,
+            description: dto.description,
+            countryId: dbGov.countryId,
+            governorateId: dbGov.id,
+            cityId: dbCity.id,
+            district: dto.district,
+            manualAddress: dto.manualAddress,
+            propertyType: dto.propertyType,
+            propertyAroundServices: dto.propertyAroundServices ?? null,
+            rentAmount: dto.rentAmount,
+            areaM2: dto.areaM2,
+            bedrooms: dto.bedrooms,
+            bathrooms: dto.bathrooms,
+            isFurnished: dto.isFurnished,
+            hasElevator: dto.hasElevator,
+            hasParking: dto.hasParking,
+            status: 'PENDING',
+            approvedBy: null,
+          },
+        });
+      },
+      { isolationLevel: 'Serializable' },
+    );
+
+    if (existing.approvedAt) {
+      this.realtimeService.propertyEdited(updated);
+    } else {
+      this.realtimeService.propertySubmitted(updated);
+    }
+
+    const property = await this.prisma.property.findUniqueOrThrow({
+      where: { id: propertyId },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+    return {
+      response: {
+        property: transformPropertyToDetail(property, {
+          contactRevealed: true,
+        }),
+      },
+      removedImageUrls: removedImages.map((image) => image.imageUrl),
+    };
+  }
+
+  /**
+   * ERD-safe delete: archive instead of destroying the property and its
+   * related offers, reviews, matches, and images.
+   */
+  async remove(ownerId: string, propertyId: string) {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId, ownerId },
+      select: { id: true, status: true },
+    });
+    if (!property) throw new NotFoundException('العقار غير موجود');
+    if (property.status === 'ARCHIVED') {
+      return { ok: true, status: 'ARCHIVED' as const };
+    }
+
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        status: 'ARCHIVED',
+        isBoosted: false,
+        boostedUntil: null,
+        approvedBy: null,
+      },
+    });
+    return { ok: true, status: 'ARCHIVED' as const };
   }
 
   /**
@@ -528,6 +743,15 @@ export class PropertiesService {
       where: { id },
       include: PropertiesService.DETAIL_INCLUDE,
     });
+
+    const isAdmin = viewer?.role === 'ADMIN';
+    const isOwner = viewer?.userId === property.ownerId;
+    if (
+      (property.status === 'ARCHIVED' && !isAdmin) ||
+      (property.status !== 'APPROVED' && !isOwner && !isAdmin)
+    ) {
+      throw new NotFoundException('العقار غير موجود');
+    }
 
     let contactRevealed = false;
     if (viewer?.userId === property.ownerId) {

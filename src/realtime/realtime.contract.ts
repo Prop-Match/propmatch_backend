@@ -41,8 +41,9 @@ export interface MessagePayload {
   createdAt: string;
 }
 
-/** The four admin moderation queues (frontend `QueueItemType`). */
-export type QueueItemType = 'kyc' | 'property' | 'request' | 'review';
+/** Admin moderation queues (frontend `QueueItemType`). */
+export type QueueItemType =
+  'kyc' | 'property' | 'propertyEdit' | 'request' | 'review';
 
 export interface QueueItem {
   /** Frontend prefixes queue ids with `q_` to keep them distinct from entity ids. */

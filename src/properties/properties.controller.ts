@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Request,
@@ -18,6 +20,7 @@ import { PropertiesService } from './properties.service';
 import { FormOptimizerService } from './services/FormOptimizer.service';
 import { QuotaService } from '../quota/quota.service';
 import { CreatePropertyMultipartDto } from './dto/create-property-multipart.dto';
+import { UpdatePropertyMultipartDto } from './dto/update-property-multipart.dto';
 import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
 import { SemanticPropertySearchResponse } from './dto/semantic-property-search-response.dto';
@@ -108,6 +111,69 @@ export class PropertiesController {
   @Roles('LANDLORD')
   async getMyProperties(@Request() req: { user: { userId: string } }) {
     return this.propertiesService.getMyProperties(req.user.userId);
+  }
+
+  /**
+   * PATCH /api/landlord/properties/:id
+   *
+   * Replaces the owner's editable listing data. Any edit returns a previously
+   * reviewed listing to PENDING so it is hidden until an admin approves it.
+   */
+  @Patch('landlord/properties/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
+  @Roles('LANDLORD')
+  @UseInterceptors(
+    FilesInterceptor('images', MAX_PROPERTY_IMAGES, {
+      limits: {
+        files: MAX_PROPERTY_IMAGES,
+        fileSize: MAX_PROPERTY_IMAGE_SIZE,
+      },
+      fileFilter: (_request, file, callback) => {
+        if (!PROPERTY_IMAGE_MIME_TYPES.has(file.mimetype)) {
+          callback(new BadRequestException('نوع الصورة غير مدعوم.'), false);
+          return;
+        }
+        callback(null, true);
+      },
+    }),
+  )
+  async update(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: UpdatePropertyMultipartDto,
+    @UploadedFiles() files: Express.Multer.File[] = [],
+  ) {
+    const uploadedImageUrls =
+      files.length > 0 ? await this.propertyImageStorage.uploadMany(files) : [];
+    try {
+      const { response, removedImageUrls } =
+        await this.propertiesService.update(
+          req.user.userId,
+          id,
+          dto,
+          uploadedImageUrls,
+        );
+      await this.propertyImageStorage.deleteMany(removedImageUrls);
+      return response;
+    } catch (error) {
+      await this.propertyImageStorage.deleteMany(uploadedImageUrls);
+      throw error;
+    }
+  }
+
+  /**
+   * Soft-delete a property owned by the authenticated landlord.
+   * The row and its images are retained for audit/recovery, but ARCHIVED
+   * properties are removed from public results and moderation queues.
+   */
+  @Delete('landlord/properties/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
+  async remove(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.propertiesService.remove(req.user.userId, id);
   }
 
   @Get('properties/:id')
