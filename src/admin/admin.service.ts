@@ -52,27 +52,32 @@ export class AdminService {
     });
   }
   async getQueues() {
-    const [kyc, properties, requests, reviews] = await Promise.all([
-      this.prismaService.identityVerification.findMany({
-        where: { status: 'PENDING' },
-        include: { user: true },
-        orderBy: { submittedAt: 'desc' },
-      }),
-      this.prismaService.property.findMany({
-        where: { status: 'PENDING' },
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prismaService.tenantRequest.findMany({
-        where: { status: 'PENDING' },
-        include: { tenant: true },
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prismaService.propertyReview.findMany({
-        where: { status: 'PENDING' },
-        include: { reviewer: true, property: true },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
+    const [kyc, properties, editedProperties, requests, reviews] =
+      await Promise.all([
+        this.prismaService.identityVerification.findMany({
+          where: { status: 'PENDING' },
+          include: { user: true },
+          orderBy: { submittedAt: 'desc' },
+        }),
+        this.prismaService.property.findMany({
+          where: { status: 'PENDING', approvedAt: null },
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prismaService.property.findMany({
+          where: { status: 'PENDING', approvedAt: { not: null } },
+          orderBy: { updatedAt: 'desc' },
+        }),
+        this.prismaService.tenantRequest.findMany({
+          where: { status: 'PENDING' },
+          include: { tenant: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prismaService.propertyReview.findMany({
+          where: { status: 'PENDING' },
+          include: { reviewer: true, property: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
     return {
       kycQueue: kyc.map((k) => ({
         id: `q_kyc_${k.id}`,
@@ -89,6 +94,14 @@ export class AdminService {
         title: p.title,
         subtitle: `Rent Amount: EGP ${p.rentAmount}`,
         submittedAt: p.createdAt.toISOString(),
+      })),
+      editedPropertyQueue: editedProperties.map((p) => ({
+        id: `q_prop_edit_${p.id}`,
+        type: 'propertyEdit',
+        subjectId: p.id,
+        title: p.title,
+        subtitle: `تم تعديل الإعلان · الإيجار: ${p.rentAmount} ج.م`,
+        submittedAt: p.updatedAt.toISOString(),
       })),
       requestQueue: requests.map((r) => ({
         id: `q_req_${r.id}`,
