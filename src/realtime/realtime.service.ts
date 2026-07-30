@@ -78,6 +78,24 @@ export class RealtimeService {
     });
   }
 
+  /** A previously reviewed property was edited and needs approval again. */
+  propertyEdited(input: {
+    id: string;
+    title: string;
+    district: string;
+    rentAmount: number;
+    updatedAt?: Date;
+  }): void {
+    this.announce({
+      id: `q_prop_edit_${input.id}`,
+      type: 'propertyEdit',
+      subjectId: input.id,
+      title: input.title,
+      subtitle: `${input.district} · ${input.rentAmount} ج.م/شهريًا · تعديل`,
+      submittedAt: iso(input.updatedAt),
+    });
+  }
+
   /** A new tenant request was submitted (PENDING). */
   tenantRequestSubmitted(input: {
     id: string;

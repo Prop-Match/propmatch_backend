@@ -1,7 +1,4 @@
-import { OmitType } from '@nestjs/mapped-types';
-import { CreatePropertyDto } from './create-property.dto';
+import { PropertyFieldsDto } from './property-fields.dto';
 
 /** Text fields received alongside ordered image parts in multipart submissions. */
-export class CreatePropertyMultipartDto extends OmitType(CreatePropertyDto, [
-  'images',
-] as const) {}
+export class CreatePropertyMultipartDto extends PropertyFieldsDto {}

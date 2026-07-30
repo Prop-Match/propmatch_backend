@@ -12,6 +12,67 @@ import { RealtimeService } from '../realtime/realtime.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import type { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
 
+describe('AdminService moderation queues', () => {
+  it('separates first submissions from edited properties', async () => {
+    const propertyFindMany = jest
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          id: 'new-property',
+          title: 'New property',
+          rentAmount: 3000,
+          createdAt: new Date('2026-07-28T12:00:00.000Z'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'edited-property',
+          title: 'Edited property',
+          rentAmount: 4000,
+          updatedAt: new Date('2026-07-29T12:00:00.000Z'),
+        },
+      ]);
+    const service = new AdminService(
+      {
+        identityVerification: { findMany: jest.fn().mockResolvedValue([]) },
+        property: { findMany: propertyFindMany },
+        tenantRequest: { findMany: jest.fn().mockResolvedValue([]) },
+        propertyReview: { findMany: jest.fn().mockResolvedValue([]) },
+      } as unknown as PrismaService,
+      {} as RealtimeService,
+      {} as PrivateObjectStorage,
+      {} as PropertyApprovalIndexingService,
+    );
+
+    await expect(service.getQueues()).resolves.toMatchObject({
+      propertyQueue: [
+        expect.objectContaining({
+          subjectId: 'new-property',
+          type: 'property',
+        }),
+      ],
+      editedPropertyQueue: [
+        expect.objectContaining({
+          subjectId: 'edited-property',
+          type: 'propertyEdit',
+        }),
+      ],
+    });
+    expect(propertyFindMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { status: 'PENDING', approvedAt: null },
+      }),
+    );
+    expect(propertyFindMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: { status: 'PENDING', approvedAt: { not: null } },
+      }),
+    );
+  });
+});
+
 describe('AdminService KYC review', () => {
   const findUnique = jest.fn();
   const update = jest.fn();

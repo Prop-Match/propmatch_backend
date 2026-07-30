@@ -2,14 +2,18 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
+  ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
   OnGatewayInit,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import { ADMIN_ROOM, userRoom } from './realtime.contract';
+import { PrismaService } from '../../prisma/prisma.service';
+import { ADMIN_ROOM, SOCKET_EVENTS, userRoom } from './realtime.contract';
 
 /** Name of the httpOnly cookie the frontend BFF stores the access token in. */
 const ACCESS_TOKEN_COOKIE = 'propmatch_access_token';
@@ -61,6 +65,7 @@ export class RealtimeGateway
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -100,6 +105,59 @@ export class RealtimeGateway
 
   handleDisconnect(client: Socket): void {
     this.logger.debug(`disconnected ${String(client.data.userId)}`);
+  }
+
+  /**
+   * Typing relay. The composer emits `typing` with the conversation it's in;
+   * we resolve the counterpart (match participant / ticket owner ↔ admins) and
+   * forward a `typing` event to them only. Never trusts a client-supplied
+   * recipient — the sender is the authenticated socket.
+   */
+  @SubscribeMessage('typing')
+  async handleTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    body: { scope: 'match' | 'support'; conversationId: string; isTyping: boolean },
+  ): Promise<void> {
+    const userId = client.data.userId as string | undefined;
+    if (!userId || !body?.conversationId) return;
+    const payload = {
+      scope: body.scope,
+      conversationId: body.conversationId,
+      userId,
+      isTyping: Boolean(body.isTyping),
+    };
+
+    if (body.scope === 'match') {
+      const conn = await this.prisma.matchConnection.findUnique({
+        where: { id: body.conversationId },
+        select: { tenantId: true, ownerId: true },
+      });
+      if (!conn) return;
+      const other =
+        conn.tenantId === userId
+          ? conn.ownerId
+          : conn.ownerId === userId
+            ? conn.tenantId
+            : null;
+      if (other) this.emitToUser(other, SOCKET_EVENTS.typing, payload);
+      return;
+    }
+
+    if (body.scope === 'support') {
+      const ticket = await this.prisma.supportTicket.findUnique({
+        where: { id: body.conversationId },
+        select: { userId: true },
+      });
+      if (!ticket) return;
+      if (ticket.userId === userId) {
+        // Ticket owner typing → any admin viewing the queue/ticket.
+        this.emitToAdmins(SOCKET_EVENTS.typing, payload);
+      } else if (this.isAdmin(client.data.role)) {
+        // Admin typing → the ticket owner.
+        this.emitToUser(ticket.userId, SOCKET_EVENTS.typing, payload);
+      }
+    }
   }
 
   /* ------------------------------ emit primitives ----------------------- */

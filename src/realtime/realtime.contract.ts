@@ -6,6 +6,8 @@ export const SOCKET_EVENTS = {
   message: 'message',
   supportTicketCreated: 'support:ticket:created',
   supportMessageReceived: 'support:message:received',
+  /** Client→server + server→other-party typing relay (match + support chat). */
+  typing: 'typing',
 } as const;
 
 /** Rooms. One per user; admins additionally share the `admins` room. */
@@ -45,12 +47,7 @@ export interface MessagePayload {
 }
 
 /** The four admin moderation queues (frontend `QueueItemType`). */
-export type QueueItemType =
-  | 'kyc'
-  | 'property'
-  | 'request'
-  | 'review'
-  | 'partner-lead';
+export type QueueItemType = 'kyc' | 'property' | 'request' | 'review' | 'propertyEdit' | 'partner-lead';
 
 export interface QueueItem {
   /** Frontend prefixes queue ids with `q_` to keep them distinct from entity ids. */
