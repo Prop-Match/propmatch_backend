@@ -43,7 +43,7 @@ interface JwtPayload {
  * ticket. We therefore ALSO accept a Bearer token via `auth.token` or the
  * Authorization header, for native clients, tests, and the cross-domain case.
  *
- * The JWT is verified with the SAME `JWT_SECRET` Mohamed's AuthModule signs
+ * The JWT is verified with the same `JWT_ACCESS_SECRET` AuthModule signs
  * with — a mismatch there rejects every socket.
  */
 @WebSocketGateway({
@@ -79,7 +79,7 @@ export class RealtimeGateway
         const token = this.extractToken(socket);
         if (!token) throw new Error('missing token');
         const payload = await this.jwt.verifyAsync<JwtPayload>(token, {
-          secret: this.config.get<string>('JWT_SECRET') ?? 'fallback_secret',
+          secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
         });
         socket.data.userId = payload.sub;
         socket.data.role = payload.role;

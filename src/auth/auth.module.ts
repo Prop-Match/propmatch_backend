@@ -18,14 +18,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        return {
-          secret: config.get<string>('JWT_SECRET'),
-          signOptions: {
-            expiresIn: '1h',
-          },
-        };
-      },
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      }),
     }),
     MailModule,
   ],

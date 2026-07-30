@@ -4,7 +4,8 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
@@ -13,6 +14,17 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
 import { RefreshDto } from './dto/refresh.dto';
+
+type TokenPayload = {
+  sub: string;
+  email: string;
+  role: string;
+};
+
+type RefreshTokenPayload = TokenPayload & {
+  tokenType: 'refresh';
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -20,6 +32,7 @@ export class AuthService {
     private readonly userService: UsersService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -55,9 +68,9 @@ export class AuthService {
     }
     const payLoad = { sub: user.id, email: user.email, role: user.role };
     const mappedUser = transformUserToFrontend(user);
+    const tokens = await this.createPairToken(payLoad);
     return {
-      accessToken: await this.jwtService.signAsync(payLoad),
-      refreshToken: await this.jwtService.signAsync(payLoad),
+      ...tokens,
       user: mappedUser,
     };
   }
@@ -107,9 +120,9 @@ export class AuthService {
       email: newUser.email,
       role: newUser.role,
     };
+    const tokens = await this.createPairToken(payload);
     return {
-      accessToken: await this.jwtService.signAsync(payload),
-      refreshToken: await this.jwtService.signAsync(payload),
+      ...tokens,
       user: mappedUser,
     };
   }
@@ -124,11 +137,16 @@ export class AuthService {
   }
   async refresh(refreshDto: RefreshDto) {
     try {
-      const payload: {
-        sub: string;
-        email: string;
-        role: string;
-      } = await this.jwtService.verifyAsync(refreshDto.refreshToken);
+      const payload: RefreshTokenPayload =
+        await this.jwtService.verifyAsync<RefreshTokenPayload>(
+          refreshDto.refreshToken,
+          {
+            secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+          },
+        );
+      if (payload.tokenType !== 'refresh') {
+        throw new UnauthorizedException();
+      }
       const userId = payload.sub;
 
       // check if the user of this id exists
@@ -140,14 +158,15 @@ export class AuthService {
       }
 
       const mappedUser = transformUserToFrontend(user);
-      const newPayload = {
+      const newPayload: TokenPayload = {
         sub: user.id,
         email: user.email,
-        role: mappedUser.role,
+        role: user.role,
       };
+      const tokens = await this.createPairToken(newPayload);
+
       return {
-        accessToken: await this.jwtService.signAsync(newPayload),
-        refreshToken: await this.jwtService.signAsync(newPayload),
+        ...tokens,
         user: mappedUser,
       };
     } catch {
@@ -235,5 +254,38 @@ export class AuthService {
   async deleteAccount(userId: string) {
     await this.userService.deleteAccount(userId);
     return { message: 'تم حذف الحساب بنجاح' };
+  }
+
+  private signAccessToken(payload: TokenPayload): Promise<string> {
+    return this.jwtService.signAsync(payload, {
+      secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      expiresIn: this.configService.get<JwtSignOptions['expiresIn']>(
+        'JWT_ACCESS_EXPIRES_IN',
+        '1h',
+      ),
+    });
+  }
+
+  private signRefreshToken(payload: TokenPayload): Promise<string> {
+    return this.jwtService.signAsync(
+      { ...payload, tokenType: 'refresh' },
+      {
+        secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        expiresIn: this.configService.get<JwtSignOptions['expiresIn']>(
+          'JWT_REFRESH_EXPIRES_IN',
+          '7d',
+        ),
+      },
+    );
+  }
+
+  private async createPairToken(
+    payload: TokenPayload,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const [accessToken, refreshToken] = await Promise.all([
+      this.signAccessToken(payload),
+      this.signRefreshToken(payload),
+    ]);
+    return { accessToken, refreshToken };
   }
 }
