@@ -98,6 +98,17 @@ export class PropertiesController {
     return this.propertiesService.getAll(query);
   }
 
+  /**
+   * GET /api/tenant-requests
+   *
+   * Public on purpose: anonymous users browse tenant requests without logging in.
+   */
+  @Get('tenant-requests')
+  async getAllTenantRequests() {
+    return this.propertiesService.getAllTenantRequests();
+  }
+
+
   /** Public semantic browse endpoint; PostgreSQL approval status remains authoritative. */
   @Get('properties/search/semantic')
   async semanticSearch(
