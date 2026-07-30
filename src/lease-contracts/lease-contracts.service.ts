@@ -6,19 +6,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { RealtimeService } from '../realtime/realtime.service';
+import { RealtimeService } from 'src/realtime/realtime.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
-import { RejectDraftDto } from './dto/reject-draft.dto';
+import {
+  ConfirmContractReviewDto,
+  RequestContractChangesDto,
+} from './dto/contract-review.dto';
 import { LeaseContractDraftResponseDto } from './dto/lease-contract-draft-response.dto';
+import { RejectDraftDto } from './dto/reject-draft.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
-import { ConfirmContractReviewDto, RequestContractChangesDto } from './dto/contract-review.dto';
+import { leaseContractStatusToWire } from './lease-contract-status.mapper';
 import {
   buildLeaseContractHtml,
   buildLeaseContractPdfFooterHtml,
 } from './lease-contract-template';
-import { leaseContractStatusToWire } from './lease-contract-status.mapper';
 import { PdfRendererService } from './pdf-renderer.service';
 import { buildRentalContractDraftPdfHtml } from './rental-contract-draft-pdf.template';
 
@@ -45,7 +48,8 @@ interface LeaseContractRecord {
   rentAmount: number;
   createdAt: Date;
   updatedAt: Date;
-  tenantReviewStatus: 'PENDING_REVIEW' | 'CHANGES_REQUESTED' | 'REVIEW_CONFIRMED';
+  tenantReviewStatus:
+    'PENDING_REVIEW' | 'CHANGES_REQUESTED' | 'REVIEW_CONFIRMED';
   tenantChangeRequest: string | null;
   tenantChangeRequestedAt: Date | null;
   tenantReviewConfirmedAt: Date | null;
@@ -119,8 +123,16 @@ export class LeaseContractsService {
     if (endDate <= startDate) {
       throw new BadRequestException('END_DATE_MUST_BE_AFTER_START_DATE');
     }
-    const ownerName = this.requireTrustedText(match.owner.fullName, 200, 'OWNER_NAME');
-    const tenantName = this.requireTrustedText(match.tenant.fullName, 200, 'TENANT_NAME');
+    const ownerName = this.requireTrustedText(
+      match.owner.fullName,
+      200,
+      'OWNER_NAME',
+    );
+    const tenantName = this.requireTrustedText(
+      match.tenant.fullName,
+      200,
+      'TENANT_NAME',
+    );
     const propertyAddress = this.requireTrustedText(
       `${match.property.district}، ${match.property.manualAddress}`,
       500,
@@ -341,21 +353,45 @@ export class LeaseContractsService {
 
   async listForUser(userId: string) {
     const contracts = await this.prisma.leaseContract.findMany({
-      where: { matchConnection: { OR: [{ tenantId: userId }, { ownerId: userId }] } },
-      include: { matchConnection: { select: { tenantId: true, ownerId: true, propertyId: true, property: { select: { title: true } } } } },
+      where: {
+        matchConnection: { OR: [{ tenantId: userId }, { ownerId: userId }] },
+      },
+      include: {
+        matchConnection: {
+          select: {
+            tenantId: true,
+            ownerId: true,
+            propertyId: true,
+            property: { select: { title: true } },
+          },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
     });
-    return { items: await Promise.all(contracts.map(async ({ matchConnection, ...contract }) => ({
-      ...(await this.toResponse(contract, userId, matchConnection)), propertyId: matchConnection.propertyId, propertyTitle: matchConnection.property.title,
-    }))) };
+    return {
+      items: await Promise.all(
+        contracts.map(async ({ matchConnection, ...contract }) => ({
+          ...(await this.toResponse(contract, userId, matchConnection)),
+          propertyId: matchConnection.propertyId,
+          propertyTitle: matchConnection.property.title,
+        })),
+      ),
+    };
   }
 
-  async requestChanges(userId: string, contractId: string, dto: RequestContractChangesDto) {
+  async requestChanges(
+    userId: string,
+    contractId: string,
+    dto: RequestContractChangesDto,
+  ) {
     const contract = await this.authorizedContract(userId, contractId, true);
-    if (contract.tenantReviewStatus === 'REVIEW_CONFIRMED') throw new ConflictException('CONTRACT_REVIEW_ALREADY_CONFIRMED');
-    if (contract.tenantReviewStatus === 'CHANGES_REQUESTED') throw new ConflictException('CONTRACT_CHANGES_ALREADY_REQUESTED');
+    if (contract.tenantReviewStatus === 'REVIEW_CONFIRMED')
+      throw new ConflictException('CONTRACT_REVIEW_ALREADY_CONFIRMED');
+    if (contract.tenantReviewStatus === 'CHANGES_REQUESTED')
+      throw new ConflictException('CONTRACT_CHANGES_ALREADY_REQUESTED');
     const message = dto.message.trim();
-    if (message.length < 5) throw new BadRequestException('CHANGE_REQUEST_TOO_SHORT');
+    if (message.length < 5)
+      throw new BadRequestException('CHANGE_REQUEST_TOO_SHORT');
     const changed = await this.prisma.leaseContract.updateMany({
       where: { id: contractId, tenantReviewStatus: 'PENDING_REVIEW' },
       data: {
@@ -381,11 +417,18 @@ export class LeaseContractsService {
     return this.toResponse(updated, userId, contract.matchConnection);
   }
 
-  async confirmReview(userId: string, contractId: string, dto: ConfirmContractReviewDto) {
+  async confirmReview(
+    userId: string,
+    contractId: string,
+    dto: ConfirmContractReviewDto,
+  ) {
     const contract = await this.authorizedContract(userId, contractId, true);
-    if (contract.tenantReviewStatus === 'REVIEW_CONFIRMED') return this.toResponse(contract, userId, contract.matchConnection);
-    if (contract.tenantReviewStatus === 'CHANGES_REQUESTED') throw new ConflictException('CONTRACT_CHANGES_PENDING');
-    if (dto.expectedRevision !== contract.draftRevision) throw new ConflictException('CONTRACT_REVISION_CHANGED');
+    if (contract.tenantReviewStatus === 'REVIEW_CONFIRMED')
+      return this.toResponse(contract, userId, contract.matchConnection);
+    if (contract.tenantReviewStatus === 'CHANGES_REQUESTED')
+      throw new ConflictException('CONTRACT_CHANGES_PENDING');
+    if (dto.expectedRevision !== contract.draftRevision)
+      throw new ConflictException('CONTRACT_REVISION_CHANGED');
     const changed = await this.prisma.leaseContract.updateMany({
       where: {
         id: contractId,
@@ -424,10 +467,15 @@ export class LeaseContractsService {
   async downloadDraftPdf(userId: string, contractId: string): Promise<Buffer> {
     const contract = await this.prisma.leaseContract.findUnique({
       where: { id: contractId },
-      include: { matchConnection: { select: { tenantId: true, ownerId: true } } },
+      include: {
+        matchConnection: { select: { tenantId: true, ownerId: true } },
+      },
     });
     if (!contract) throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
-    if (contract.matchConnection.tenantId !== userId && contract.matchConnection.ownerId !== userId) {
+    if (
+      contract.matchConnection.tenantId !== userId &&
+      contract.matchConnection.ownerId !== userId
+    ) {
       throw new ForbiddenException('NOT_A_PARTY_TO_THIS_CONTRACT');
     }
     if (
@@ -437,17 +485,19 @@ export class LeaseContractsService {
       throw new ConflictException('PDF_DOWNLOAD_REQUIRES_CONFIRMED_REVIEW');
     }
     const { matchConnection: _matchConnection, ...saved } = contract;
-    return this.pdfRenderer.renderHtmlToPdf(buildRentalContractDraftPdfHtml({
-      contractId: saved.id,
-      ownerName: saved.ownerName,
-      tenantName: saved.tenantName,
-      propertyAddress: saved.propertyAddress,
-      rentAmount: saved.rentAmount,
-      startDate: saved.startDate,
-      endDate: saved.endDate,
-      customClauses: saved.customClauses,
-      generatedAt: new Date(),
-    }));
+    return this.pdfRenderer.renderHtmlToPdf(
+      buildRentalContractDraftPdfHtml({
+        contractId: saved.id,
+        ownerName: saved.ownerName,
+        tenantName: saved.tenantName,
+        propertyAddress: saved.propertyAddress,
+        rentAmount: saved.rentAmount,
+        startDate: saved.startDate,
+        endDate: saved.endDate,
+        customClauses: saved.customClauses,
+        generatedAt: new Date(),
+      }),
+    );
   }
 
   private async requireContract(matchConnectionId: string) {
@@ -482,10 +532,25 @@ export class LeaseContractsService {
     return match;
   }
 
-  private async authorizedContract(userId: string, contractId: string, tenantOnly = false) {
-    const contract = await this.prisma.leaseContract.findUnique({ where: { id: contractId }, include: { matchConnection: { select: { tenantId: true, ownerId: true } } } });
+  private async authorizedContract(
+    userId: string,
+    contractId: string,
+    tenantOnly = false,
+  ) {
+    const contract = await this.prisma.leaseContract.findUnique({
+      where: { id: contractId },
+      include: {
+        matchConnection: { select: { tenantId: true, ownerId: true } },
+      },
+    });
     if (!contract) throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
-    if (tenantOnly ? contract.matchConnection.tenantId !== userId : contract.matchConnection.tenantId !== userId && contract.matchConnection.ownerId !== userId) throw new ForbiddenException('NOT_A_PARTY_TO_THIS_CONTRACT');
+    if (
+      tenantOnly
+        ? contract.matchConnection.tenantId !== userId
+        : contract.matchConnection.tenantId !== userId &&
+          contract.matchConnection.ownerId !== userId
+    )
+      throw new ForbiddenException('NOT_A_PARTY_TO_THIS_CONTRACT');
     return contract;
   }
 
@@ -535,13 +600,27 @@ export class LeaseContractsService {
       },
       tenantReviewStatus: contract.tenantReviewStatus,
       tenantChangeRequest: contract.tenantChangeRequest,
-      tenantChangeRequestedAt: contract.tenantChangeRequestedAt?.toISOString() ?? null,
-      tenantReviewConfirmedAt: contract.tenantReviewConfirmedAt?.toISOString() ?? null,
+      tenantChangeRequestedAt:
+        contract.tenantChangeRequestedAt?.toISOString() ?? null,
+      tenantReviewConfirmedAt:
+        contract.tenantReviewConfirmedAt?.toISOString() ?? null,
       draftRevision: contract.draftRevision,
       tenantReviewedRevision: contract.tenantReviewedRevision,
-      canEdit: Boolean(parties && parties.ownerId === userId && contract.tenantReviewStatus !== 'REVIEW_CONFIRMED'),
-      canRequestChanges: Boolean(parties && parties.tenantId === userId && contract.tenantReviewStatus === 'PENDING_REVIEW'),
-      canConfirmReview: Boolean(parties && parties.tenantId === userId && contract.tenantReviewStatus === 'PENDING_REVIEW'),
+      canEdit: Boolean(
+        parties &&
+        parties.ownerId === userId &&
+        contract.tenantReviewStatus !== 'REVIEW_CONFIRMED',
+      ),
+      canRequestChanges: Boolean(
+        parties &&
+        parties.tenantId === userId &&
+        contract.tenantReviewStatus === 'PENDING_REVIEW',
+      ),
+      canConfirmReview: Boolean(
+        parties &&
+        parties.tenantId === userId &&
+        contract.tenantReviewStatus === 'PENDING_REVIEW',
+      ),
       canDownloadPdf: contract.tenantReviewStatus === 'REVIEW_CONFIRMED',
     };
   }
@@ -579,7 +658,11 @@ export class LeaseContractsService {
     });
   }
 
-  private requireTrustedText(value: string, maximum: number, field: string): string {
+  private requireTrustedText(
+    value: string,
+    maximum: number,
+    field: string,
+  ): string {
     const normalized = value.trim();
     if (!normalized || normalized.length > maximum) {
       throw new ConflictException(`TRUSTED_${field}_IS_INVALID`);

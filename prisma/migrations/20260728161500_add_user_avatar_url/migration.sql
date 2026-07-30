@@ -1,3 +1,6 @@
--- The Prisma User model already maps avatarUrl to this nullable column.
--- Keep the migration forward-only so existing users retain a NULL avatar.
-ALTER TABLE "user" ADD COLUMN "avatar_url" TEXT;
+-- Intentionally empty.
+--
+-- `avatar_url` is created by the canonical
+-- `20260728120000_owner_plus_tenant_offers_attachments_admin_role` migration.
+-- Keep this historical placeholder to preserve the ordered migration history
+-- without attempting to add the same column a second time on clean deploys.

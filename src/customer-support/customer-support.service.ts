@@ -22,8 +22,8 @@ import {
 } from './../../generated/prisma/enums';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
-import { ticketStatusToDb, ticketStatusToWire } from './ticket-status.mapper';
 import type { WireTicketStatus } from './ticket-status.mapper';
+import { ticketStatusToDb, ticketStatusToWire } from './ticket-status.mapper';
 
 /** Normalize the optional attachment fields off a reply DTO (empty ⇒ nulls). */
 function attachmentFields(dto: PostReplyDto) {
@@ -37,7 +37,10 @@ function attachmentFields(dto: PostReplyDto) {
 }
 
 /** Short notification preview: the text, or an attachment-type label. */
-function replyPreview(content: string | undefined, type: string | null): string {
+function replyPreview(
+  content: string | undefined,
+  type: string | null,
+): string {
   const text = content?.trim();
   if (text) return `${text.slice(0, 50)}...`;
   if (type === 'IMAGE') return 'صورة مرفقة';
@@ -277,7 +280,7 @@ export class CustomerSupportService {
     return this.getTicketDetail(ticketId);
   }
   async updateStatus(ticketId: string, status: WireTicketStatus) {
-    const normalized = (String(status || "").toLowerCase()) as WireTicketStatus;
+    const normalized = String(status || '').toLowerCase() as WireTicketStatus;
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
       data: { status: ticketStatusToDb(normalized) },
@@ -291,7 +294,11 @@ export class CustomerSupportService {
         id: m.id,
         authorType: m.authorType,
         author: m.authorType,
-        authorName: m.authorType === SupportAuthor.ADMIN || String(m.authorType).toUpperCase() === 'ADMIN' ? 'الدعم الفني' : m.authorName,
+        authorName:
+          m.authorType === SupportAuthor.ADMIN ||
+          String(m.authorType).toUpperCase() === 'ADMIN'
+            ? 'الدعم الفني'
+            : m.authorName,
         content: m.content,
         internal: m.internal,
         attachmentUrl: m.attachmentUrl ?? null,
@@ -342,6 +349,21 @@ export class CustomerSupportService {
     const signal = clientSignal
       ? AbortSignal.any([clientSignal, timeoutSignal])
       : timeoutSignal;
+    const userDetails = await this.prisma.user.findUnique({
+      where: { id: user.userId },
+      include: { identityVerification: true },
+    });
+    const body = {
+      message,
+      history,
+      userContext: {
+        fullName: userDetails?.fullName,
+        role: user.role,
+        kycStatus: userDetails?.identityVerification?.status || 'NOT_SUBMITTED',
+        kycRejectionReason:
+          userDetails?.identityVerification?.rejectionReason || null,
+      },
+    };
     let response: Response;
     try {
       response = await fetch(
@@ -355,7 +377,7 @@ export class CustomerSupportService {
             'X-PropMatch-User-Id': user.userId,
             'X-PropMatch-User-Role': user.role || 'TENANT',
           },
-          body: JSON.stringify({ message, history }),
+          body: JSON.stringify(body),
           signal,
         },
       );
