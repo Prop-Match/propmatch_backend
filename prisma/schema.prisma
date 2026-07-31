@@ -358,6 +358,15 @@ model TenantRequest {
   updatedAt             DateTime            @updatedAt @map("updated_at")
   ownerOffers           OwnerOffer[]
 
+  /**
+   * Cached copy of the request's embedding vector, generated once by
+   * MatchingWorker and reused by OffersService's synchronous browse/offer
+   * endpoints (via cosine similarity against Property.embedding, pure local
+   * math) — single source of truth so the UI card's matchScore and the
+   * proactive notification's finalScore never diverge.
+   */
+  embedding             Float[]             @default([])
+
   @@map("tenant_request")
 }
 

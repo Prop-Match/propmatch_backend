@@ -89,6 +89,15 @@ export class MatchingWorker extends WorkerHost {
         'search_query',
       );
       requestVector = vector.embedding;
+      // Persist so OffersService's synchronous browse/offer endpoints can
+      // reuse this exact vector (pure local cosine similarity, no embedding
+      // call) instead of computing a rule-only score — the single source of
+      // truth that keeps the UI card and the notification's finalScore
+      // identical.
+      await this.prisma.tenantRequest.update({
+        where: { id: request.id },
+        data: { embedding: requestVector },
+      });
     } catch (error) {
       this.logger.warn(
         `Embedding failed for TenantRequest ${request.id}; falling back to rule-based scoring only. ${
