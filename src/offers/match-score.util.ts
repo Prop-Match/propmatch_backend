@@ -39,3 +39,24 @@ export function scoreRequestAgainstProperty(
 
   return Math.max(5, Math.min(98, Math.round(score)));
 }
+
+/**
+ * Combines the rule-based score with the hybrid matcher's local cosine
+ * similarity (Smart Matchmaker). `semanticSimilarity` is the -1..1 cosine
+ * value from matching.math.util.ts's cosineSimilarity — null means "no
+ * usable signal" (embedding failed, missing, or dimension mismatch between
+ * providers), in which case this degrades gracefully to 100% rule-based
+ * rather than treating the absence of a semantic score as a bad match.
+ */
+export function combineHybridScore(
+  ruleScore: number,
+  semanticSimilarity: number | null,
+): number {
+  if (semanticSimilarity === null) return ruleScore;
+
+  const semanticScore = Math.max(0, Math.min(1, semanticSimilarity)) * 100;
+  return Math.max(
+    0,
+    Math.min(100, Math.round(ruleScore * 0.5 + semanticScore * 0.5)),
+  );
+}

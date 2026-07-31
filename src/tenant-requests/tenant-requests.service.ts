@@ -1,6 +1,13 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import {
+  MATCH_TENANT_REQUEST_JOB,
+  MATCHING_QUEUE,
+  MatchTenantRequestJobData,
+} from '../matching/matching.constants';
 import { CreateTenantRequestDto } from './dto/create-tenant-request.dto';
 import { transformTenantRequest } from './mappers/tenant-request.mapper';
 
@@ -11,6 +18,8 @@ export class TenantRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeService: RealtimeService,
+    @InjectQueue(MATCHING_QUEUE)
+    private readonly matchingQueue: Queue<MatchTenantRequestJobData>,
   ) {}
 
   /**
@@ -37,6 +46,23 @@ export class TenantRequestsService {
     });
 
     this.realtimeService.tenantRequestSubmitted(request);
+
+    // Smart Matchmaker: enqueue background scoring/notification instead of
+    // computing it inline — this call only persists the job to Redis, it
+    // does not wait for the worker, so request creation stays fast. A queue
+    // hiccup degrades to "no proactive match notifications this time"
+    // rather than failing the tenant's request.
+    try {
+      await this.matchingQueue.add(MATCH_TENANT_REQUEST_JOB, {
+        tenantRequestId: request.id,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to enqueue matching job for TenantRequest ${request.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
 
     // New request has zero offers
     return transformTenantRequest(request);

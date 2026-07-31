@@ -23,6 +23,6 @@ import { PropertyImageStorageService } from './property-image-storage.service';
     SemanticMatchingConfig,
     PropertyImageStorageService,
   ],
-  exports: [PropertyApprovalIndexingService],
+  exports: [PropertyApprovalIndexingService, PropertyEmbeddingService],
 })
 export class PropertiesModule {}
