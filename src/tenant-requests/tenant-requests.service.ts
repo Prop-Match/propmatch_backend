@@ -1,25 +1,14 @@
-import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Queue } from 'bullmq';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
-import {
-  MATCH_TENANT_REQUEST_JOB,
-  MATCHING_QUEUE,
-  MatchTenantRequestJobData,
-} from '../matching/matching.constants';
 import { CreateTenantRequestDto } from './dto/create-tenant-request.dto';
 import { transformTenantRequest } from './mappers/tenant-request.mapper';
 
 @Injectable()
 export class TenantRequestsService {
-  private readonly logger = new Logger(TenantRequestsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeService: RealtimeService,
-    @InjectQueue(MATCHING_QUEUE)
-    private readonly matchingQueue: Queue<MatchTenantRequestJobData>,
   ) {}
 
   /**
@@ -28,6 +17,12 @@ export class TenantRequestsService {
    * Business rules (mirrors the mock router):
    *  1. Tenant verification is enforced by VerifiedGuard.
    *  2. Request starts in PENDING status — admin must approve (anti-spam, SRS 3.2.2).
+   *
+   * Smart Matchmaker deliberately does NOT run here: the request is unvetted
+   * (PENDING) at this point, so scoring it and notifying landlords would
+   * waste embedding calls and surface requests an admin might reject. The
+   * matching-queue job is enqueued on approval instead — see
+   * AdminService.reviewRequest.
    */
   async create(tenantId: string, dto: CreateTenantRequestDto) {
     const request = await this.prisma.tenantRequest.create({
@@ -46,23 +41,6 @@ export class TenantRequestsService {
     });
 
     this.realtimeService.tenantRequestSubmitted(request);
-
-    // Smart Matchmaker: enqueue background scoring/notification instead of
-    // computing it inline — this call only persists the job to Redis, it
-    // does not wait for the worker, so request creation stays fast. A queue
-    // hiccup degrades to "no proactive match notifications this time"
-    // rather than failing the tenant's request.
-    try {
-      await this.matchingQueue.add(MATCH_TENANT_REQUEST_JOB, {
-        tenantRequestId: request.id,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Failed to enqueue matching job for TenantRequest ${request.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
 
     // New request has zero offers
     return transformTenantRequest(request);

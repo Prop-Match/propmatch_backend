@@ -7,6 +7,8 @@
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { transformPropertyToSummary } from '../properties/mappers/property.mapper';
+import { SemanticMatchingConfig } from '../config/semantic-matching.config';
+import { buildHybridMatchReasons } from '../matching/hybrid-match-reasons.util';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { scoreRequestAgainstProperty } from './match-score.util';
 
@@ -27,6 +29,7 @@ export class OffersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeService: RealtimeService,
+    private readonly semanticMatchingConfig: SemanticMatchingConfig,
   ) {}
 
   /**
@@ -70,6 +73,17 @@ export class OffersService {
           lifestyleRequirements: request.lifestyleRequirements,
           createdAt: request.createdAt.toISOString(),
           matchScore: best ? best.score : null,
+          // Rule-based reasons only — no inline embedding call here, this is
+          // a synchronous browse endpoint, not the background matching
+          // worker (see MatchingWorker for the full hybrid explainability).
+          matchReasons: best
+            ? buildHybridMatchReasons(
+                request,
+                best.property,
+                null,
+                this.semanticMatchingConfig.minSimilarity,
+              )
+            : [],
           alreadyOffered: myOfferedRequestIds.has(request.id),
           bestMatchingProperty: best
             ? { id: best.property.id, title: best.property.title }
@@ -271,6 +285,14 @@ export class OffersService {
       matchScore: request
         ? scoreRequestAgainstProperty(request, property!)
         : null,
+      matchReasons: request
+        ? buildHybridMatchReasons(
+            request,
+            property!,
+            null,
+            this.semanticMatchingConfig.minSimilarity,
+          )
+        : [],
       createdAt: offer.createdAt.toISOString(),
       ownerName: accepted ? (owner?.fullName ?? null) : null,
       ownerPhoneNumber: accepted ? (owner?.phoneNumber ?? null) : null,
