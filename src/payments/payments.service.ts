@@ -280,12 +280,6 @@ export class PaymentsService {
           create: { userId, optimizerUsesLeft: 1 },
           update: { optimizerUsesLeft: { increment: 1 } },
         });
-      } else if (paymentType === 'DOCS_PACK') {
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: { userId, documentationPackCredits: 1 },
-          update: { documentationPackCredits: { increment: 1 } },
-        });
       }
     });
   }

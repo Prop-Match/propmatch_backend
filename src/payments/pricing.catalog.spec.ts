@@ -9,12 +9,11 @@ import {
 } from './pricing.catalog';
 
 describe('revised broker-free pricing catalog', () => {
-  it('exposes only the four approved checkout products at report prices', () => {
+  it('exposes only the three approved checkout products at report prices', () => {
     expect(BILLABLE_PAYMENT_TYPES).toEqual([
       'PREMIUM_OWNER',
       'BOOST_LISTING',
       'AI_ADDON',
-      'DOCS_PACK',
     ]);
     expect(
       Object.fromEntries(
@@ -27,7 +26,6 @@ describe('revised broker-free pricing catalog', () => {
       PREMIUM_OWNER: 999,
       BOOST_LISTING: 349,
       AI_ADDON: 199,
-      DOCS_PACK: 299,
     });
   });
 
@@ -37,6 +35,7 @@ describe('revised broker-free pricing catalog', () => {
     expect(isBillablePaymentType('REFILL_MATCHES')).toBe(false);
     expect(isBillablePaymentType('OFFER_PACK')).toBe(false);
     expect(isBillablePaymentType('BROKER_SOLO')).toBe(false);
+    expect(isBillablePaymentType('DOCS_PACK')).toBe(false);
   });
 
   it('records the explicit launch entitlement defaults', () => {

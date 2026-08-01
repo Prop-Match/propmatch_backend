@@ -14,11 +14,6 @@ export const PRICING_CATALOG = {
     billing: 'ONE_TIME',
     allowedRoles: ['LANDLORD'],
   },
-  DOCS_PACK: {
-    priceEgp: 299,
-    billing: 'ONE_TIME',
-    allowedRoles: ['TENANT', 'LANDLORD'],
-  },
 } as const;
 
 export type BillablePaymentType = keyof typeof PRICING_CATALOG;
