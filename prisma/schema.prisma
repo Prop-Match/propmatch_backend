@@ -57,6 +57,9 @@ enum ConnectionStatus {
 
 enum PaymentType {
   PREMIUM_OWNER
+  OWNER_PLUS
+  SINGLE_LISTING
+  SINGLE_OFFER
   BOOST_LISTING
   AI_ADDON
   DOCS_PACK

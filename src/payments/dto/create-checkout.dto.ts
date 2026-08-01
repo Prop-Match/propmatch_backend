@@ -11,4 +11,8 @@ export class CreateCheckoutDto {
   @IsOptional()
   @IsUUID()
   propertyId?: string;
+
+  @IsOptional()
+  @IsIn(['CARD', 'WALLET'])
+  method?: 'CARD' | 'WALLET';
 }
