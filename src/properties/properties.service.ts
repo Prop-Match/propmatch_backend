@@ -507,11 +507,12 @@ export class PropertiesService {
   async getMyProperties(ownerId: string) {
     const [properties, total] = await Promise.all([
       this.prisma.property.findMany({
-        where: { ownerId, status: { not: 'ARCHIVED' } },
+        // Archived listings remain available to their owner for management.
+        where: { ownerId },
         include: PropertiesService.DETAIL_INCLUDE,
       }),
       this.prisma.property.count({
-        where: { ownerId, status: { not: 'ARCHIVED' } },
+        where: { ownerId },
       }),
     ]);
 
@@ -551,11 +552,14 @@ export class PropertiesService {
   /** Soft-archive a listing (ERD: never delete). */
   async archive(ownerId: string, propertyId: string) {
     await this.requireOwnedProperty(ownerId, propertyId);
-    await this.prisma.property.update({
+    const property = await this.prisma.property.update({
       where: { id: propertyId },
       data: { status: 'ARCHIVED' },
+      include: PropertiesService.DETAIL_INCLUDE,
     });
-    return { ok: true };
+    return {
+      property: transformPropertyToDetail(property, { contactRevealed: true }),
+    };
   }
 
   /**
