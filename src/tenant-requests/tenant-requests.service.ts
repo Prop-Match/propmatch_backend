@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { CreateTenantRequestDto } from './dto/create-tenant-request.dto';
@@ -6,8 +6,6 @@ import { transformTenantRequest } from './mappers/tenant-request.mapper';
 
 @Injectable()
 export class TenantRequestsService {
-  private readonly logger = new Logger(TenantRequestsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeService: RealtimeService,
@@ -19,6 +17,12 @@ export class TenantRequestsService {
    * Business rules (mirrors the mock router):
    *  1. Tenant verification is enforced by VerifiedGuard.
    *  2. Request starts in PENDING status — admin must approve (anti-spam, SRS 3.2.2).
+   *
+   * Smart Matchmaker deliberately does NOT run here: the request is unvetted
+   * (PENDING) at this point, so scoring it and notifying landlords would
+   * waste embedding calls and surface requests an admin might reject. The
+   * matching-queue job is enqueued on approval instead — see
+   * AdminService.reviewRequest.
    */
   async create(tenantId: string, dto: CreateTenantRequestDto) {
     const request = await this.prisma.tenantRequest.create({

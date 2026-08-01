@@ -50,8 +50,8 @@ export class PropertyFieldsDto {
   propertyType: PropertyType;
 
   @IsString()
-  @IsOptional()
-  propertyAroundServices?: string;
+  @IsNotEmpty()
+  propertyAroundServices: string;
 
   @Type(() => Number)
   @IsNumber()

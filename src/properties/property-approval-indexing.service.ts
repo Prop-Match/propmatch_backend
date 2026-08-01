@@ -55,35 +55,68 @@ export class PropertyApprovalIndexingService {
     const vectorId = `property:${property.id}`;
     // Keep independent indexes because Cohere and the local model have
     // different dimensions and cannot share a Chroma collection.
-    const indexingTasks = [
-      this.embeddingService
-        .createCohereEmbedding(document, 'search_document')
-        .then((embedding) =>
-          this.chromaService.upsert(
-            'cohere',
-            vectorId,
-            document,
-            embedding,
-            metadata,
-          ),
+    const [cohereResult, localResult] = await Promise.allSettled([
+      this.embeddingService.createCohereEmbedding(document, 'search_document'),
+      this.embeddingService.isLocalEmbeddingEnabled()
+        ? this.embeddingService.createLocalEmbedding(document)
+        : Promise.reject(new Error('LOCAL_EMBEDDING_DISABLED')),
+    ]);
+
+    const chromaTasks: Promise<unknown>[] = [];
+    if (cohereResult.status === 'fulfilled') {
+      chromaTasks.push(
+        this.chromaService.upsert(
+          'cohere',
+          vectorId,
+          document,
+          cohereResult.value,
+          metadata,
         ),
-    ];
-    if (this.embeddingService.isLocalEmbeddingEnabled()) {
-      indexingTasks.push(
-        this.embeddingService
-          .createLocalEmbedding(document)
-          .then((embedding) =>
-            this.chromaService.upsert(
-              'local',
-              vectorId,
-              document,
-              embedding,
-              metadata,
-            ),
-          ),
       );
     }
-    await Promise.all(indexingTasks);
+    if (localResult.status === 'fulfilled') {
+      chromaTasks.push(
+        this.chromaService.upsert(
+          'local',
+          vectorId,
+          document,
+          localResult.value,
+          metadata,
+        ),
+      );
+    }
+
+    // Same "primary" precedence as PropertyEmbeddingService.createPrimaryEmbedding
+    // (Cohere first, local fallback) — MatchingWorker's cosine-similarity path
+    // reads this column directly via plain SQL, never Chroma, so it must be
+    // populated here or every property silently scores semanticSimilarity: null.
+    const primaryEmbedding =
+      cohereResult.status === 'fulfilled'
+        ? cohereResult.value
+        : localResult.status === 'fulfilled'
+          ? localResult.value
+          : null;
+    if (primaryEmbedding) {
+      chromaTasks.push(
+        this.prismaService.property.update({
+          where: { id: property.id },
+          data: { embedding: primaryEmbedding },
+        }),
+      );
+    }
+
+    if (chromaTasks.length === 0) {
+      // Both providers failed — surface it the same way a single-provider
+      // failure used to (caller logs via logIndexingFailure), rather than
+      // silently leaving the property unindexed with no signal.
+      throw cohereResult.status === 'rejected'
+        ? cohereResult.reason
+        : localResult.status === 'rejected'
+          ? localResult.reason
+          : new Error('EMBEDDING_INDEXING_FAILED');
+    }
+
+    await Promise.all(chromaTasks);
   }
 
   logIndexingFailure(propertyId: string, error: unknown): void {

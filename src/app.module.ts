@@ -25,6 +25,7 @@ import { QuotaModule } from './quota/quota.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { LeaseContractsModule } from './lease-contracts/lease-contracts.module';
+import { MatchingModule } from './matching/matching.module';
 import { PartnerLeadsModule } from './partner-leads/partner-leads.module';
 import { TenantOffersModule } from './tenant-offers/tenant-offers.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -77,6 +78,7 @@ const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
     PartnerLeadsModule,
     TenantOffersModule,
     UploadsModule,
+    MatchingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

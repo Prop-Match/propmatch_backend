@@ -6,11 +6,17 @@ jest.mock(
   { virtual: true },
 );
 
+import type { Queue } from 'bullmq';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import type { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
+import type { MatchTenantRequestJobData } from '../matching/matching.constants';
+
+const noopQueue = {
+  add: jest.fn(),
+} as unknown as Queue<MatchTenantRequestJobData>;
 
 describe('AdminService moderation queues', () => {
   it('separates first submissions from edited properties', async () => {
@@ -42,6 +48,7 @@ describe('AdminService moderation queues', () => {
       {} as RealtimeService,
       {} as PrivateObjectStorage,
       {} as PropertyApprovalIndexingService,
+      noopQueue,
     );
 
     await expect(service.getQueues()).resolves.toMatchObject({
@@ -85,6 +92,7 @@ describe('AdminService KYC review', () => {
     { notifyUser } as unknown as RealtimeService,
     {} as PrivateObjectStorage,
     {} as PropertyApprovalIndexingService,
+    noopQueue,
   );
 
   beforeEach(() => {
@@ -159,6 +167,7 @@ describe('AdminService property moderation', () => {
       indexApprovedProperty,
       logIndexingFailure,
     } as unknown as PropertyApprovalIndexingService,
+    noopQueue,
   );
 
   const property = {

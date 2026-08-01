@@ -31,6 +31,7 @@ export class PaymobService implements IPaymentGateway {
     userId: string,
     paymentType: string,
     amount: number,
+    method?: 'CARD' | 'WALLET',
   ): Promise<{ checkoutUrl: string; providerOrderId: string }> {
     try {
       const user = await this.prisma.user.findUniqueOrThrow({
@@ -57,6 +58,18 @@ export class PaymobService implements IPaymentGateway {
       );
       const orderId = Number(orderRes.data.id);
 
+      const walletIntegrationId =
+        process.env.PAYMOB_WALLET_INTEGRATION_ID ||
+        process.env.PAYMOB_INTEGRATION_ID_WALLET;
+      const cardIntegrationId =
+        process.env.PAYMOB_INTEGRATION_ID_CARD ||
+        process.env.PAYMOB_INTEGRATION_ID;
+
+      const integrationId =
+        method === 'WALLET' && walletIntegrationId
+          ? Number(walletIntegrationId)
+          : Number(cardIntegrationId);
+
       // 3. Get Payment Key
       const keyRes: AxiosResponse<{ token: string }> = await firstValueFrom(
         this.httpService.post(`${this.BASE_URL}/api/acceptance/payment_keys`, {
@@ -80,13 +93,20 @@ export class PaymobService implements IPaymentGateway {
             state: 'NA',
           },
           currency: 'EGP',
-          integration_id: Number(process.env.PAYMOB_INTEGRATION_ID),
+          integration_id: integrationId,
         }),
       );
       const paymentToken = String(keyRes.data.token);
 
+      const iframeId =
+        method === 'WALLET' && process.env.PAYMOB_WALLET_IFRAME_ID
+          ? process.env.PAYMOB_WALLET_IFRAME_ID
+          : process.env.PAYMOB_IFRAME_ID;
+
       return {
-        checkoutUrl: `${this.BASE_URL}/api/acceptance/iframes/${process.env.PAYMOB_IFRAME_ID}?payment_token=${paymentToken}`,
+        checkoutUrl: iframeId
+          ? `${this.BASE_URL}/api/acceptance/iframes/${iframeId}?payment_token=${paymentToken}`
+          : `${this.BASE_URL}/unifiedcheckout/?publicKey=${this.PUBLIC_KEY}&clientSecret=${paymentToken}`,
         providerOrderId: String(orderId),
       };
     } catch (error) {
@@ -162,6 +182,7 @@ export class PaymobService implements IPaymentGateway {
       userId: extras?.userId,
     };
   }
+
   async checkTransactionStatus(
     providerOrderId: string,
   ): Promise<{ isSuccessful: boolean; transactionId?: string }> {
@@ -173,10 +194,7 @@ export class PaymobService implements IPaymentGateway {
         }),
       );
       const token = String(response.data.token);
-      // The legacy order endpoint exposes the amount but omits transaction
-      // results. Query the acceptance transactions endpoint instead and match
-      // the requested order explicitly (some Paymob accounts return a page of
-      // recent transactions even when the order query is supplied).
+
       const transactionReq: AxiosResponse<PaymobTransactionLookupResponse> =
         await firstValueFrom(
           this.httpService.get(

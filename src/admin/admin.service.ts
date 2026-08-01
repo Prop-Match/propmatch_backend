@@ -1,14 +1,17 @@
 import { AdminRole, NotificationType } from '@generated/prisma/enums';
+import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { Queue } from 'bullmq';
 import { I18nContext } from 'nestjs-i18n';
 import {
   adminRoleFromSlug,
@@ -17,6 +20,11 @@ import {
   roleSlugFor,
 } from './capabilities';
 import { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
+import {
+  MATCH_TENANT_REQUEST_JOB,
+  MATCHING_QUEUE,
+  MatchTenantRequestJobData,
+} from '../matching/matching.constants';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
@@ -30,12 +38,16 @@ const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     private readonly prismaService: PrismaService,
     private readonly realtimeService: RealtimeService,
     @Inject(PRIVATE_OBJECT_STORAGE)
     private readonly privateObjectStorage: PrivateObjectStorage,
     private readonly propertyApprovalIndexingService: PropertyApprovalIndexingService,
+    @InjectQueue(MATCHING_QUEUE)
+    private readonly matchingQueue: Queue<MatchTenantRequestJobData>,
   ) {}
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
@@ -417,6 +429,25 @@ export class AdminService {
       `request:${reviewDecisionDto.decision}`,
       requestId,
     );
+
+    if (isApproved) {
+      // Smart Matchmaker only runs on vetted requests — enqueueing at
+      // creation would score/notify landlords about a request an admin
+      // might still reject. A queue hiccup here must not fail the
+      // moderation decision, so it's logged and swallowed, not thrown.
+      try {
+        await this.matchingQueue.add(MATCH_TENANT_REQUEST_JOB, {
+          tenantRequestId: request.id,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Failed to enqueue matching job for TenantRequest ${request.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
     await this.realtimeService.notifyUser(request.tenantId, {
       type: 'NEW_TENANT_REQUEST',
       title:

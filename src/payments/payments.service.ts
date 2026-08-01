@@ -13,7 +13,10 @@ import {
   type BillablePaymentType,
   isBillablePaymentType,
   PREMIUM_ACTIVE_LISTING_LIMIT,
+  OWNER_PLUS_ACTIVE_LISTING_LIMIT,
   PREMIUM_INCLUDED_AI_USES,
+  OWNER_PLUS_INCLUDED_AI_USES,
+  AI_ADDON_USES,
   PRICING_CATALOG,
 } from './pricing.catalog';
 import { PaymobService } from './providers/paymob.service';
@@ -74,6 +77,7 @@ export class PaymentsService {
         userId,
         dto.paymentType,
         product.priceEgp,
+        dto.method,
       );
 
     await this.prismaService.paymentTransaction.create({
@@ -261,6 +265,53 @@ export class PaymentsService {
             optimizerUsesLeft,
           },
         });
+      } else if (paymentType === 'OWNER_PLUS') {
+        const current = await tx.userQuota.findUnique({ where: { userId } });
+        const startsAt =
+          current?.planExpiresAt && current.planExpiresAt.getTime() > Date.now()
+            ? current.planExpiresAt
+            : new Date();
+        const planExpiresAt = new Date(startsAt);
+        planExpiresAt.setMonth(planExpiresAt.getMonth() + 1);
+        const optimizerUsesLeft = Math.max(
+          current?.optimizerUsesLeft ?? 0,
+          OWNER_PLUS_INCLUDED_AI_USES,
+        );
+
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: {
+            userId,
+            planType: 'OWNER_PLUS',
+            planExpiresAt,
+            maxActiveListings: OWNER_PLUS_ACTIVE_LISTING_LIMIT,
+            optimizerUsesLeft,
+            freeOffersLeft: 3,
+          },
+          update: {
+            planType: 'OWNER_PLUS',
+            planExpiresAt,
+            maxActiveListings: OWNER_PLUS_ACTIVE_LISTING_LIMIT,
+            optimizerUsesLeft,
+          },
+        });
+      } else if (paymentType === 'SINGLE_LISTING') {
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: { userId, freeListingsLeft: 1, maxActiveListings: 2 },
+          update: {
+            freeListingsLeft: { increment: 1 },
+            maxActiveListings: { increment: 1 },
+          },
+        });
+      } else if (paymentType === 'SINGLE_OFFER') {
+        await tx.userQuota.upsert({
+          where: { userId },
+          create: { userId, freeOffersLeft: 1 },
+          update: {
+            freeOffersLeft: { increment: 1 },
+          },
+        });
       } else if (paymentType === 'BOOST_LISTING') {
         if (!targetPropertyId) {
           throw new BadRequestException('Boost payment has no target property');
@@ -277,14 +328,8 @@ export class PaymentsService {
       } else if (paymentType === 'AI_ADDON') {
         await tx.userQuota.upsert({
           where: { userId },
-          create: { userId, optimizerUsesLeft: 1 },
-          update: { optimizerUsesLeft: { increment: 1 } },
-        });
-      } else if (paymentType === 'DOCS_PACK') {
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: { userId, documentationPackCredits: 1 },
-          update: { documentationPackCredits: { increment: 1 } },
+          create: { userId, optimizerUsesLeft: AI_ADDON_USES },
+          update: { optimizerUsesLeft: { increment: AI_ADDON_USES } },
         });
       }
     });

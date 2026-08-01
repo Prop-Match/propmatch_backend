@@ -20,6 +20,19 @@ services:
     networks:
       - internal
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - internal
+
   migrate:
     build:
       context: .
@@ -52,6 +65,7 @@ services:
       PORT: "3000"
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PRIVATE_STORAGE_ROOT: /app/storage/private
+      REDIS_URL: redis://redis:6379
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -59,6 +73,8 @@ services:
       - private_uploads:/app/storage/private
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
