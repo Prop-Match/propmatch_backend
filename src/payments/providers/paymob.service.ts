@@ -20,7 +20,7 @@ export class PaymobService implements IPaymentGateway {
     private readonly prisma: PrismaService,
   ) {}
 
-  private readonly logger = new Logger();
+  private readonly logger = new Logger(PaymobService.name);
   private readonly BASE_URL =
     process.env.PAYMOB_BASE_URL || 'https://accept.paymob.com';
   private readonly SECRET_KEY = process.env.PAYMOB_SECRET_KEY as string;
@@ -37,6 +37,27 @@ export class PaymobService implements IPaymentGateway {
       const user = await this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
       });
+
+      const walletIntegrationId =
+        process.env.PAYMOB_WALLET_INTEGRATION_ID ||
+        process.env.PAYMOB_INTEGRATION_ID_WALLET;
+      const cardIntegrationId =
+        process.env.PAYMOB_INTEGRATION_ID_CARD ||
+        process.env.PAYMOB_INTEGRATION_ID;
+
+      if (method === 'WALLET' && !walletIntegrationId) {
+        this.logger.error(
+          'Mobile Wallet checkout requested but PAYMOB_WALLET_INTEGRATION_ID is missing in .env!',
+        );
+        throw new BadRequestException(
+          'خدمة الدفع عبر المحافظ الإلكترونية غير مفعّلة حالياً (يرجى إعداد PAYMOB_WALLET_INTEGRATION_ID في ملف .env بالباكإند).',
+        );
+      }
+
+      const integrationId =
+        method === 'WALLET' && walletIntegrationId
+          ? Number(walletIntegrationId)
+          : Number(cardIntegrationId);
 
       // 1. Get temporary Auth Token
       const authRes: AxiosResponse<{ token: string }> = await firstValueFrom(
@@ -57,18 +78,6 @@ export class PaymobService implements IPaymentGateway {
         }),
       );
       const orderId = Number(orderRes.data.id);
-
-      const walletIntegrationId =
-        process.env.PAYMOB_WALLET_INTEGRATION_ID ||
-        process.env.PAYMOB_INTEGRATION_ID_WALLET;
-      const cardIntegrationId =
-        process.env.PAYMOB_INTEGRATION_ID_CARD ||
-        process.env.PAYMOB_INTEGRATION_ID;
-
-      const integrationId =
-        method === 'WALLET' && walletIntegrationId
-          ? Number(walletIntegrationId)
-          : Number(cardIntegrationId);
 
       // 3. Get Payment Key
       const keyRes: AxiosResponse<{ token: string }> = await firstValueFrom(
@@ -134,9 +143,12 @@ export class PaymobService implements IPaymentGateway {
           }
         } catch (walletPayError) {
           const axiosError = walletPayError as AxiosError;
-          this.logger.warn(
-            'Direct wallet pay initiation fallback to iframe:',
+          this.logger.error(
+            'Direct Paymob wallet pay error:',
             axiosError.response?.data || axiosError.message,
+          );
+          throw new BadRequestException(
+            'فشلت عملية تجهيز محفظة الدفع الإلكترونية لدى Paymob. تأكد من صحة PAYMOB_WALLET_INTEGRATION_ID.',
           );
         }
       }
@@ -153,6 +165,9 @@ export class PaymobService implements IPaymentGateway {
         providerOrderId: String(orderId),
       };
     } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       const axiosError = error as AxiosError;
       const errorData = axiosError.response?.data
         ? JSON.stringify(axiosError.response.data)
