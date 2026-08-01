@@ -5,13 +5,14 @@ import { PropertyEmbeddingService } from './property-embedding.service';
 
 describe('PropertyApprovalIndexingService', () => {
   const findUnique = jest.fn();
+  const update = jest.fn();
   const build = jest.fn();
   const createCohereEmbedding = jest.fn();
   const createLocalEmbedding = jest.fn();
   const isLocalEmbeddingEnabled = jest.fn();
   const upsert = jest.fn();
   const service = new PropertyApprovalIndexingService(
-    { property: { findUnique } } as unknown as PrismaService,
+    { property: { findUnique, update } } as unknown as PrismaService,
     { build },
     {
       createCohereEmbedding,
@@ -43,6 +44,7 @@ describe('PropertyApprovalIndexingService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     findUnique.mockResolvedValue(property);
+    update.mockResolvedValue(undefined);
     build.mockReturnValue({
       document: 'safe document',
       metadata: { city: 'Cairo' },
@@ -85,6 +87,47 @@ describe('PropertyApprovalIndexingService', () => {
       [0.3, 0.4],
       { city: 'Cairo' },
     );
+    // Cohere succeeded, so it's the "primary" vector persisted for the
+    // hybrid matcher's local cosine-similarity path (Property.embedding).
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'property-1' },
+      data: { embedding: [0.1, 0.2] },
+    });
+  });
+
+  it('persists the local vector as primary when Cohere fails', async () => {
+    createCohereEmbedding.mockRejectedValue(
+      new Error('COHERE_EMBEDDING_NOT_CONFIGURED'),
+    );
+
+    await service.indexApprovedProperty('property-1');
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledWith(
+      'local',
+      'property:property-1',
+      'safe document',
+      [0.3, 0.4],
+      { city: 'Cairo' },
+    );
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'property-1' },
+      data: { embedding: [0.3, 0.4] },
+    });
+  });
+
+  it('throws when both providers fail, leaving the property unindexed', async () => {
+    createCohereEmbedding.mockRejectedValue(
+      new Error('COHERE_EMBEDDING_NOT_CONFIGURED'),
+    );
+    createLocalEmbedding.mockRejectedValue(
+      new Error('LOCAL_EMBEDDING_SERVICE_UNAVAILABLE'),
+    );
+
+    await expect(service.indexApprovedProperty('property-1')).rejects.toThrow();
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it.each([null, { ...property, status: 'PENDING' }])(

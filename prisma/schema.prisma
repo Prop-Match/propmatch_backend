@@ -99,6 +99,8 @@ enum NotificationType {
   CONTRACT_READY_FOR_REVIEW
   CONTRACT_APPROVED
   CONTRACT_REJECTED
+  /** Smart Matchmaker — a landlord's property scored >75 against a new tenant request. */
+  HIGH_MATCH_TENANT_REQUEST
 }
 
 enum TenantRequestStatus {
@@ -279,6 +281,15 @@ model Property {
   isBoosted              Boolean        @default(false) @map("is_boosted")
   boostedUntil           DateTime?      @map("boosted_until")
 
+  /**
+   * Cached copy of the approval-time embedding vector (see
+   * PropertyEmbeddingService), stored alongside the row so the hybrid
+   * matcher's background worker can pull it in the same SQL query used for
+   * the rule-based pre-filter and compute cosine similarity in Node memory
+   * instead of a per-candidate ChromaDB round-trip.
+   */
+  embedding              Float[]        @default([])
+
   // Admin Approval
   approvedBy     String?   @map("approved_by") @db.Uuid
   approvedByUser User?     @relation("ApprovedProperties", fields: [approvedBy], references: [id])
@@ -349,6 +360,15 @@ model TenantRequest {
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
   ownerOffers           OwnerOffer[]
+
+  /**
+   * Cached copy of the request's embedding vector, generated once by
+   * MatchingWorker and reused by OffersService's synchronous browse/offer
+   * endpoints (via cosine similarity against Property.embedding, pure local
+   * math) — single source of truth so the UI card's matchScore and the
+   * proactive notification's finalScore never diverge.
+   */
+  embedding             Float[]             @default([])
 
   @@map("tenant_request")
 }

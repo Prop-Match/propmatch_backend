@@ -4,11 +4,19 @@
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Property, TenantRequest } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { transformPropertyToSummary } from '../properties/mappers/property.mapper';
+import { SemanticMatchingConfig } from '../config/semantic-matching.config';
+import { buildHybridMatchReasons } from '../matching/hybrid-match-reasons.util';
+import { cosineSimilarity } from '../matching/matching.math.util';
+import { MatchReason } from './dto/match-reason.dto';
 import { CreateOfferDto } from './dto/create-offer.dto';
-import { scoreRequestAgainstProperty } from './match-score.util';
+import {
+  combineHybridScore,
+  scoreRequestAgainstProperty,
+} from './match-score.util';
 
 /** Prisma include needed by transformPropertyToSummary. */
 const PROPERTY_SUMMARY_INCLUDE = {
@@ -27,7 +35,37 @@ export class OffersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeService: RealtimeService,
+    private readonly semanticMatchingConfig: SemanticMatchingConfig,
   ) {}
+
+  /**
+   * Single source of truth for a (request, property) score — reused by every
+   * matchScore/matchReasons site in this service so the UI card and
+   * MatchingWorker's proactive-notification finalScore never diverge. Uses
+   * the vectors MatchingWorker already persisted (TenantRequest.embedding,
+   * Property.embedding) — pure local cosine similarity, no embedding call,
+   * so this stays safe to run inline on a synchronous request path. Falls
+   * back to rule-based-only (semanticSimilarity: null) until the request has
+   * gone through at least one matching-queue run.
+   */
+  private computeHybridMatch(
+    request: TenantRequest,
+    property: Property,
+  ): { score: number; reasons: MatchReason[] } {
+    const ruleScore = scoreRequestAgainstProperty(request, property);
+    const semanticSimilarity =
+      request.embedding.length > 0 && property.embedding.length > 0
+        ? cosineSimilarity(request.embedding, property.embedding)
+        : null;
+    const score = combineHybridScore(ruleScore, semanticSimilarity);
+    const reasons = buildHybridMatchReasons(
+      request,
+      property,
+      semanticSimilarity,
+      this.semanticMatchingConfig.minSimilarity,
+    );
+    return { score, reasons };
+  }
 
   /**
    * GET /landlord/requests â€” approved tenant requests, scored against this
@@ -52,7 +90,7 @@ export class OffersService {
       .map((request) => {
         const scored = myProperties.map((property) => ({
           property,
-          score: scoreRequestAgainstProperty(request, property),
+          ...this.computeHybridMatch(request, property),
         }));
         const best = scored.length
           ? scored.reduce((a, b) => (b.score > a.score ? b : a), scored[0])
@@ -70,6 +108,7 @@ export class OffersService {
           lifestyleRequirements: request.lifestyleRequirements,
           createdAt: request.createdAt.toISOString(),
           matchScore: best ? best.score : null,
+          matchReasons: best ? best.reasons : [],
           alreadyOffered: myOfferedRequestIds.has(request.id),
           bestMatchingProperty: best
             ? { id: best.property.id, title: best.property.title }
@@ -261,6 +300,7 @@ export class OffersService {
           select: { id: true },
         })
       : null;
+    const hybrid = request ? this.computeHybridMatch(request, property!) : null;
     return {
       id: offer.id,
       tenantRequestId: offer.tenantRequestId,
@@ -268,9 +308,8 @@ export class OffersService {
       pitchMessage: offer.pitchMessage,
       proposedPrice: offer.proposedPrice,
       status: offer.status,
-      matchScore: request
-        ? scoreRequestAgainstProperty(request, property!)
-        : null,
+      matchScore: hybrid ? hybrid.score : null,
+      matchReasons: hybrid ? hybrid.reasons : [],
       createdAt: offer.createdAt.toISOString(),
       ownerName: accepted ? (owner?.fullName ?? null) : null,
       ownerPhoneNumber: accepted ? (owner?.phoneNumber ?? null) : null,
@@ -337,7 +376,7 @@ export class OffersService {
     const owner = await this.prisma.user.findUniqueOrThrow({
       where: { id: offer.ownerId },
     });
-    const matchScore = scoreRequestAgainstProperty(request, property);
+    const { score: matchScore } = this.computeHybridMatch(request, property);
     const connection = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.tenantRequest.updateMany({
         where: { id: offer.tenantRequestId, status: 'APPROVED' },
