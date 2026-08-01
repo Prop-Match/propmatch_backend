@@ -287,3 +287,111 @@ describe('PropertiesService.remove', () => {
     );
   });
 });
+
+describe('PropertiesService.getPropertyById', () => {
+  const archivedProperty = {
+    id: 'property-1',
+    ownerId: 'owner-1',
+    title: 'Archived apartment',
+    description: 'A detailed archived apartment description.',
+    governorate: { nameAr: 'الدقهلية', nameEn: 'Dakahlia' },
+    city: { nameAr: 'المنصورة', nameEn: 'Mansoura' },
+    district: 'University district',
+    propertyType: 'APARTMENT',
+    rentAmount: 5000,
+    areaM2: 100,
+    bedrooms: 2,
+    bathrooms: 1,
+    isFurnished: false,
+    hasElevator: true,
+    hasParking: false,
+    isBoosted: false,
+    status: 'ARCHIVED',
+    manualAddress: 'Detailed street address',
+    propertyAroundServices: null,
+    approvedAt: new Date('2026-07-20T12:00:00.000Z'),
+    createdAt: new Date('2026-07-01T12:00:00.000Z'),
+    propertyImages: [],
+    owner: {
+      fullName: 'Owner',
+      phoneNumber: '01000000000',
+      identityVerification: { status: 'APPROVED' },
+    },
+  };
+
+  it('allows an owner to view their archived property', async () => {
+    const service = new PropertiesService(
+      {
+        property: {
+          findUniqueOrThrow: jest.fn().mockResolvedValue(archivedProperty),
+        },
+      } as never,
+      {} as never,
+    );
+
+    await expect(
+      service.getPropertyById('property-1', { userId: 'owner-1', role: 'LANDLORD' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'property-1',
+        status: 'ARCHIVED',
+        contactRevealed: true,
+      }),
+    );
+  });
+
+  it('restores an archived owner property to pending review instead of publishing it', async () => {
+    const propertyEdited = jest.fn();
+    const update = jest.fn().mockResolvedValue({
+      ...archivedProperty,
+      status: 'PENDING',
+      isBoosted: false,
+      boostedUntil: null,
+      approvedBy: null,
+    });
+    const service = new PropertiesService(
+      {
+        property: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'property-1', status: 'ARCHIVED' }),
+          update,
+        },
+      } as never,
+      { propertyEdited, propertySubmitted: jest.fn() } as never,
+    );
+
+    await expect(service.unarchive('owner-1', 'property-1')).resolves.toEqual(
+      expect.objectContaining({
+        property: expect.objectContaining({ status: 'PENDING' }),
+      }),
+    );
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'property-1' },
+        data: {
+          status: 'PENDING',
+          isBoosted: false,
+          boostedUntil: null,
+          approvedBy: null,
+        },
+      }),
+    );
+    expect(propertyEdited).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'property-1', status: 'PENDING' }),
+    );
+  });
+
+  it('keeps an archived property hidden from a non-owner', async () => {
+    const service = new PropertiesService(
+      {
+        property: {
+          findUniqueOrThrow: jest.fn().mockResolvedValue(archivedProperty),
+        },
+      } as never,
+      {} as never,
+    );
+
+    await expect(
+      service.getPropertyById('property-1', { userId: 'tenant-1', role: 'TENANT' }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+});

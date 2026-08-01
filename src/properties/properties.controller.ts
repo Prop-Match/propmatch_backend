@@ -150,6 +150,22 @@ export class PropertiesController {
     return this.propertiesService.archive(req.user.userId, propertyId);
   }
 
+  /**
+   * PATCH /api/properties/:propertyId/unarchive
+   *
+   * Restoring a listing never republishes it directly: it returns to PENDING
+   * so moderation can review it before it appears in tenant-facing results.
+   */
+  @Patch('properties/:propertyId/unarchive')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
+  async unarchiveOwnProperty(
+    @Request() req: { user: { userId: string } },
+    @Param('propertyId') propertyId: string,
+  ) {
+    return this.propertiesService.unarchive(req.user.userId, propertyId);
+  }
+
   // Backward-compatible soft-archive route for existing landlord clients.
   @Post('landlord/properties/:id/archive')
   @UseGuards(JwtAuthGuard, RolesGuard)

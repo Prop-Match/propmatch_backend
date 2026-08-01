@@ -562,6 +562,29 @@ export class PropertiesService {
     };
   }
 
+  /** Restore an owner listing into moderation; never republish it directly. */
+  async unarchive(ownerId: string, propertyId: string) {
+    await this.requireOwnedProperty(ownerId, propertyId);
+    const property = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        status: 'PENDING',
+        isBoosted: false,
+        boostedUntil: null,
+        approvedBy: null,
+      },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+    if (property.approvedAt) {
+      this.realtimeService.propertyEdited(property);
+    } else {
+      this.realtimeService.propertySubmitted(property);
+    }
+    return {
+      property: transformPropertyToDetail(property, { contactRevealed: true }),
+    };
+  }
+
   /**
    * Replace a landlord's editable property data and submit it for moderation.
    * `approvedAt` is intentionally retained: it distinguishes edits from brand
@@ -788,7 +811,7 @@ export class PropertiesService {
     const isAdmin = viewer?.role === 'ADMIN';
     const isOwner = viewer?.userId === property.ownerId;
     if (
-      (property.status === 'ARCHIVED' && !isAdmin) ||
+      (property.status === 'ARCHIVED' && !isOwner && !isAdmin) ||
       (property.status !== 'APPROVED' && !isOwner && !isAdmin)
     ) {
       throw new NotFoundException('العقار غير موجود');
