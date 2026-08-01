@@ -45,6 +45,71 @@ export class PaymobService implements IPaymentGateway {
         process.env.PAYMOB_INTEGRATION_ID_CARD ||
         process.env.PAYMOB_INTEGRATION_ID;
 
+      // 1. If PAYMOB_SECRET_KEY is provided, use Intention API + Unified Checkout as specified in code-nodejs.md
+      if (this.SECRET_KEY) {
+        const integrationIds: number[] = [];
+        if (method === 'WALLET') {
+          if (walletIntegrationId) {
+            integrationIds.push(Number(walletIntegrationId));
+          } else if (cardIntegrationId) {
+            integrationIds.push(Number(cardIntegrationId));
+          }
+        } else {
+          if (cardIntegrationId) {
+            integrationIds.push(Number(cardIntegrationId));
+          }
+        }
+
+        const intentionRes: AxiosResponse<{ id: number | string; client_secret: string }> =
+          await firstValueFrom(
+            this.httpService.post(
+              `${this.BASE_URL}/v1/intention/`,
+              {
+                amount: Math.round(amount * 100),
+                currency: 'EGP',
+                payment_methods: integrationIds.length > 0 ? integrationIds : undefined,
+                special_reference: `${paymentType}_${userId}_${Date.now()}`,
+                billing_data: {
+                  first_name: user.fullName || 'NA',
+                  last_name: 'NA',
+                  email: user.email,
+                  phone_number: user.phoneNumber || '01000000000',
+                  apartment: 'NA',
+                  floor: 'NA',
+                  street: 'NA',
+                  building: 'NA',
+                  shipping_method: 'NA',
+                  postal_code: 'NA',
+                  city: 'NA',
+                  state: 'NA',
+                  country: 'EGY',
+                },
+                customer: {
+                  first_name: user.fullName || 'NA',
+                  last_name: 'NA',
+                  email: user.email,
+                },
+              },
+              {
+                headers: {
+                  Authorization: `Token ${this.SECRET_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+              },
+            ),
+          );
+
+        const clientSecret = String(intentionRes.data.client_secret);
+        const intentionId = String(intentionRes.data.id);
+        const checkoutUrl = `${this.BASE_URL}/unifiedcheckout/?publicKey=${this.PUBLIC_KEY}&clientSecret=${clientSecret}`;
+
+        return {
+          checkoutUrl,
+          providerOrderId: intentionId,
+        };
+      }
+
+      // 2. Legacy API (Acceptance API)
       if (method === 'WALLET' && !walletIntegrationId) {
         this.logger.error(
           'Mobile Wallet checkout requested but PAYMOB_WALLET_INTEGRATION_ID is missing in .env!',
@@ -59,7 +124,7 @@ export class PaymobService implements IPaymentGateway {
           ? Number(walletIntegrationId)
           : Number(cardIntegrationId);
 
-      // 1. Get temporary Auth Token
+      // Get Auth Token
       const authRes: AxiosResponse<{ token: string }> = await firstValueFrom(
         this.httpService.post(`${this.BASE_URL}/api/auth/tokens`, {
           api_key: process.env.PAYMOB_API_KEY,
@@ -67,7 +132,7 @@ export class PaymobService implements IPaymentGateway {
       );
       const token = String(authRes.data.token);
 
-      // 2. Register Order
+      // Register Order
       const orderRes: AxiosResponse<{ id: number }> = await firstValueFrom(
         this.httpService.post(`${this.BASE_URL}/api/ecommerce/orders`, {
           auth_token: token,
@@ -79,7 +144,7 @@ export class PaymobService implements IPaymentGateway {
       );
       const orderId = Number(orderRes.data.id);
 
-      // 3. Get Payment Key
+      // Get Payment Key
       const keyRes: AxiosResponse<{ token: string }> = await firstValueFrom(
         this.httpService.post(`${this.BASE_URL}/api/acceptance/payment_keys`, {
           auth_token: token,
@@ -107,7 +172,7 @@ export class PaymobService implements IPaymentGateway {
       );
       const paymentToken = String(keyRes.data.token);
 
-      // 4. For Mobile Wallet payments, execute Paymob Wallet Pay request if method === 'WALLET'
+      // Mobile Wallet Pay Request
       if (method === 'WALLET') {
         try {
           const walletPhone =
@@ -245,7 +310,6 @@ export class PaymobService implements IPaymentGateway {
     providerOrderId: string,
   ): Promise<{ isSuccessful: boolean; transactionId?: string }> {
     try {
-      // 1. Get a temporary auth token.
       const response: AxiosResponse<{ token: string }> = await firstValueFrom(
         this.httpService.post('https://accept.paymob.com/api/auth/tokens', {
           api_key: process.env.PAYMOB_API_KEY,
