@@ -821,4 +821,32 @@ export class PropertiesService {
       });
     });
   }
+
+  async getAllTenantRequests() {
+    const requests = await this.prisma.tenantRequest.findMany({
+      where: { status: 'APPROVED' },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: { ownerOffers: true },
+        },
+      },
+    });
+    return {
+      items: requests.map((r) => ({
+        id: r.id,
+        minBudget: r.minBudget,
+        maxBudget: r.maxBudget,
+        preferredLocations: r.preferredLocations,
+        propertyType: r.propertyType,
+        requiredBedrooms: r.requiredBedrooms,
+        needsFurnished: r.needsFurnished,
+        flexibilityScore: r.flexibilityScore,
+        lifestyleRequirements: r.lifestyleRequirements,
+        offersCount: r._count?.ownerOffers ?? 0,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    };
+  }
 }
+
