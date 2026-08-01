@@ -98,6 +98,49 @@ export class PaymobService implements IPaymentGateway {
       );
       const paymentToken = String(keyRes.data.token);
 
+      // 4. For Mobile Wallet payments, execute Paymob Wallet Pay request if method === 'WALLET'
+      if (method === 'WALLET') {
+        try {
+          const walletPhone =
+            user.phoneNumber && user.phoneNumber !== 'NA'
+              ? user.phoneNumber
+              : '01000000000';
+          const payRes: AxiosResponse<{
+            redirect_url?: string;
+            iframe_redirection_token?: string;
+          }> = await firstValueFrom(
+            this.httpService.post(`${this.BASE_URL}/api/acceptance/payments/pay`, {
+              payment_token: paymentToken,
+              source: {
+                identifier: walletPhone,
+                subtype: 'WALLET',
+              },
+            }),
+          );
+
+          if (payRes.data?.redirect_url) {
+            return {
+              checkoutUrl: payRes.data.redirect_url,
+              providerOrderId: String(orderId),
+            };
+          }
+          if (payRes.data?.iframe_redirection_token) {
+            const walletIframeId =
+              process.env.PAYMOB_WALLET_IFRAME_ID || process.env.PAYMOB_IFRAME_ID;
+            return {
+              checkoutUrl: `${this.BASE_URL}/api/acceptance/iframes/${walletIframeId}?payment_token=${payRes.data.iframe_redirection_token}`,
+              providerOrderId: String(orderId),
+            };
+          }
+        } catch (walletPayError) {
+          const axiosError = walletPayError as AxiosError;
+          this.logger.warn(
+            'Direct wallet pay initiation fallback to iframe:',
+            axiosError.response?.data || axiosError.message,
+          );
+        }
+      }
+
       const iframeId =
         method === 'WALLET' && process.env.PAYMOB_WALLET_IFRAME_ID
           ? process.env.PAYMOB_WALLET_IFRAME_ID
