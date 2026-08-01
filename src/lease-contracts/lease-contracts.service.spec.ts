@@ -9,6 +9,8 @@ import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token'
 import { LeaseContractsService } from './lease-contracts.service';
 import { PdfRendererService } from './pdf-renderer.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { ChromaPropertyService } from '../properties/chroma-property.service';
+import { PropertyEmbeddingService } from '../properties/property-embedding.service';
 
 const ownerId = '11111111-1111-1111-1111-111111111111';
 const tenantId = '22222222-2222-2222-2222-222222222222';
@@ -20,9 +22,13 @@ describe('LeaseContractsService draft API', () => {
   let prisma: any;
   let storage: { upload: jest.Mock; createTemporaryReadUrl: jest.Mock };
   let renderer: { renderHtmlToPdf: jest.Mock };
+  let realtime: { notifyUser: jest.Mock };
+  let chroma: { remove: jest.Mock };
+  let embeddings: { isLocalEmbeddingEnabled: jest.Mock };
 
   const match = {
     id: matchId,
+    propertyId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     status: 'CONNECTED',
     ownerId,
     tenantId,
@@ -68,19 +74,31 @@ describe('LeaseContractsService draft API', () => {
       leaseContract: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(record({ tenantReviewStatus: 'PENDING_REVIEW', draftRevision: 1, tenantChangeRequest: null, tenantChangeRequestedAt: null, tenantReviewConfirmedAt: null, tenantReviewedRevision: null })),
+        update: jest.fn().mockResolvedValue(record({ status: 'APPROVED' })),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      property: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       identityVerification: { findUnique: jest.fn() },
     };
+    prisma.$transaction = (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        leaseContract: { update: prisma.leaseContract.update },
+        property: { updateMany: prisma.property.updateMany },
+      });
     storage = { upload: jest.fn(), createTemporaryReadUrl: jest.fn() };
     renderer = { renderHtmlToPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-test')) };
+    realtime = { notifyUser: jest.fn().mockResolvedValue({}) };
+    chroma = { remove: jest.fn().mockResolvedValue(undefined) };
+    embeddings = { isLocalEmbeddingEnabled: jest.fn().mockReturnValue(false) };
     const module = await Test.createTestingModule({
       providers: [
         LeaseContractsService,
         { provide: PrismaService, useValue: prisma },
         { provide: PdfRendererService, useValue: renderer },
-        { provide: RealtimeService, useValue: { notifyUser: jest.fn() } },
+        { provide: RealtimeService, useValue: realtime },
         { provide: PRIVATE_OBJECT_STORAGE, useValue: storage },
+        { provide: ChromaPropertyService, useValue: chroma },
+        { provide: PropertyEmbeddingService, useValue: embeddings },
       ],
     }).compile();
     service = module.get(LeaseContractsService);
@@ -207,5 +225,115 @@ describe('LeaseContractsService draft API', () => {
     expect(prisma.leaseContract.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ draftRevision: 3, tenantReviewStatus: 'PENDING_REVIEW' }) }));
     prisma.leaseContract.findUnique.mockResolvedValue(record({ matchConnection: { ownerId, tenantId }, tenantReviewStatus: 'REVIEW_CONFIRMED', tenantReviewConfirmedAt: new Date() }));
     await expect(service.confirmReview(tenantId, '55555555-5555-5555-5555-555555555555', { expectedRevision: 1 })).resolves.toEqual(expect.objectContaining({ tenantReviewStatus: 'REVIEW_CONFIRMED' }));
+  });
+
+  it('delivers a persisted review notification to the tenant when the owner sends the contract', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ status: 'DRAFTING' }));
+    prisma.leaseContract.update.mockResolvedValue(
+      record({ status: 'PENDING_TENANT_APPROVAL' }),
+    );
+
+    await service.sendForReview(ownerId, matchId);
+
+    expect(realtime.notifyUser).toHaveBeenCalledWith(tenantId, {
+      type: 'CONTRACT_READY_FOR_REVIEW',
+      title: expect.any(String),
+      message: expect.any(String),
+      link: `/contracts/new?matchConnectionId=${matchId}`,
+    });
+  });
+
+  it('archives the property when the tenant completes the approved-contract deal', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(
+      record({ status: 'PENDING_TENANT_APPROVAL' }),
+    );
+    prisma.identityVerification.findUnique
+      .mockResolvedValueOnce({ nationalId: '29901010112345', status: 'APPROVED' })
+      .mockResolvedValueOnce({ nationalId: '30001010112345', status: 'APPROVED' });
+    storage.upload.mockResolvedValue({ objectKey: 'contracts/final.pdf' });
+
+    await service.approve(tenantId, matchId);
+
+    expect(prisma.property.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: match.propertyId,
+        status: { not: 'ARCHIVED' },
+      },
+      data: { status: 'ARCHIVED' },
+    });
+    expect(chroma.remove).toHaveBeenCalledWith(
+      'cohere',
+      `property:${match.propertyId}`,
+    );
+  });
+
+  it('does not archive a connected match before contract approval', async () => {
+    await service.getPrefill(tenantId, matchId);
+
+    expect(prisma.property.updateMany).not.toHaveBeenCalled();
+    expect(chroma.remove).not.toHaveBeenCalled();
+  });
+
+  it('completes the deal when both approved verifications omit legacy national IDs', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(
+      record({ status: 'PENDING_TENANT_APPROVAL' }),
+    );
+    prisma.identityVerification.findUnique
+      .mockResolvedValueOnce({ nationalId: null, status: 'APPROVED' })
+      .mockResolvedValueOnce({ nationalId: null, status: 'APPROVED' });
+    storage.upload.mockResolvedValue({ objectKey: 'contracts/final.pdf' });
+
+    await expect(service.approve(tenantId, matchId)).resolves.toEqual(
+      expect.objectContaining({ status: 'generated' }),
+    );
+    expect(prisma.leaseContract.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'APPROVED',
+          ownerNationalId: null,
+          tenantNationalId: null,
+        }),
+      }),
+    );
+    expect(prisma.property.updateMany).toHaveBeenCalled();
+  });
+
+  it('removes the completed property vector so it cannot remain in semantic results', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(
+      record({ status: 'PENDING_TENANT_APPROVAL' }),
+    );
+    prisma.identityVerification.findUnique
+      .mockResolvedValueOnce({ nationalId: '29901010112345', status: 'APPROVED' })
+      .mockResolvedValueOnce({ nationalId: '30001010112345', status: 'APPROVED' });
+    storage.upload.mockResolvedValue({ objectKey: 'contracts/final.pdf' });
+    embeddings.isLocalEmbeddingEnabled.mockReturnValue(true);
+
+    await service.approve(tenantId, matchId);
+
+    expect(chroma.remove).toHaveBeenCalledWith(
+      'cohere',
+      `property:${match.propertyId}`,
+    );
+    expect(chroma.remove).toHaveBeenCalledWith(
+      'local',
+      `property:${match.propertyId}`,
+    );
+  });
+
+  it('keeps repeated deal completion safe when the contract and property are already approved/archived', async () => {
+    prisma.leaseContract.findUnique.mockResolvedValue(record({ status: 'APPROVED' }));
+
+    await expect(service.approve(tenantId, matchId)).resolves.toEqual(
+      expect.objectContaining({ status: 'generated' }),
+    );
+    expect(renderer.renderHtmlToPdf).not.toHaveBeenCalled();
+    expect(storage.upload).not.toHaveBeenCalled();
+    expect(prisma.property.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: match.propertyId,
+        status: { not: 'ARCHIVED' },
+      },
+      data: { status: 'ARCHIVED' },
+    });
   });
 });

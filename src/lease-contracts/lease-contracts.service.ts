@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { RealtimeService } from 'src/realtime/realtime.service';
@@ -24,6 +25,8 @@ import {
 } from './lease-contract-template';
 import { PdfRendererService } from './pdf-renderer.service';
 import { buildRentalContractDraftPdfHtml } from './rental-contract-draft-pdf.template';
+import { ChromaPropertyService } from '../properties/chroma-property.service';
+import { PropertyEmbeddingService } from '../properties/property-embedding.service';
 
 const PDF_URL_TTL_SECONDS = 300;
 
@@ -59,12 +62,16 @@ interface LeaseContractRecord {
 
 @Injectable()
 export class LeaseContractsService {
+  private readonly logger = new Logger(LeaseContractsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pdfRenderer: PdfRendererService,
     private readonly realtime: RealtimeService,
     @Inject(PRIVATE_OBJECT_STORAGE)
     private readonly storage: PrivateObjectStorage,
+    private readonly chromaService: ChromaPropertyService,
+    private readonly embeddingService: PropertyEmbeddingService,
   ) {}
 
   /** Every lease-contract notification deep-links to the same entry point —
@@ -230,6 +237,13 @@ export class LeaseContractsService {
       throw new ForbiddenException('ONLY_TENANT_MAY_APPROVE');
     }
     const contract = await this.requireContract(matchConnectionId);
+    // APPROVED is the final rental-deal state: the tenant has approved the
+    // contract and its PDF was generated. Repair a missing archive/vector
+    // cleanup on retries without generating another PDF or changing the deal.
+    if (contract.status === 'APPROVED') {
+      await this.archiveCompletedDealProperty(match.propertyId);
+      return this.toResponse(contract);
+    }
     if (contract.status !== 'PENDING_TENANT_APPROVAL') {
       throw new ConflictException('NOT_PENDING_TENANT_APPROVAL');
     }
@@ -237,14 +251,17 @@ export class LeaseContractsService {
     const [ownerVerification, tenantVerification] = await Promise.all([
       this.prisma.identityVerification.findUnique({
         where: { userId: match.ownerId },
-        select: { nationalId: true },
+        select: { nationalId: true, status: true },
       }),
       this.prisma.identityVerification.findUnique({
         where: { userId: match.tenantId },
-        select: { nationalId: true },
+        select: { nationalId: true, status: true },
       }),
     ]);
-    if (!ownerVerification?.nationalId || !tenantVerification?.nationalId) {
+    if (
+      ownerVerification?.status !== 'APPROVED' ||
+      tenantVerification?.status !== 'APPROVED'
+    ) {
       throw new ConflictException('IDENTITY_NOT_VERIFIED');
     }
 
@@ -274,16 +291,24 @@ export class LeaseContractsService {
       category: 'contracts',
     });
 
-    const updated = await this.prisma.leaseContract.update({
-      where: { matchConnectionId },
-      data: {
-        generatedByUserId: userId,
-        ownerNationalId: ownerVerification.nationalId,
-        tenantNationalId: tenantVerification.nationalId,
-        pdfUrl: objectKey,
-        status: 'APPROVED',
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const approvedContract = await tx.leaseContract.update({
+        where: { matchConnectionId },
+        data: {
+          generatedByUserId: userId,
+          ownerNationalId: ownerVerification.nationalId,
+          tenantNationalId: tenantVerification.nationalId,
+          pdfUrl: objectKey,
+          status: 'APPROVED',
+        },
+      });
+      await tx.property.updateMany({
+        where: { id: match.propertyId, status: { not: 'ARCHIVED' } },
+        data: { status: 'ARCHIVED' },
+      });
+      return approvedContract;
     });
+    await this.removeArchivedPropertyVectors(match.propertyId);
     await this.realtime.notifyUser(match.ownerId, {
       type: 'CONTRACT_APPROVED',
       title: 'تمت الموافقة على العقد',
@@ -291,6 +316,30 @@ export class LeaseContractsService {
       link: `/contracts/${updated.id}`,
     });
     return this.toResponse(updated);
+  }
+
+  private async archiveCompletedDealProperty(propertyId: string): Promise<void> {
+    await this.prisma.property.updateMany({
+      where: { id: propertyId, status: { not: 'ARCHIVED' } },
+      data: { status: 'ARCHIVED' },
+    });
+    await this.removeArchivedPropertyVectors(propertyId);
+  }
+
+  /** Vector cleanup is retriable and must never roll back the completed deal. */
+  private async removeArchivedPropertyVectors(propertyId: string): Promise<void> {
+    const vectorId = `property:${propertyId}`;
+    const cleanup = [this.chromaService.remove('cohere', vectorId)];
+    if (this.embeddingService.isLocalEmbeddingEnabled()) {
+      cleanup.push(this.chromaService.remove('local', vectorId));
+    }
+    try {
+      await Promise.all(cleanup);
+    } catch {
+      this.logger.error(
+        `completed-deal vector cleanup failed: propertyId=${propertyId}`,
+      );
+    }
   }
 
   /** Tenant only. Unlocks the draft for the landlord to revise. */
