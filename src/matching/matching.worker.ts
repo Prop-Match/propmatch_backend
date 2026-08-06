@@ -18,6 +18,29 @@ import {
   MatchTenantRequestJobData,
 } from './matching.constants';
 
+const DEFAULT_MATCHING_WORKER_CONCURRENCY = 5;
+
+/**
+ * `@Processor()`'s options are evaluated once, at module-load time, when the
+ * decorator runs — before Nest's dependency-injection container exists, so
+ * ConfigService (and therefore .env-file-backed config classes like
+ * MatchingQueueConfig) isn't reachable here. Reading process.env directly at
+ * module scope is the established pattern for this exact constraint
+ * elsewhere in the codebase (see src/messages/crypto.util.ts). By the time
+ * this file is imported, ConfigModule's dotenv loading has already run.
+ */
+function getMatchingWorkerConcurrency(): number {
+  const raw = process.env.MATCHING_WORKER_CONCURRENCY;
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_MATCHING_WORKER_CONCURRENCY;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error('MATCHING_WORKER_CONCURRENCY must be a positive integer.');
+  }
+  return parsed;
+}
+
 interface RankedMatch {
   propertyId: string;
   ownerId: string;
@@ -40,7 +63,7 @@ interface RankedMatch {
  * (RealtimeService.notifyUsers — persist-then-emit, same as everywhere else
  * in the app).
  */
-@Processor(MATCHING_QUEUE)
+@Processor(MATCHING_QUEUE, { concurrency: getMatchingWorkerConcurrency() })
 export class MatchingWorker extends WorkerHost {
   private readonly logger = new Logger(MatchingWorker.name);
 
