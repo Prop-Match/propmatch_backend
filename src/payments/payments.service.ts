@@ -224,7 +224,7 @@ export class PaymentsService {
             planExpiresAt,
             maxActiveListings: PREMIUM_ACTIVE_LISTING_LIMIT,
             optimizerUsesLeft,
-            freeOffersLeft: 3,
+            freeOffersLeft: 5,
           },
           update: {
             planType: 'PREMIUM',
@@ -254,7 +254,7 @@ export class PaymentsService {
             planExpiresAt,
             maxActiveListings: OWNER_PLUS_ACTIVE_LISTING_LIMIT,
             optimizerUsesLeft,
-            freeOffersLeft: 3,
+            freeOffersLeft: 5,
           },
           update: {
             planType: 'OWNER_PLUS',

@@ -46,6 +46,7 @@ export function isBillablePaymentType(
 export const FREE_ACTIVE_LISTING_LIMIT = 1;
 export const OWNER_PLUS_ACTIVE_LISTING_LIMIT = 3;
 export const PREMIUM_ACTIVE_LISTING_LIMIT = 5;
+export const FREE_OFFERS_MONTHLY_ALLOTMENT = 5;
 export const OWNER_PLUS_INCLUDED_AI_USES = 3;
 export const PREMIUM_INCLUDED_AI_USES = 5;
 export const AI_ADDON_USES = 10;
