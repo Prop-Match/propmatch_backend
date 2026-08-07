@@ -10,6 +10,8 @@ export const SOCKET_EVENTS = {
   messageDeleted: 'message:deleted',
   supportTicketCreated: 'support:ticket:created',
   supportMessageReceived: 'support:message:received',
+  /** A persisted payment reached SUCCESS or FAILED for its authenticated owner. */
+  paymentUpdated: 'payment:updated',
   /** Client→server + server→other-party typing relay (match + support chat). */
   typing: 'typing',
 } as const;
@@ -79,4 +81,11 @@ export interface SupportMessagePayload {
   content: string;
   internal: boolean;
   at: string;
+}
+
+export interface PaymentUpdatedPayload {
+  providerOrderId: string;
+  status: 'SUCCESS' | 'FAILED';
+  providerTransactionId: string | null;
+  paidAt: string | null;
 }
