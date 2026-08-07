@@ -68,7 +68,12 @@ describe('FavoritesService', () => {
             isBoosted: false,
             status: 'APPROVED',
             propertyImages: [
-              { id: 'img-1', imageUrl: 'http://example.com/img.jpg', displayOrder: 0, isCover: true },
+              {
+                id: 'img-1',
+                imageUrl: 'http://example.com/img.jpg',
+                displayOrder: 0,
+                isCover: true,
+              },
             ],
             governorate: { nameAr: 'القاهرة', nameEn: 'Cairo' },
             city: { nameAr: 'المعادي', nameEn: 'Maadi' },
@@ -107,7 +112,9 @@ describe('FavoritesService', () => {
         propertyId: mockPropertyId,
       });
 
-      const result = await service.addFavorite(mockTenantId, { propertyId: mockPropertyId });
+      const result = await service.addFavorite(mockTenantId, {
+        propertyId: mockPropertyId,
+      });
       expect(result).toEqual({ favorited: true });
       expect(prismaMock.favorite.create).toHaveBeenCalledWith({
         data: {
@@ -125,7 +132,9 @@ describe('FavoritesService', () => {
         propertyId: mockPropertyId,
       });
 
-      const result = await service.addFavorite(mockTenantId, { propertyId: mockPropertyId });
+      const result = await service.addFavorite(mockTenantId, {
+        propertyId: mockPropertyId,
+      });
       expect(result).toEqual({ favorited: true });
       expect(prismaMock.favorite.create).not.toHaveBeenCalled();
     });

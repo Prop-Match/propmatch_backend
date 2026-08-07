@@ -27,7 +27,10 @@ export interface LegalChatPayload {
 export class LegalSupportService {
   constructor(private readonly config: ConfigService) {}
 
-  async chat(payload: LegalChatPayload, user: LegalSupportUser): Promise<unknown> {
+  async chat(
+    payload: LegalChatPayload,
+    user: LegalSupportUser,
+  ): Promise<unknown> {
     const response = await this.request('/legal-chat', payload, user);
     return this.parseJsonResponse(response);
   }

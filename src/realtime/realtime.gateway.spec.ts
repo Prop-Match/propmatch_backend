@@ -8,7 +8,6 @@ import { RealtimeGateway } from './realtime.gateway';
 import { RealtimeService } from './realtime.service';
 import { SOCKET_EVENTS } from './realtime.contract';
 
-
 const TEST_SECRET = 'test-secret';
 
 // notifyUser() persists via Prisma; stub it so the test needs no database.
@@ -25,9 +24,16 @@ const prismaStub = {
 };
 
 /** Resolve on the next `event`, or reject after `ms` so a miss fails loudly. */
-function once<T = unknown>(socket: Socket, event: string, ms = 1500): Promise<T> {
+function once<T = unknown>(
+  socket: Socket,
+  event: string,
+  ms = 1500,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timeout waiting for ${event}`)), ms);
+    const timer = setTimeout(
+      () => reject(new Error(`timeout waiting for ${event}`)),
+      ms,
+    );
     socket.once(event, (payload: T) => {
       clearTimeout(timer);
       resolve(payload);
@@ -53,7 +59,8 @@ describe('RealtimeGateway', () => {
   let url: string;
   const sockets: Socket[] = [];
 
-  const tokenFor = (sub: string, role: string) => jwt.sign({ sub, email: `${sub}@x.com`, role });
+  const tokenFor = (sub: string, role: string) =>
+    jwt.sign({ sub, email: `${sub}@x.com`, role });
 
   /** Connect a client and wait until it's actually connected. */
   async function connect(opts: { token?: string } = {}): Promise<Socket> {
@@ -99,17 +106,29 @@ describe('RealtimeGateway', () => {
 
   describe('handshake auth', () => {
     it('rejects a connection with no token', async () => {
-      const socket = io(url, { transports: ['websocket'], reconnection: false });
+      const socket = io(url, {
+        transports: ['websocket'],
+        reconnection: false,
+      });
       sockets.push(socket);
       const message = await once<Error>(socket, 'connect_error');
       expect(message).toMatchObject({ message: 'UNAUTHORIZED' });
     });
 
     it('rejects a token signed with the wrong secret', async () => {
-      const forged = new JwtService({ secret: 'not-the-secret' }).sign({ sub: 'u1', role: 'TENANT' });
-      const socket = io(url, { auth: { token: forged }, transports: ['websocket'], reconnection: false });
+      const forged = new JwtService({ secret: 'not-the-secret' }).sign({
+        sub: 'u1',
+        role: 'TENANT',
+      });
+      const socket = io(url, {
+        auth: { token: forged },
+        transports: ['websocket'],
+        reconnection: false,
+      });
       sockets.push(socket);
-      await expect(once(socket, 'connect_error')).resolves.toMatchObject({ message: 'UNAUTHORIZED' });
+      await expect(once(socket, 'connect_error')).resolves.toMatchObject({
+        message: 'UNAUTHORIZED',
+      });
     });
 
     it('accepts a validly signed token', async () => {
@@ -123,7 +142,12 @@ describe('RealtimeGateway', () => {
       const admin = await connect({ token: tokenFor('usr_admin', 'ADMIN') });
       const received = once(admin, SOCKET_EVENTS.adminQueueItem);
 
-      service.propertySubmitted({ id: 'prop_1', title: 'شقة', district: 'توريل', rentAmount: 4000 });
+      service.propertySubmitted({
+        id: 'prop_1',
+        title: 'شقة',
+        district: 'توريل',
+        rentAmount: 4000,
+      });
 
       await expect(received).resolves.toMatchObject({
         id: 'q_prop_1',
@@ -151,12 +175,24 @@ describe('RealtimeGateway', () => {
       const admin = await connect({ token: tokenFor('usr_admin', 'ADMIN') });
 
       const review = once(admin, SOCKET_EVENTS.adminQueueItem);
-      service.reviewSubmitted({ id: 'rev_1', rating: 4, comment: 'شقة ممتازة وقريبة من كل شيء' });
-      await expect(review).resolves.toMatchObject({ id: 'q_rev_1', type: 'review', title: 'تقييم 4★' });
+      service.reviewSubmitted({
+        id: 'rev_1',
+        rating: 4,
+        comment: 'شقة ممتازة وقريبة من كل شيء',
+      });
+      await expect(review).resolves.toMatchObject({
+        id: 'q_rev_1',
+        type: 'review',
+        title: 'تقييم 4★',
+      });
 
       const kyc = once(admin, SOCKET_EVENTS.adminQueueItem);
       service.kycSubmitted({ userId: 'usr_x', userName: 'أحمد' });
-      await expect(kyc).resolves.toMatchObject({ id: 'q_usr_x', type: 'kyc', subjectId: 'usr_x' });
+      await expect(kyc).resolves.toMatchObject({
+        id: 'q_usr_x',
+        type: 'kyc',
+        subjectId: 'usr_x',
+      });
     });
   });
 

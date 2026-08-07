@@ -469,6 +469,7 @@ model Message {
   attachmentName       String?                @map("attachment_name")
   attachmentDurationMs Int?                   @map("attachment_duration_ms")
   createdAt         DateTime @default(now()) @map("created_at")
+  editedAt          DateTime? @map("edited_at")
 
   matchConnection MatchConnection @relation(fields: [matchConnectionId], references: [id], onDelete: Cascade)
   sender          User            @relation(fields: [senderId], references: [id], onDelete: Restrict)

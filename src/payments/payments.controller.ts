@@ -31,29 +31,6 @@ export class PaymentsController {
     return this.paymentsService.checkout(req.user.userId, dto);
   }
 
-  @Post('reconcile-pending')
-  @UseGuards(JwtAuthGuard)
-  async reconcilePending(@Req() req: { user: { userId: string } }) {
-    return this.paymentsService.reconcilePendingForUser(req.user.userId);
-  }
-
-  /**
-   * Lets the signed-in buyer refresh a transaction after returning from the
-   * hosted checkout. The server, not the browser, verifies its state with
-   * provider before any entitlement can be granted.
-   */
-  @Post(':providerOrderId/reconcile')
-  @UseGuards(JwtAuthGuard)
-  async reconcile(
-    @Req() req: { user: { userId: string } },
-    @Param('providerOrderId') providerOrderId: string,
-  ) {
-    return this.paymentsService.reconcileTransaction(
-      req.user.userId,
-      providerOrderId,
-    );
-  }
-
   @Get(':providerOrderId')
   @UseGuards(JwtAuthGuard)
   async getTransaction(

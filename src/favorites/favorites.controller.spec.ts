@@ -64,7 +64,10 @@ describe('FavoritesController', () => {
       const req = { user: { userId: mockTenantId } };
       const result = await controller.removeFavorite(req, mockPropertyId);
 
-      expect(serviceMock.removeFavorite).toHaveBeenCalledWith(mockTenantId, mockPropertyId);
+      expect(serviceMock.removeFavorite).toHaveBeenCalledWith(
+        mockTenantId,
+        mockPropertyId,
+      );
       expect(result).toEqual({ favorited: false });
     });
   });

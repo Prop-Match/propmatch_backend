@@ -60,9 +60,7 @@ export class PropertyEmbeddingService {
       this.configService.get<string>('COHERE_EMBEDDING_DIMENSION') ?? '1024',
       10,
     );
-    const outputDimension = [256, 512, 1024, 1536].includes(
-      configuredDimension,
-    )
+    const outputDimension = [256, 512, 1024, 1536].includes(configuredDimension)
       ? configuredDimension
       : 1024;
     const response = await axios.post<CohereEmbeddingResponse>(
@@ -91,7 +89,6 @@ export class PropertyEmbeddingService {
   }
 
   async createLocalEmbedding(text: string): Promise<number[]> {
-
     const serviceUrl =
       this.configService.get<string>('LOCAL_EMBEDDINGS_URL') ??
       'http://127.0.0.1:8001';
@@ -121,14 +118,17 @@ export class PropertyEmbeddingService {
 
   isLocalEmbeddingEnabled(): boolean {
     return (
-      this.configService.get<string>('LOCAL_EMBEDDINGS_ENABLED')?.toLowerCase() !==
-      'false'
+      this.configService
+        .get<string>('LOCAL_EMBEDDINGS_ENABLED')
+        ?.toLowerCase() !== 'false'
     );
   }
 
   private isTransientCohereFailure(error: unknown): boolean {
     if (!axios.isAxiosError(error)) return false;
     const status = error.response?.status;
-    return status === undefined || status === 408 || status === 429 || status >= 500;
+    return (
+      status === undefined || status === 408 || status === 429 || status >= 500
+    );
   }
 }

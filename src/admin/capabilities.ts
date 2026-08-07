@@ -68,7 +68,9 @@ export const ADMIN_ROLE_LABEL: Record<AdminRole, string> = {
 };
 
 /** NULL adminRole ⇒ SUPER_ADMIN (backward-compat for pre-migration admins). */
-export function capabilitiesFor(adminRole: AdminRole | null | undefined): Capability[] {
+export function capabilitiesFor(
+  adminRole: AdminRole | null | undefined,
+): Capability[] {
   return ROLE_CAPABILITIES[adminRole ?? AdminRole.SUPER_ADMIN];
 }
 

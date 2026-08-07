@@ -10,16 +10,37 @@ export interface RentalContractDraftPdfInput {
   generatedAt: Date;
 }
 
-const DISCLAIMER = 'هذه مسودة عقد إيجار للمراجعة فقط، وليست توقيعًا إلكترونيًا أو توثيقًا قانونيًا أو تسجيلًا حكوميًا. يجب مراجعتها قبل التوقيع أو الاعتماد عليها.';
+const DISCLAIMER =
+  'هذه مسودة عقد إيجار للمراجعة فقط، وليست توقيعًا إلكترونيًا أو توثيقًا قانونيًا أو تسجيلًا حكوميًا. يجب مراجعتها قبل التوقيع أو الاعتماد عليها.';
 const escapeHtml = (value: string) =>
-  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-const date = (value: Date) => new Intl.DateTimeFormat('ar-EG', { numberingSystem: 'latn', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(value);
-const money = (value: number) => new Intl.NumberFormat('ar-EG', { numberingSystem: 'latn' }).format(value);
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+const date = (value: Date) =>
+  new Intl.DateTimeFormat('ar-EG', {
+    numberingSystem: 'latn',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(value);
+const money = (value: number) =>
+  new Intl.NumberFormat('ar-EG', { numberingSystem: 'latn' }).format(value);
 
 /** Deterministic, offline-only Arabic RTL template for a saved DRAFTING row. */
-export function buildRentalContractDraftPdfHtml(input: RentalContractDraftPdfInput): string {
+export function buildRentalContractDraftPdfHtml(
+  input: RentalContractDraftPdfInput,
+): string {
   const clauses = input.customClauses.length
-    ? input.customClauses.map((clause, index) => `<li><b>بند إضافي ${index + 1}:</b> ${escapeHtml(clause)}</li>`).join('')
+    ? input.customClauses
+        .map(
+          (clause, index) =>
+            `<li><b>بند إضافي ${index + 1}:</b> ${escapeHtml(clause)}</li>`,
+        )
+        .join('')
     : '<li>لا توجد بنود إضافية محفوظة.</li>';
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
     @page { size: A4; margin: 18mm 16mm 20mm; }

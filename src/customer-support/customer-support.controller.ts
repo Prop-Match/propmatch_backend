@@ -10,8 +10,10 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { UserThrottlerGuard } from 'src/common/guards/user-throttler.guard';
 import { CustomerSupportService } from './customer-support.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
@@ -38,6 +40,9 @@ export class CustomerSupportController {
     return this.customerSupportService.createTicket(req.user!.userId, dto);
   }
 
+  // External LLM round-trip per request; cap per user to 20/min.
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('support/ai-chat/stream')
   async streamAiChat(

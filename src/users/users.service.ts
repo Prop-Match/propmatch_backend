@@ -29,7 +29,11 @@ export class UsersService {
 
   async updateProfile(
     id: string,
-    data: { fullName?: string; phoneNumber?: string; avatarUrl?: string | null },
+    data: {
+      fullName?: string;
+      phoneNumber?: string;
+      avatarUrl?: string | null;
+    },
   ): Promise<User> {
     return this.prisma.user.update({
       where: { id },

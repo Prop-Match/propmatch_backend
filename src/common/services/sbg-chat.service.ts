@@ -57,7 +57,9 @@ export class SbgChatService {
       throw new SbgChatInvalidResponseError('SBG chat returned invalid JSON');
     }
     const record = data as Record<string, unknown>;
-    const choices = Array.isArray(record.choices) ? record.choices[0] : undefined;
+    const choices = Array.isArray(record.choices)
+      ? record.choices[0]
+      : undefined;
     const choice = choices as Record<string, unknown> | undefined;
     const message = choice?.message as Record<string, unknown> | undefined;
     const nestedMessage = record.message as Record<string, unknown> | undefined;
@@ -67,7 +69,9 @@ export class SbgChatService {
       record.content,
       message?.content,
       choice?.text,
-      typeof record.message === 'string' ? record.message : nestedMessage?.content,
+      typeof record.message === 'string'
+        ? record.message
+        : nestedMessage?.content,
     ].find(
       (value): value is string =>
         typeof value === 'string' && value.trim().length > 0,

@@ -318,7 +318,9 @@ export class LeaseContractsService {
     return this.toResponse(updated);
   }
 
-  private async archiveCompletedDealProperty(propertyId: string): Promise<void> {
+  private async archiveCompletedDealProperty(
+    propertyId: string,
+  ): Promise<void> {
     await this.prisma.property.updateMany({
       where: { id: propertyId, status: { not: 'ARCHIVED' } },
       data: { status: 'ARCHIVED' },
@@ -327,7 +329,9 @@ export class LeaseContractsService {
   }
 
   /** Vector cleanup is retriable and must never roll back the completed deal. */
-  private async removeArchivedPropertyVectors(propertyId: string): Promise<void> {
+  private async removeArchivedPropertyVectors(
+    propertyId: string,
+  ): Promise<void> {
     const vectorId = `property:${propertyId}`;
     const cleanup = [this.chromaService.remove('cohere', vectorId)];
     if (this.embeddingService.isLocalEmbeddingEnabled()) {

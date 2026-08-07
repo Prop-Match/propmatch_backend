@@ -111,7 +111,7 @@ describe('PropertiesController multipart submission', () => {
     const subject = controller(create, uploadMany, deleteMany, update);
 
     await expect(
-      subject.update(request, 'property-1', dto as never, files as never),
+      subject.update(request, 'property-1', dto, files as never),
     ).rejects.toThrow('update failed');
     expect(deleteMany).toHaveBeenCalledWith(urls);
   });

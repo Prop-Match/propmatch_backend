@@ -10,7 +10,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response as ExpressResponse } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UserThrottlerGuard } from '../common/guards/user-throttler.guard';
 import { LegalChatDto } from './dto/legal-chat.dto';
 import { LegalSupportService, LegalSupportUser } from './legal-support.service';
 
@@ -18,15 +20,20 @@ interface AuthenticatedRequest {
   user: LegalSupportUser;
 }
 
+// Each request triggers an external LLM round-trip; cap per user to 20/min.
 @Controller('legal-chat')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, UserThrottlerGuard)
+@Throttle({ default: { limit: 20, ttl: 60000 } })
 export class LegalSupportController {
   constructor(private readonly legalSupport: LegalSupportService) {}
 
   @Post()
   @HttpCode(HttpStatus.OK)
   chat(@Request() request: AuthenticatedRequest, @Body() dto: LegalChatDto) {
-    if (!dto.message?.trim() && (!dto.attachments || dto.attachments.length === 0)) {
+    if (
+      !dto.message?.trim() &&
+      (!dto.attachments || dto.attachments.length === 0)
+    ) {
       throw new BadRequestException('يجب كتابة رسالة أو إرفاق ملف');
     }
     return this.legalSupport.chat(
@@ -42,7 +49,10 @@ export class LegalSupportController {
     @Body() dto: LegalChatDto,
     @Res() response: ExpressResponse,
   ): Promise<void> {
-    if (!dto.message?.trim() && (!dto.attachments || dto.attachments.length === 0)) {
+    if (
+      !dto.message?.trim() &&
+      (!dto.attachments || dto.attachments.length === 0)
+    ) {
       throw new BadRequestException('يجب كتابة رسالة أو إرفاق ملف');
     }
     const abortController = new AbortController();

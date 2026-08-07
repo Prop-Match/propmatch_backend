@@ -22,7 +22,7 @@ describe('PropertyEmbeddingService', () => {
   it('uses Cohere as the primary embedding provider', async () => {
     jest.spyOn(axios, 'post').mockResolvedValueOnce({
       data: { embeddings: { float: [[0.1, 0.2]] } },
-    } as never);
+    });
 
     await expect(
       service.createPrimaryEmbedding('near university', 'search_query'),
@@ -34,7 +34,9 @@ describe('PropertyEmbeddingService', () => {
         input_type: 'search_query',
         output_dimension: 1024,
       }),
-      expect.objectContaining({ headers: { Authorization: 'Bearer test-key' } }),
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer test-key' },
+      }),
     );
   });
 
@@ -48,7 +50,7 @@ describe('PropertyEmbeddingService', () => {
           dimension: 2,
           model: 'local-test-model',
         },
-      } as never);
+      });
 
     await expect(
       service.createPrimaryEmbedding('near university', 'search_query'),

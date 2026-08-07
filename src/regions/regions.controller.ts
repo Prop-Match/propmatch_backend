@@ -103,7 +103,7 @@ export class RegionsController {
           cb: (arg0: null, arg1: string) => void,
         ) => {
           const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+
           cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
         },
       }),

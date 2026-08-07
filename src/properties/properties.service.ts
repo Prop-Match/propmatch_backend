@@ -876,4 +876,3 @@ export class PropertiesService {
     };
   }
 }
-

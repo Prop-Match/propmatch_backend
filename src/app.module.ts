@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { existsSync } from 'fs';
 import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import * as path from 'path';
@@ -48,6 +49,10 @@ const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
       envFilePath: ['.env.development', '.env.production', '.env'],
     }),
     ScheduleModule.forRoot(),
+    // Registered globally so `UserThrottlerGuard` can be applied surgically to
+    // the LLM/AI endpoints (legal chat, support chat, optimizer) via
+    // `@UseGuards`/`@Throttle`. Routes without `@Throttle` are unaffected.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 120 }]),
     UsersModule,
     AuthModule,
     AdminModule,

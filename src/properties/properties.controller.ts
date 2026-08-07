@@ -24,9 +24,11 @@ import { UpdatePropertyMultipartDto } from './dto/update-property-multipart.dto'
 import { PropertySearchQueryDto } from './dto/property-search-query.dto';
 import { SemanticPropertySearchDto } from './dto/semantic-property-search.dto';
 import { SemanticPropertySearchResponse } from './dto/semantic-property-search-response.dto';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
+import { UserThrottlerGuard } from '../common/guards/user-throttler.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import {
   MAX_PROPERTY_IMAGES,
@@ -108,7 +110,6 @@ export class PropertiesController {
     return this.propertiesService.getAllTenantRequests();
   }
 
-
   /** Public semantic browse endpoint; PostgreSQL approval status remains authoritative. */
   @Get('properties/search/semantic')
   async semanticSearch(
@@ -177,7 +178,6 @@ export class PropertiesController {
     return this.propertiesService.archive(req.user.userId, id);
   }
 
-
   @Get('properties/:id')
   @UseGuards(JwtAuthGuard)
   async getPropertyById(
@@ -187,8 +187,11 @@ export class PropertiesController {
     return this.propertiesService.getPropertyById(id, req.user);
   }
 
+  // Quota already caps optimizer usage (consumeOptimizer below); this adds a
+  // per-user burst cap as defense-in-depth against rapid-fire LLM calls.
   @Post('landlord/properties/draft/optimize-description/stream')
-  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedGuard, UserThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Roles('LANDLORD')
   async optimizeDescriptionStream(
     @Request() req: { user: { userId: string } },
@@ -294,5 +297,4 @@ export class PropertiesController {
   ) {
     return this.propertiesService.remove(req.user.userId, id);
   }
-
 }

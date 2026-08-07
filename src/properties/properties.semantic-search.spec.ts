@@ -12,15 +12,25 @@ describe('PropertiesService.semanticSearch', () => {
       {} as never,
       { createPrimaryEmbedding } as never,
       { query } as never,
-      { minSimilarity } as SemanticMatchingConfig,
+      { minSimilarity },
     );
 
   const approved = (id: string, isFurnished = false) => ({
     id,
     title: id,
-    governorate: 'Cairo', city: 'Cairo', district: 'Maadi', propertyType: 'APARTMENT',
-    rentAmount: 5000, areaM2: 100, bedrooms: 2, bathrooms: 1, isFurnished,
-    isBoosted: false, status: 'APPROVED', propertyImages: [], owner: null,
+    governorate: 'Cairo',
+    city: 'Cairo',
+    district: 'Maadi',
+    propertyType: 'APARTMENT',
+    rentAmount: 5000,
+    areaM2: 100,
+    bedrooms: 2,
+    bathrooms: 1,
+    isFurnished,
+    isBoosted: false,
+    status: 'APPROVED',
+    propertyImages: [],
+    owner: null,
   });
 
   beforeEach(() => {
@@ -40,7 +50,10 @@ describe('PropertiesService.semanticSearch', () => {
     ]);
     findMany.mockResolvedValue([approved('a'), approved('b')]);
 
-    const result = await createService().semanticSearch({ query: 'near university', limit: 5 });
+    const result = await createService().semanticSearch({
+      query: 'near university',
+      limit: 5,
+    });
 
     expect(createPrimaryEmbedding).toHaveBeenCalledWith(
       'near university',
@@ -51,10 +64,18 @@ describe('PropertiesService.semanticSearch', () => {
       embedding: [0.1, 0.2],
       limit: 20,
     });
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['b', 'a'] }, status: 'APPROVED' } }));
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['b', 'a'] }, status: 'APPROVED' },
+      }),
+    );
     expect(result.items.map((item) => item.id)).toEqual(['b', 'a']);
-    expect(result.items.map((item) => item.semanticSimilarity)).toEqual([0.9, 0.8]);
-    expect(result.items.every((item) => item.matchReasons.length > 0)).toBe(true);
+    expect(result.items.map((item) => item.semanticSimilarity)).toEqual([
+      0.9, 0.8,
+    ]);
+    expect(result.items.every((item) => item.matchReasons.length > 0)).toBe(
+      true,
+    );
     expect(result.items[0].matchReasons).toEqual([
       {
         code: 'MATCHES_SEARCH_INTENT',
@@ -68,8 +89,14 @@ describe('PropertiesService.semanticSearch', () => {
 
   it('returns a successful empty list when Chroma has no matches', async () => {
     query.mockResolvedValue([]);
-    await expect(createService().semanticSearch({ query: 'nowhere', limit: 10 })).resolves.toEqual({
-      items: [], total: 0, resultCount: 0, page: 1, pageSize: 10,
+    await expect(
+      createService().semanticSearch({ query: 'nowhere', limit: 10 }),
+    ).resolves.toEqual({
+      items: [],
+      total: 0,
+      resultCount: 0,
+      page: 1,
+      pageSize: 10,
       reason: 'NO_RELEVANT_SEMANTIC_MATCH',
     });
     expect(findMany).not.toHaveBeenCalled();
@@ -77,7 +104,9 @@ describe('PropertiesService.semanticSearch', () => {
 
   it('sanitizes embedding and vector provider failures', async () => {
     createPrimaryEmbedding.mockRejectedValue(new Error('provider details'));
-    await expect(createService().semanticSearch({ query: 'test', limit: 10 })).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(
+      createService().semanticSearch({ query: 'test', limit: 10 }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('keeps candidates above or equal to the threshold in Chroma order', async () => {
@@ -97,11 +126,15 @@ describe('PropertiesService.semanticSearch', () => {
       limit: 5,
     });
 
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ['above', 'equal', 'below'] }, status: 'APPROVED' },
-    }));
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['above', 'equal', 'below'] }, status: 'APPROVED' },
+      }),
+    );
     expect(result.items.map((item) => item.id)).toEqual(['above', 'equal']);
-    expect(result.items.map((item) => item.semanticSimilarity)).toEqual([0.8, 0.65]);
+    expect(result.items.map((item) => item.semanticSimilarity)).toEqual([
+      0.8, 0.65,
+    ]);
     expect(result.resultCount).toBe(2);
     expect(result.total).toBe(result.resultCount);
     expect(result).not.toHaveProperty('distance');
@@ -113,40 +146,68 @@ describe('PropertiesService.semanticSearch', () => {
       { vectorId: 'property:weak', propertyId: 'weak', distance: 0.6 },
     ]);
 
-    await expect(createService(0.65).semanticSearch({
-      query: 'near university',
-      limit: 5,
-    })).resolves.toEqual({
-      items: [], total: 0, resultCount: 0, page: 1, pageSize: 5,
+    await expect(
+      createService(0.65).semanticSearch({
+        query: 'near university',
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      items: [],
+      total: 0,
+      resultCount: 0,
+      page: 1,
+      pageSize: 5,
       reason: 'NO_RELEVANT_SEMANTIC_MATCH',
     });
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ['weak'] }, status: 'APPROVED' },
-    }));
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['weak'] }, status: 'APPROVED' },
+      }),
+    );
   });
 
   it('removes unapproved hydrated properties and reports a semantic no-match', async () => {
     query.mockResolvedValue([
-      { vectorId: 'property:unapproved', propertyId: 'unapproved', distance: 0.2 },
+      {
+        vectorId: 'property:unapproved',
+        propertyId: 'unapproved',
+        distance: 0.2,
+      },
     ]);
     findMany.mockResolvedValue([]);
 
-    await expect(createService().semanticSearch({
-      query: 'near university',
-      limit: 5,
-    })).resolves.toEqual({
-      items: [], total: 0, resultCount: 0, page: 1, pageSize: 5,
+    await expect(
+      createService().semanticSearch({
+        query: 'near university',
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      items: [],
+      total: 0,
+      resultCount: 0,
+      page: 1,
+      pageSize: 5,
       reason: 'NO_RELEVANT_SEMANTIC_MATCH',
     });
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ['unapproved'] }, status: 'APPROVED' },
-    }));
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['unapproved'] }, status: 'APPROVED' },
+      }),
+    );
   });
 
   it('honors explicit furnished and unfurnished wording after semantic retrieval', async () => {
     query.mockResolvedValue([
-      { vectorId: 'property:furnished', propertyId: 'furnished', distance: 0.8 },
-      { vectorId: 'property:unfurnished', propertyId: 'unfurnished', distance: 0.1 },
+      {
+        vectorId: 'property:furnished',
+        propertyId: 'furnished',
+        distance: 0.8,
+      },
+      {
+        vectorId: 'property:unfurnished',
+        propertyId: 'unfurnished',
+        distance: 0.1,
+      },
     ]);
     findMany.mockResolvedValue([
       approved('unfurnished', false),

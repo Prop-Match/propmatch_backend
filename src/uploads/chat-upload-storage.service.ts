@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 
@@ -37,7 +37,13 @@ const EXT_BY_MIME: Record<string, string> = {
  */
 @Injectable()
 export class ChatUploadStorageService {
-  private readonly root = path.resolve(process.cwd(), 'public', 'uploads', 'chat');
+  private readonly logger = new Logger(ChatUploadStorageService.name);
+  private readonly root = path.resolve(
+    process.cwd(),
+    'public',
+    'uploads',
+    'chat',
+  );
 
   private classify(mimetype: string): ChatAttachmentType | null {
     if (mimetype.startsWith('image/')) return 'IMAGE';
@@ -56,7 +62,9 @@ export class ChatUploadStorageService {
     const cap = type === 'IMAGE' ? MAX_IMAGE_BYTES : MAX_AV_BYTES;
     if (file.size > cap) {
       const mb = Math.round(cap / (1024 * 1024));
-      throw new BadRequestException(`حجم الملف يتجاوز الحد المسموح (${mb} ميجابايت)`);
+      throw new BadRequestException(
+        `حجم الملف يتجاوز الحد المسموح (${mb} ميجابايت)`,
+      );
     }
 
     await mkdir(this.root, { recursive: true });
@@ -69,5 +77,30 @@ export class ChatUploadStorageService {
       name: file.originalname?.slice(0, 200) || filename,
       sizeBytes: file.size,
     };
+  }
+
+  /**
+   * Best-effort removal of a stored chat attachment by its public URL, so a
+   * deleted message doesn't orphan its file in the volume. Only deletes within
+   * this service's own directory (rejects traversal / foreign paths), and never
+   * throws — a missing file must not fail the message delete.
+   */
+  async deleteByUrl(url: string | null | undefined): Promise<void> {
+    if (!url) return;
+    const prefix = '/public/uploads/chat/';
+    if (!url.startsWith(prefix)) return;
+    const filename = path.basename(url); // strips any path segments → no traversal
+    const target = path.join(this.root, filename);
+    if (path.dirname(target) !== this.root) return; // defence-in-depth
+    try {
+      await unlink(target);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        this.logger.warn(
+          `Failed to delete chat attachment ${filename}: ${String(error)}`,
+        );
+      }
+    }
   }
 }

@@ -106,16 +106,16 @@ export class TenantRequestExtractionService {
     const propertyType = this.nullablePropertyType(value.propertyType);
     const requiredBedrooms = this.nullableInteger(value.requiredBedrooms, 0);
     const needsFurnished = this.nullableBoolean(value.needsFurnished);
-    const flexibilityScore = this.nullableInteger(value.flexibilityScore, 1, 10);
+    const flexibilityScore = this.nullableInteger(
+      value.flexibilityScore,
+      1,
+      10,
+    );
     const lifestyleRequirements = this.nullableNonEmptyString(
       value.lifestyleRequirements,
     );
 
-    if (
-      minBudget !== null &&
-      maxBudget !== null &&
-      minBudget > maxBudget
-    ) {
+    if (minBudget !== null && maxBudget !== null && minBudget > maxBudget) {
       throw this.invalidResponse();
     }
     return {
@@ -138,7 +138,11 @@ export class TenantRequestExtractionService {
     return value;
   }
 
-  private nullableInteger(value: unknown, min: number, max?: number): number | null {
+  private nullableInteger(
+    value: unknown,
+    min: number,
+    max?: number,
+  ): number | null {
     if (value === null) return null;
     if (
       typeof value !== 'number' ||

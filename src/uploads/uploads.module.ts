@@ -5,5 +5,6 @@ import { ChatUploadStorageService } from './chat-upload-storage.service';
 @Module({
   controllers: [UploadsController],
   providers: [ChatUploadStorageService],
+  exports: [ChatUploadStorageService],
 })
 export class UploadsModule {}
