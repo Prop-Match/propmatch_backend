@@ -170,26 +170,55 @@ export class MessagesService {
     return { ...payload, isMine: true };
   }
 
-  async updateMessage(userId: string, messageId: string, body: string) {
+  /** The other party of the message's connection — the peer to notify. */
+  private recipientOf(
+    connection: { tenantId: string; ownerId: string },
+    senderId: string,
+  ): string {
+    return connection.tenantId === senderId
+      ? connection.ownerId
+      : connection.tenantId;
+  }
+
+  async updateMessage(userId: string, messageId: string, rawBody: string) {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
+      include: {
+        matchConnection: { select: { tenantId: true, ownerId: true } },
+      },
     });
     if (!message) throw new NotFoundException('الرسالة غير موجودة');
-    if (message.senderId !== userId) throw new BadRequestException('لا يمكنك تعديل رسالة شخص آخر');
+    if (message.senderId !== userId)
+      throw new BadRequestException('لا يمكنك تعديل رسالة شخص آخر');
+
+    // Same content rules as `send`: an edit must not bypass the length/empty
+    // guard, and editing must never blank out a message body.
+    const body = (rawBody ?? '').trim();
+    if (!body) throw new BadRequestException('لا يمكن ترك الرسالة فارغة');
+    if (body.length > 1000)
+      throw new BadRequestException('الرسالة طويلة جدًا');
 
     const diffMinutes = (Date.now() - message.createdAt.getTime()) / (1000 * 60);
     if (diffMinutes > 15) {
-      throw new BadRequestException('لا يمكنك تعديل الرسالة بعد مرور 15 دقيقة من إرسالها');
+      throw new BadRequestException(
+        'لا يمكنك تعديل الرسالة بعد مرور 15 دقيقة من إرسالها',
+      );
     }
 
     const updated = await this.prisma.message.update({
       where: { id: messageId },
-      data: { body: encryptText(body.trim()) },
+      data: { body: encryptText(body) },
     });
+
+    // Mirror the edit to the peer's open conversation in real time.
+    this.realtime.emitMessageEdited(
+      this.recipientOf(message.matchConnection, userId),
+      { id: updated.id, matchConnectionId: updated.matchConnectionId, body },
+    );
 
     return {
       ...updated,
-      body: body.trim(),
+      body,
       createdAt: updated.createdAt.toISOString(),
       isMine: true,
     };
@@ -198,16 +227,29 @@ export class MessagesService {
   async deleteMessage(userId: string, messageId: string) {
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
+      include: {
+        matchConnection: { select: { tenantId: true, ownerId: true } },
+      },
     });
     if (!message) throw new NotFoundException('الرسالة غير موجودة');
-    if (message.senderId !== userId) throw new BadRequestException('لا يمكنك حذف رسالة شخص آخر');
+    if (message.senderId !== userId)
+      throw new BadRequestException('لا يمكنك حذف رسالة شخص آخر');
 
     const diffMinutes = (Date.now() - message.createdAt.getTime()) / (1000 * 60);
     if (diffMinutes > 15) {
-      throw new BadRequestException('لا يمكنك حذف الرسالة بعد مرور 15 دقيقة من إرسالها');
+      throw new BadRequestException(
+        'لا يمكنك حذف الرسالة بعد مرور 15 دقيقة من إرسالها',
+      );
     }
 
     await this.prisma.message.delete({ where: { id: messageId } });
+
+    // Remove it from the peer's open conversation in real time.
+    this.realtime.emitMessageDeleted(
+      this.recipientOf(message.matchConnection, userId),
+      { id: messageId, matchConnectionId: message.matchConnectionId },
+    );
+
     return { success: true, id: messageId };
   }
 }

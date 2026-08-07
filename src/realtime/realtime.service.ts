@@ -240,6 +240,22 @@ export class RealtimeService {
     this.gateway.emitToUser(userId, SOCKET_EVENTS.message, payload);
   }
 
+  /** Notify the other party that a match message's body changed. */
+  emitMessageEdited(
+    userId: string,
+    payload: { id: string; matchConnectionId: string; body: string },
+  ): void {
+    this.gateway.emitToUser(userId, SOCKET_EVENTS.messageEdited, payload);
+  }
+
+  /** Notify the other party that a match message was deleted. */
+  emitMessageDeleted(
+    userId: string,
+    payload: { id: string; matchConnectionId: string },
+  ): void {
+    this.gateway.emitToUser(userId, SOCKET_EVENTS.messageDeleted, payload);
+  }
+
   async emitToRole(
     role: UserRole,
     type: NotificationType,

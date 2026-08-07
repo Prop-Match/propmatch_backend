@@ -4,6 +4,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ThrottlerModule } from '@nestjs/throttler';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -33,6 +34,10 @@ describe('LegalSupportController', () => {
       );
 
     const moduleRef = await Test.createTestingModule({
+      // Provides the ThrottlerStorage/options the controller's
+      // UserThrottlerGuard depends on. A 20/min window is far above the 4
+      // requests this suite makes, so throttling never trips here.
+      imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 20 }])],
       controllers: [LegalSupportController],
       providers: [
         {

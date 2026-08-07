@@ -4,6 +4,10 @@ export const SOCKET_EVENTS = {
   /** A new moderation item entered a queue → the `admins` room. */
   adminQueueItem: 'admin:queue:item',
   message: 'message',
+  /** A match message was edited by its sender → deliver the new body to the peer. */
+  messageEdited: 'message:edited',
+  /** A match message was deleted by its sender → remove it from the peer's view. */
+  messageDeleted: 'message:deleted',
   supportTicketCreated: 'support:ticket:created',
   supportMessageReceived: 'support:message:received',
   /** Client→server + server→other-party typing relay (match + support chat). */

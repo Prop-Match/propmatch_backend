@@ -13,6 +13,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SendMessageDto } from './dto/send-message.dto';
+import { UpdateMessageDto } from './dto/update-message.dto';
 import { MessagesService } from './messages.service';
 
 @Controller('matches')
@@ -40,7 +41,7 @@ export class MessagesController {
   @Patch('messages/:messageId') update(
     @Request() r: { user: { userId: string } },
     @Param('messageId') messageId: string,
-    @Body() dto: { body: string },
+    @Body() dto: UpdateMessageDto,
   ) {
     return this.messages.updateMessage(r.user.userId, messageId, dto.body);
   }
