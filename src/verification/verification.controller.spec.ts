@@ -44,8 +44,8 @@ describe('VerificationController multipart submission', () => {
         canActivate: (context: {
           switchToHttp: () => {
             getRequest: () => {
-              headers?: { authorization?: string };
-              user?: { userId: string };
+              headers?: { authorization?: string; 'x-test-role'?: string };
+              user?: { userId: string; role: string };
             };
           };
         }) => {
@@ -53,7 +53,10 @@ describe('VerificationController multipart submission', () => {
           if (!request.headers || !request.headers.authorization) {
             throw new UnauthorizedException();
           }
-          request.user = { userId: 'authenticated-user' };
+          request.user = {
+            userId: 'authenticated-user',
+            role: request.headers['x-test-role'] ?? 'TENANT',
+          };
           return true;
         },
       })
@@ -74,6 +77,11 @@ describe('VerificationController multipart submission', () => {
     await request(app.getHttpServer() as Server)
       .post('/verification/submit')
       .expect(401);
+  });
+
+  it('forbids admins from submitting user identity verification', async () => {
+    await multipartRequest(app).set('x-test-role', 'ADMIN').expect(403);
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('rejects missing, duplicate, invalid-signature, and MIME-mismatched files', async () => {
@@ -131,9 +139,27 @@ describe('VerificationController multipart submission', () => {
       .expect(400);
   });
 
+  it('rejects a missing or invalid national ID', async () => {
+    for (const nationalId of [undefined, '123', '2900101123456a']) {
+      const submission = request(app.getHttpServer() as Server)
+        .post('/verification/submit')
+        .set('Authorization', 'Bearer test');
+      if (nationalId !== undefined) submission.field('nationalId', nationalId);
+      await submission
+        .attach(
+          'nationalIdFront',
+          jpeg,
+          imageOptions('image/jpeg', 'front.jpg'),
+        )
+        .attach('nationalIdBack', png, imageOptions('image/png', 'back.png'))
+        .attach('selfie', webp, imageOptions('image/webp', 'selfie.webp'))
+        .expect(400);
+    }
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it('passes normalized files to persistence and returns the safe response', async () => {
     await multipartRequest(app)
-      .field('nationalId', 'optional-national-id')
       .attach('nationalIdFront', jpeg, imageOptions('image/jpeg', 'front.jpg'))
       .attach('nationalIdBack', png, imageOptions('image/png', 'back.png'))
       .attach('selfie', webp, imageOptions('image/webp', 'selfie.webp'))
@@ -148,7 +174,7 @@ describe('VerificationController multipart submission', () => {
 
     expect(submit).toHaveBeenCalledWith(
       'authenticated-user',
-      { nationalId: 'optional-national-id' },
+      { nationalId: '29001011234567' },
       expect.any(Object),
     );
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
@@ -174,7 +200,8 @@ describe('VerificationController multipart submission', () => {
 function multipartRequest(app: INestApplication) {
   return request(app.getHttpServer() as Server)
     .post('/verification/submit')
-    .set('Authorization', 'Bearer test');
+    .set('Authorization', 'Bearer test')
+    .field('nationalId', '29001011234567');
 }
 
 function imageOptions(contentType: string, filename: string) {

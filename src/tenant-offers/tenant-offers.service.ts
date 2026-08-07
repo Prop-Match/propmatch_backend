@@ -275,6 +275,7 @@ export class TenantOffersService {
           tenantId: offer.tenantId,
           propertyId: offer.propertyId,
           ownerId: offer.ownerId,
+          tenantRequestId: null,
         },
       });
       if (existing) {
@@ -298,7 +299,7 @@ export class TenantOffersService {
     await this.realtime.notifyUser(recipientId, {
       type: 'NEW_MATCH',
       title: 'تم قبول العرض 🎉',
-      message: `تم الاتفاق على إيجار بقيمة ${agreedPrice} ج.م. تم فتح المحادثة.`,
+      message: `تم قبول العرض بقيمة ${agreedPrice} ج.م. يمكنكما الآن مناقشة التفاصيل.`,
       link:
         notify === 'tenant'
           ? '/tenant/offers?tab=sent'

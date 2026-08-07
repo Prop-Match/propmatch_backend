@@ -38,6 +38,15 @@ export class MessagesController {
     return this.messages.send(r.user.userId, id, dto);
   }
 
+  @Post(':id/agreement')
+  @Roles('TENANT', 'LANDLORD')
+  confirmAgreement(
+    @Request() r: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.messages.confirmAgreement(r.user.userId, id);
+  }
+
   @Patch('messages/:messageId') update(
     @Request() r: { user: { userId: string } },
     @Param('messageId') messageId: string,

@@ -13,6 +13,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { UserThrottlerGuard } from 'src/common/guards/user-throttler.guard';
 import { CustomerSupportService } from './customer-support.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -24,7 +25,7 @@ import type { Response as ExpressResponse } from 'express';
 interface RequestWithUser {
   user?: { userId: string; role?: string };
 }
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller()
 export class CustomerSupportController {
   constructor(
@@ -33,6 +34,7 @@ export class CustomerSupportController {
   ) {}
 
   @Post('support/tickets')
+  @Roles('TENANT', 'LANDLORD')
   async createTicket(
     @Request() req: RequestWithUser,
     @Body() dto: CreateTicketDto,
@@ -42,6 +44,7 @@ export class CustomerSupportController {
 
   // External LLM round-trip per request; cap per user to 20/min.
   @UseGuards(UserThrottlerGuard)
+  @Roles('TENANT', 'LANDLORD')
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('support/ai-chat/stream')
@@ -87,10 +90,12 @@ export class CustomerSupportController {
   }
 
   @Get('support/my-tickets')
+  @Roles('TENANT', 'LANDLORD')
   async getMyTickets(@Request() req: RequestWithUser) {
     return this.customerSupportService.getUserTickets(req.user!.userId);
   }
   @Get('support/tickets/:id')
+  @Roles('TENANT', 'LANDLORD')
   async getTicketDetail(
     @Request() req: RequestWithUser,
     @Param('id') id: string,
@@ -99,6 +104,7 @@ export class CustomerSupportController {
   }
   @HttpCode(HttpStatus.OK)
   @Post('support/tickets/:id/reply')
+  @Roles('TENANT', 'LANDLORD')
   async userReply(
     @Request() req: RequestWithUser,
     @Param('id') id: string,
