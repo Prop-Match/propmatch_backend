@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -222,5 +223,23 @@ export class AdminController {
   @Roles('ADMIN')
   async getStats() {
     return this.adminService.getStats();
+  }
+
+  @Get('users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async listUsers() {
+    return this.adminService.listUsers();
+  }
+
+  @Delete('users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:delete')
+  async deleteUser(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.softDeleteUser(req.user.userId, id);
   }
 }

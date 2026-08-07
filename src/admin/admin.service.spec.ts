@@ -311,3 +311,110 @@ describe('AdminService property moderation', () => {
     expect(indexApprovedProperty).not.toHaveBeenCalled();
   });
 });
+
+describe('AdminService.softDeleteUser', () => {
+  const findUnique = jest.fn();
+  const userUpdate = jest.fn();
+  const tenantRequestUpdateMany = jest.fn();
+  const propertyUpdateMany = jest.fn();
+  const $transaction = jest.fn();
+  const create = jest.fn();
+  const service = new AdminService(
+    {
+      user: { findUnique, update: userUpdate },
+      tenantRequest: { updateMany: tenantRequestUpdateMany },
+      property: { updateMany: propertyUpdateMany },
+      $transaction,
+      adminAuditLogEntry: { create },
+    } as unknown as PrismaService,
+    {} as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    userUpdate.mockResolvedValue({});
+    tenantRequestUpdateMany.mockResolvedValue({ count: 0 });
+    propertyUpdateMany.mockResolvedValue({ count: 0 });
+    $transaction.mockResolvedValue([]);
+    create.mockResolvedValue({});
+  });
+
+  it('soft-deletes a tenant and archives their requests', async () => {
+    findUnique.mockResolvedValue({
+      id: 'user-1',
+      role: 'TENANT',
+      deletedAt: null,
+      adminRole: null,
+    });
+
+    await expect(service.softDeleteUser('admin-1', 'user-1')).resolves.toEqual({
+      success: true,
+      id: 'user-1',
+    });
+
+    expect($transaction).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      ]),
+    );
+    expect(create).toHaveBeenCalledWith({
+      data: { actorId: 'admin-1', action: 'user:delete', subjectId: 'user-1' },
+    });
+  });
+
+  it('rejects deleting a user that does not exist', async () => {
+    findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.softDeleteUser('admin-1', 'missing'),
+    ).rejects.toMatchObject({ status: 404 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects deleting an already-deleted user', async () => {
+    findUnique.mockResolvedValue({
+      id: 'user-1',
+      role: 'TENANT',
+      deletedAt: new Date(),
+      adminRole: null,
+    });
+
+    await expect(
+      service.softDeleteUser('admin-1', 'user-1'),
+    ).rejects.toMatchObject({ status: 409 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete an admin account', async () => {
+    findUnique.mockResolvedValue({
+      id: 'admin-2',
+      role: 'ADMIN',
+      deletedAt: null,
+      adminRole: 'READ_ONLY',
+    });
+
+    await expect(
+      service.softDeleteUser('admin-1', 'admin-2'),
+    ).rejects.toMatchObject({ status: 403 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to let an admin delete their own account', async () => {
+    findUnique.mockResolvedValue({
+      id: 'admin-1',
+      role: 'TENANT',
+      deletedAt: null,
+      adminRole: null,
+    });
+
+    await expect(
+      service.softDeleteUser('admin-1', 'admin-1'),
+    ).rejects.toMatchObject({ status: 403 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+});

@@ -18,7 +18,8 @@ export type Capability =
   | 'ticket:reply'
   | 'audit:view'
   | 'admin:create'
-  | 'admin:manage';
+  | 'admin:manage'
+  | 'user:delete';
 
 const SUPER_ADMIN_CAPS: Capability[] = [
   'property:approve',
@@ -34,6 +35,7 @@ const SUPER_ADMIN_CAPS: Capability[] = [
   'audit:view',
   'admin:create',
   'admin:manage',
+  'user:delete',
 ];
 
 export const ROLE_CAPABILITIES: Record<AdminRole, Capability[]> = {

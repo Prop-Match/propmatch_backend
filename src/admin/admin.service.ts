@@ -862,4 +862,83 @@ export class AdminService {
       ],
     };
   }
+
+  /**
+   * GET /admin/users — every non-deleted platform account (tenants,
+   * landlords, admins alike). Deliberately minimal: no search/pagination —
+   * this is scoped to giving the delete-user UI something real to list, not
+   * a full directory feature.
+   */
+  async listUsers() {
+    const users = await this.prismaService.user.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      items: users.map((user) => ({
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        createdAt: user.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * Soft-deletes a platform account (DELETE /admin/users/:id). Sets
+   * `deletedAt` and archives everything that would otherwise keep surfacing
+   * this user's activity to others — their own TenantRequests (so the
+   * matching pool stops considering them) and, if they're a landlord, their
+   * Properties (so their listings stop appearing in browse/search). All
+   * three writes are one transaction: a landlord with 40 properties must
+   * never end up half-deleted if the process dies partway through.
+   *
+   * This does not touch existing MatchConnections, Messages, or
+   * PaymentTransactions — deleting those would corrupt the other party's
+   * conversation history and the platform's financial audit trail. The user
+   * becomes inert (can't log in, stops appearing as an active landlord/
+   * tenant); their historical footprint stays intact by design.
+   */
+  async softDeleteUser(adminId: string, userId: string) {
+    const target = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, deletedAt: true, adminRole: true },
+    });
+    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (target.deletedAt) {
+      throw new ConflictException('تم حذف هذا المستخدم بالفعل');
+    }
+    if (target.role === 'ADMIN') {
+      // Deleting admin accounts is a distinct, higher-stakes action (it
+      // should go through team-offboarding, not the generic user-delete
+      // button) — out of scope here, refuse rather than silently allow it.
+      throw new ForbiddenException(
+        'لا يمكن حذف حسابات المشرفين من هنا — استخدم إدارة الفريق',
+      );
+    }
+    if (target.id === adminId) {
+      throw new ForbiddenException('لا يمكنك حذف حسابك الخاص');
+    }
+
+    await this.prismaService.$transaction([
+      this.prismaService.user.update({
+        where: { id: userId },
+        data: { deletedAt: new Date() },
+      }),
+      this.prismaService.tenantRequest.updateMany({
+        where: { tenantId: userId, status: { notIn: ['ARCHIVED'] } },
+        data: { status: 'ARCHIVED' },
+      }),
+      this.prismaService.property.updateMany({
+        where: { ownerId: userId, status: { not: 'ARCHIVED' } },
+        data: { status: 'ARCHIVED' },
+      }),
+    ]);
+
+    await this.audit(adminId, 'user:delete', userId);
+
+    return { success: true, id: userId };
+  }
 }
