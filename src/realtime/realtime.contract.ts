@@ -33,7 +33,9 @@ export type NotificationType =
   | 'CONTRACT_READY_FOR_REVIEW'
   | 'CONTRACT_APPROVED'
   | 'CONTRACT_REJECTED'
-  | 'HIGH_MATCH_TENANT_REQUEST';
+  | 'HIGH_MATCH_TENANT_REQUEST'
+  | 'ACCOUNT_REACTIVATED'
+  | 'ACCOUNT_REACTIVATION_REJECTED';
 
 export interface NotificationPayload {
   id: string;
@@ -53,9 +55,17 @@ export interface MessagePayload {
   createdAt: string;
 }
 
-/** The four admin moderation queues (frontend `QueueItemType`). */
+/** The admin moderation queues (frontend `QueueItemType`). */
 export type QueueItemType =
-  'kyc' | 'property' | 'request' | 'review' | 'propertyEdit' | 'partner-lead';
+  | 'kyc'
+  | 'property'
+  | 'request'
+  | 'review'
+  | 'propertyEdit'
+  | 'partner-lead'
+  // Not yet rendered by any frontend queue widget — see
+  // RealtimeService.reactivationRequested's doc comment.
+  | 'reactivation';
 
 export interface QueueItem {
   /** Frontend prefixes queue ids with `q_` to keep them distinct from entity ids. */

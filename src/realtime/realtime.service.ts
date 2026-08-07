@@ -150,6 +150,32 @@ export class RealtimeService {
     });
   }
 
+  /**
+   * A soft-deleted user requested account reactivation.
+   *
+   * Ephemeral like the other *Submitted announcements above — the row is
+   * reconstructable from GET /admin/reactivations, so a reconnecting admin
+   * catches up on fetch. No frontend queue widget renders type:'reactivation'
+   * yet (unlike kyc/property/request/review, which each have a dedicated
+   * section on the admin moderation dashboard); this just makes the event
+   * reach connected admins now, ready for that UI whenever it's built.
+   */
+  reactivationRequested(input: {
+    requestId: string;
+    userId: string;
+    userFullName: string;
+    createdAt?: Date;
+  }): void {
+    this.announce({
+      id: `q_${input.requestId}`,
+      type: 'reactivation',
+      subjectId: input.requestId,
+      title: input.userFullName,
+      subtitle: 'طلب إعادة تفعيل حساب محذوف',
+      submittedAt: iso(input.createdAt),
+    });
+  }
+
   /** Escape hatch for any queue arrival not covered above. */
   announce(item: QueueItem): void {
     this.gateway.emitToAdmins(SOCKET_EVENTS.adminQueueItem, item);

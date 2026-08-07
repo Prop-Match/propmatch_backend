@@ -57,6 +57,7 @@ describe('AuthService refresh tokens', () => {
     jwtService as unknown as JwtService,
     {} as never,
     configService as unknown as ConfigService,
+    {} as never,
   );
 
   beforeEach(() => {
@@ -193,6 +194,7 @@ describe('AuthService — soft-delete edge cases', () => {
     activationRequest: { findFirst: jest.fn(), create: jest.fn() },
     loginAttempt: { create: jest.fn() },
   };
+  const realtimeService = { reactivationRequested: jest.fn() };
 
   const service = new AuthService(
     {} as never,
@@ -200,6 +202,7 @@ describe('AuthService — soft-delete edge cases', () => {
     jwtService as unknown as JwtService,
     prisma as never,
     {} as unknown as ConfigService,
+    realtimeService as never,
   );
 
   beforeEach(() => jest.clearAllMocks());

@@ -13,10 +13,16 @@ import { RealtimeService } from '../realtime/realtime.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import type { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
 import type { MatchTenantRequestJobData } from '../matching/matching.constants';
+import type { MailService } from '../mail/mail.service';
 
 const noopQueue = {
   add: jest.fn(),
 } as unknown as Queue<MatchTenantRequestJobData>;
+
+const noopMailService = {
+  sendAccountReactivatedEmail: jest.fn(),
+  sendAccountReactivationRejectedEmail: jest.fn(),
+} as unknown as MailService;
 
 describe('AdminService moderation queues', () => {
   it('separates first submissions from edited properties', async () => {
@@ -49,6 +55,7 @@ describe('AdminService moderation queues', () => {
       {} as PrivateObjectStorage,
       {} as PropertyApprovalIndexingService,
       noopQueue,
+      noopMailService,
     );
 
     await expect(service.getQueues()).resolves.toMatchObject({
@@ -93,6 +100,7 @@ describe('AdminService KYC review', () => {
     {} as PrivateObjectStorage,
     {} as PropertyApprovalIndexingService,
     noopQueue,
+    noopMailService,
   );
 
   beforeEach(() => {
@@ -168,6 +176,7 @@ describe('AdminService property moderation', () => {
       logIndexingFailure,
     } as unknown as PropertyApprovalIndexingService,
     noopQueue,
+    noopMailService,
   );
 
   const property = {
@@ -331,6 +340,7 @@ describe('AdminService.softDeleteUser', () => {
     {} as PrivateObjectStorage,
     {} as PropertyApprovalIndexingService,
     noopQueue,
+    noopMailService,
   );
 
   beforeEach(() => {
@@ -425,6 +435,9 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
   const activationRequestUpdate = jest.fn();
   const $transaction = jest.fn();
   const create = jest.fn();
+  const notifyUser = jest.fn();
+  const sendAccountReactivatedEmail = jest.fn();
+  const sendAccountReactivationRejectedEmail = jest.fn();
   const service = new AdminService(
     {
       activationRequest: { findUnique, update: activationRequestUpdate },
@@ -432,10 +445,14 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
       $transaction,
       adminAuditLogEntry: { create },
     } as unknown as PrismaService,
-    {} as RealtimeService,
+    { notifyUser } as unknown as RealtimeService,
     {} as PrivateObjectStorage,
     {} as PropertyApprovalIndexingService,
     noopQueue,
+    {
+      sendAccountReactivatedEmail,
+      sendAccountReactivationRejectedEmail,
+    } as unknown as MailService,
   );
 
   beforeEach(() => {
@@ -444,13 +461,17 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
     activationRequestUpdate.mockResolvedValue({});
     $transaction.mockResolvedValue([]);
     create.mockResolvedValue({});
+    notifyUser.mockResolvedValue({});
+    sendAccountReactivatedEmail.mockResolvedValue(undefined);
+    sendAccountReactivationRejectedEmail.mockResolvedValue(undefined);
   });
 
-  it('approves: bumps tokenVersion, clears deletedAt, marks the request APPROVED', async () => {
+  it('approves: bumps tokenVersion, clears deletedAt, marks the request APPROVED, notifies and emails the user', async () => {
     findUnique.mockResolvedValue({
       id: 'req-1',
       userId: 'user-1',
       status: 'PENDING',
+      user: { fullName: 'Test User', email: 'user@example.com' },
     });
 
     await expect(
@@ -467,6 +488,13 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
         subjectId: 'user-1',
       },
     });
+    expect(notifyUser).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ type: 'ACCOUNT_REACTIVATED' }),
+    );
+    expect(sendAccountReactivatedEmail).toHaveBeenCalledWith(
+      'user@example.com',
+    );
   });
 
   it('does not touch the user or audit log for a request that is not PENDING', async () => {
@@ -474,12 +502,15 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
       id: 'req-1',
       userId: 'user-1',
       status: 'APPROVED',
+      user: { fullName: 'Test User', email: 'user@example.com' },
     });
 
     await expect(
       service.approveReactivation('admin-1', 'req-1'),
     ).rejects.toMatchObject({ status: 409 });
     expect($transaction).not.toHaveBeenCalled();
+    expect(notifyUser).not.toHaveBeenCalled();
+    expect(sendAccountReactivatedEmail).not.toHaveBeenCalled();
   });
 
   it('404s approval of a request that does not exist', async () => {
@@ -490,11 +521,12 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it('rejects: marks the request REJECTED without touching the user', async () => {
+  it('rejects: marks the request REJECTED without touching the user, notifies and emails the user', async () => {
     findUnique.mockResolvedValue({
       id: 'req-1',
       userId: 'user-1',
       status: 'PENDING',
+      user: { fullName: 'Test User', email: 'user@example.com' },
     });
     activationRequestUpdate.mockResolvedValue({});
 
@@ -507,46 +539,70 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
       data: { status: 'REJECTED' },
     });
     expect(userUpdate).not.toHaveBeenCalled();
+    expect(notifyUser).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ type: 'ACCOUNT_REACTIVATION_REJECTED' }),
+    );
+    expect(sendAccountReactivationRejectedEmail).toHaveBeenCalledWith(
+      'user@example.com',
+    );
   });
 });
 
-describe('AdminService.hardDeleteExpiredUsers', () => {
+describe('AdminService.anonymizeExpiredUsers', () => {
   const findMany = jest.fn();
-  const del = jest.fn();
+  const upd = jest.fn();
   const service = new AdminService(
     {
-      user: { findMany, delete: del },
+      user: { findMany, update: upd },
     } as unknown as PrismaService,
     {} as RealtimeService,
     {} as PrivateObjectStorage,
     {} as PropertyApprovalIndexingService,
     noopQueue,
+    noopMailService,
   );
 
   beforeEach(() => jest.clearAllMocks());
 
   it('does nothing when there are no expired candidates', async () => {
     findMany.mockResolvedValue([]);
-    await service.hardDeleteExpiredUsers();
-    expect(del).not.toHaveBeenCalled();
+    await service.anonymizeExpiredUsers();
+    expect(upd).not.toHaveBeenCalled();
   });
 
-  it("processes every candidate even when some deletes fail (one bad row can't stall the rest)", async () => {
+  it("processes every candidate even when some updates fail (one bad row can't stall the rest)", async () => {
     const candidates = Array.from({ length: 5 }, (_, i) => ({
       id: `user-${i}`,
     }));
     findMany.mockResolvedValue(candidates);
-    del.mockImplementation(({ where }: { where: { id: string } }) =>
+    upd.mockImplementation(({ where }: { where: { id: string } }) =>
       where.id === 'user-2'
-        ? Promise.reject(new Error('foreign key violation'))
+        ? Promise.reject(new Error('database failure'))
         : Promise.resolve({}),
     );
 
-    await service.hardDeleteExpiredUsers();
+    await service.anonymizeExpiredUsers();
 
-    expect(del).toHaveBeenCalledTimes(5);
-    candidates.forEach((c) =>
-      expect(del).toHaveBeenCalledWith({ where: { id: c.id } }),
+    expect(upd).toHaveBeenCalledTimes(5);
+    candidates.forEach(
+      (c) =>
+        /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+        expect(upd).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: c.id },
+            data: expect.objectContaining({
+              fullName: 'Deleted User',
+              email: expect.stringMatching(/^deleted-.+@propmatch\.local$/),
+              passwordHash: expect.any(String),
+              phoneNumber: expect.stringMatching(/^deleted-/),
+              avatarUrl: null,
+              resetToken: null,
+              resetTokenExpiry: null,
+            }),
+          }),
+        ),
+      /* eslint-enable @typescript-eslint/no-unsafe-assignment */
     );
   });
 });

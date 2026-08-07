@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
 import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
 import { RefreshDto } from './dto/refresh.dto';
@@ -35,6 +36,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly realtimeService: RealtimeService,
   ) {}
 
   /**
@@ -178,6 +180,12 @@ export class AuthService {
 
     const request = await this.prisma.activationRequest.create({
       data: { userId: user.id, status: 'PENDING' },
+    });
+    this.realtimeService.reactivationRequested({
+      requestId: request.id,
+      userId: user.id,
+      userFullName: user.fullName,
+      createdAt: request.createdAt,
     });
     return { id: request.id, status: request.status };
   }

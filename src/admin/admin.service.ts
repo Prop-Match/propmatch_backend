@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Queue } from 'bullmq';
+import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
@@ -29,6 +30,7 @@ import {
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
+import { MailService } from '../mail/mail.service';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
@@ -36,9 +38,9 @@ import { ReviewDecisionDto } from './dto/review-decision.dto';
 import { AdminStats } from './interfaces/admin-stats.interface';
 
 const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
-const HARD_DELETE_GRACE_PERIOD_DAYS = 30;
-const HARD_DELETE_BATCH_SIZE = 20;
-const HARD_DELETE_BATCH_DELAY_MS = 1000;
+const ANONYMIZATION_GRACE_PERIOD_DAYS = 30;
+const ANONYMIZATION_BATCH_SIZE = 20;
+const ANONYMIZATION_BATCH_DELAY_MS = 1000;
 
 @Injectable()
 export class AdminService {
@@ -52,6 +54,7 @@ export class AdminService {
     private readonly propertyApprovalIndexingService: PropertyApprovalIndexingService,
     @InjectQueue(MATCHING_QUEUE)
     private readonly matchingQueue: Queue<MatchTenantRequestJobData>,
+    private readonly mailService: MailService,
   ) {}
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
@@ -978,6 +981,7 @@ export class AdminService {
   async approveReactivation(adminId: string, requestId: string) {
     const request = await this.prismaService.activationRequest.findUnique({
       where: { id: requestId },
+      include: { user: { select: { fullName: true, email: true } } },
     });
     if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
     if (request.status !== 'PENDING') {
@@ -997,6 +1001,14 @@ export class AdminService {
 
     await this.audit(adminId, 'user:reactivate:approve', request.userId);
 
+    await this.realtimeService.notifyUser(request.userId, {
+      type: 'ACCOUNT_REACTIVATED',
+      title: 'تمت إعادة تفعيل حسابك',
+      message: 'وافق أحد المشرفين على طلبك بإعادة تفعيل حسابك.',
+      link: '/login',
+    });
+    await this.mailService.sendAccountReactivatedEmail(request.user.email);
+
     return { success: true, id: requestId };
   }
 
@@ -1004,6 +1016,7 @@ export class AdminService {
   async rejectReactivation(adminId: string, requestId: string) {
     const request = await this.prismaService.activationRequest.findUnique({
       where: { id: requestId },
+      include: { user: { select: { fullName: true, email: true } } },
     });
     if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
     if (request.status !== 'PENDING') {
@@ -1017,37 +1030,50 @@ export class AdminService {
 
     await this.audit(adminId, 'user:reactivate:reject', request.userId);
 
+    await this.realtimeService.notifyUser(request.userId, {
+      type: 'ACCOUNT_REACTIVATION_REJECTED',
+      title: 'طلب إعادة التفعيل',
+      message: 'راجع أحد المشرفين طلبك ولم تتم الموافقة عليه في الوقت الحالي.',
+      link: null,
+    });
+    await this.mailService.sendAccountReactivationRejectedEmail(
+      request.user.email,
+    );
+
     return { success: true, id: requestId };
   }
 
   /**
-   * Daily at midnight — permanently deletes accounts that have sat
-   * soft-deleted past the 30-day grace period.
+   * Daily at midnight — anonymizes accounts that have sat soft-deleted past
+   * the 30-day grace period. This replaced a literal hard `user.delete()`:
+   * most of this schema's relations to User use Prisma's default
+   * onDelete: Restrict, not Cascade, so a real delete would foreign-key-fail
+   * for any user who ever sent a message, made an offer, left a review, etc.
+   * — effectively every real account — and even where cascading could be
+   * forced, it would destroy other parties' history (e.g. cascading through
+   * MatchConnection would wipe the *other* tenant/landlord's chat).
    *
-   * Batched deliberately: fetching every candidate up front and chunking it
-   * in memory (rather than repeatedly re-querying `deletedAt < cutoff`) means
-   * a user whose delete fails can never cause an infinite loop — a naive
-   * "keep querying the same WHERE clause" approach would refetch the same
-   * permanently-failing row forever. Promise.allSettled per batch means one
+   * Anonymization sidesteps all of that: the row and its id stay intact, so
+   * every relation (Messages, Offers, Properties, Requests) stays unbroken,
+   * and the user becomes an unreachable "ghost". PII fields are scrubbed:
+   * name becomes a placeholder, email is scrambled to a random, permanently
+   * unique address (freeing the original email for a fresh signup),
+   * password/phone are scrambled to unusable values (both columns are
+   * non-nullable, so "nullify" isn't an option for them), and the reset-token
+   * pair is cleared so a stale token can't be replayed against the ghost row.
+   *
+   * Batched deliberately, same as the previous implementation: fetching every
+   * candidate up front and chunking it in memory (rather than repeatedly
+   * re-querying `deletedAt < cutoff`) means a user whose update fails can
+   * never cause an infinite loop. Promise.allSettled per batch means one
    * failure doesn't abort the rest of that batch, and the delay between
-   * batches spreads the cascading-delete load instead of firing everything
-   * at Postgres in one burst.
-   *
-   * IMPORTANT — not yet safe to run for real: most of this schema's
-   * relations to User use Prisma's default onDelete: Restrict, not Cascade.
-   * A hard `user.delete()` will fail with a foreign-key violation for any
-   * user who ever created a message, offer, review, payment, etc. — which is
-   * effectively every real account. Deciding which relations should cascade
-   * (and which must NOT — e.g. cascading through MatchConnection would wipe
-   * the *other* party's message history) is a separate, deliberate schema
-   * decision this method does not make on its own. Until that's decided,
-   * this job will mostly log failures rather than actually deleting anyone,
-   * which is the safe failure mode — not a bug in the batching logic itself.
+   * batches spreads the load instead of firing everything at Postgres at
+   * once.
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-  async hardDeleteExpiredUsers(): Promise<void> {
+  async anonymizeExpiredUsers(): Promise<void> {
     const cutoff = new Date(
-      Date.now() - HARD_DELETE_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+      Date.now() - ANONYMIZATION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
     );
     const candidates = await this.prismaService.user.findMany({
       where: { deletedAt: { lt: cutoff } },
@@ -1055,23 +1081,34 @@ export class AdminService {
     });
     if (candidates.length === 0) return;
 
-    let deletedCount = 0;
+    let anonymizedCount = 0;
     let failedCount = 0;
 
-    for (let i = 0; i < candidates.length; i += HARD_DELETE_BATCH_SIZE) {
-      const batch = candidates.slice(i, i + HARD_DELETE_BATCH_SIZE);
+    for (let i = 0; i < candidates.length; i += ANONYMIZATION_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + ANONYMIZATION_BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map((u) =>
-          this.prismaService.user.delete({ where: { id: u.id } }),
+          this.prismaService.user.update({
+            where: { id: u.id },
+            data: {
+              fullName: 'Deleted User',
+              email: `deleted-${crypto.randomUUID()}@propmatch.local`,
+              passwordHash: bcrypt.hashSync(crypto.randomUUID(), 10),
+              phoneNumber: `deleted-${crypto.randomUUID()}`,
+              avatarUrl: null,
+              resetToken: null,
+              resetTokenExpiry: null,
+            },
+          }),
         ),
       );
       for (const [index, result] of results.entries()) {
         if (result.status === 'fulfilled') {
-          deletedCount++;
+          anonymizedCount++;
         } else {
           failedCount++;
           this.logger.error(
-            `Hard-delete failed for user ${batch[index].id}: ${
+            `Anonymization failed for user ${batch[index].id}: ${
               result.reason instanceof Error
                 ? result.reason.message
                 : String(result.reason)
@@ -1079,16 +1116,16 @@ export class AdminService {
           );
         }
       }
-      const isLastBatch = i + HARD_DELETE_BATCH_SIZE >= candidates.length;
+      const isLastBatch = i + ANONYMIZATION_BATCH_SIZE >= candidates.length;
       if (!isLastBatch) {
         await new Promise((resolve) =>
-          setTimeout(resolve, HARD_DELETE_BATCH_DELAY_MS),
+          setTimeout(resolve, ANONYMIZATION_BATCH_DELAY_MS),
         );
       }
     }
 
     this.logger.log(
-      `Hard-delete cron: ${deletedCount} deleted, ${failedCount} failed (of ${candidates.length} candidates past the ${HARD_DELETE_GRACE_PERIOD_DAYS}-day grace period).`,
+      `Anonymization cron: ${anonymizedCount} anonymized, ${failedCount} failed (of ${candidates.length} candidates past the ${ANONYMIZATION_GRACE_PERIOD_DAYS}-day grace period).`,
     );
   }
 }

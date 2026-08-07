@@ -101,6 +101,8 @@ enum NotificationType {
   CONTRACT_REJECTED
   /** Smart Matchmaker — a landlord's property scored >75 against a new tenant request. */
   HIGH_MATCH_TENANT_REQUEST
+  ACCOUNT_REACTIVATED
+  ACCOUNT_REACTIVATION_REJECTED
 }
 
 enum TenantRequestStatus {
