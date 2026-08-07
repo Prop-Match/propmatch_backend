@@ -16,7 +16,7 @@ import { PRIVATE_OBJECT_STORAGE } from './private-object-storage.token';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
-@Controller('api/storage/private')
+@Controller('storage/private')
 export class PrivateStorageController {
   constructor(
     @Inject(PRIVATE_OBJECT_STORAGE)
