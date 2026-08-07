@@ -53,8 +53,16 @@ jobs:
 
             git pull --ff-only origin main
 
+            docker compose config --quiet
             docker compose build
-            docker compose up -d postgres
+            docker compose up -d --wait --wait-timeout 120 postgres redis
             docker compose run --rm migrate
-            docker compose up -d --no-deps --wait --wait-timeout 120 backend
+
+            if ! docker compose up -d --no-deps --wait --wait-timeout 120 backend; then
+              echo "Backend failed its health check. Container status and recent logs:"
+              docker compose ps --all
+              docker compose logs --no-color --tail 200 backend redis postgres
+              exit 1
+            fi
+
             docker compose ps
