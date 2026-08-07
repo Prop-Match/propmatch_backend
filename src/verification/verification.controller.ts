@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { SubmitVerificationDto } from './dto/submit-verification.dto';
 import { VerificationFilesPipe } from './pipes/verification-files.pipe';
 import type { ValidatedVerificationFiles } from './types/verification-upload-files.type';
@@ -21,7 +23,8 @@ import { VerificationService } from './verification.service';
 type AuthenticatedRequest = { user: { userId: string } };
 
 @Controller('verification')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('TENANT', 'LANDLORD')
 export class VerificationController {
   constructor(private readonly verificationService: VerificationService) {}
 
