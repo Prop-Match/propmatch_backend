@@ -330,7 +330,10 @@ describe('PropertiesService.getPropertyById', () => {
     );
 
     await expect(
-      service.getPropertyById('property-1', { userId: 'owner-1', role: 'LANDLORD' }),
+      service.getPropertyById('property-1', {
+        userId: 'owner-1',
+        role: 'LANDLORD',
+      }),
     ).resolves.toEqual(
       expect.objectContaining({
         id: 'property-1',
@@ -352,7 +355,9 @@ describe('PropertiesService.getPropertyById', () => {
     const service = new PropertiesService(
       {
         property: {
-          findFirst: jest.fn().mockResolvedValue({ id: 'property-1', status: 'ARCHIVED' }),
+          findFirst: jest
+            .fn()
+            .mockResolvedValue({ id: 'property-1', status: 'ARCHIVED' }),
           update,
         },
       } as never,
@@ -391,7 +396,10 @@ describe('PropertiesService.getPropertyById', () => {
     );
 
     await expect(
-      service.getPropertyById('property-1', { userId: 'tenant-1', role: 'TENANT' }),
+      service.getPropertyById('property-1', {
+        userId: 'tenant-1',
+        role: 'TENANT',
+      }),
     ).rejects.toMatchObject({ status: 404 });
   });
 });

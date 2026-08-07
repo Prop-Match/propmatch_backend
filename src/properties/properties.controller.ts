@@ -110,7 +110,6 @@ export class PropertiesController {
     return this.propertiesService.getAllTenantRequests();
   }
 
-
   /** Public semantic browse endpoint; PostgreSQL approval status remains authoritative. */
   @Get('properties/search/semantic')
   async semanticSearch(
@@ -178,7 +177,6 @@ export class PropertiesController {
   ) {
     return this.propertiesService.archive(req.user.userId, id);
   }
-
 
   @Get('properties/:id')
   @UseGuards(JwtAuthGuard)
@@ -299,5 +297,4 @@ export class PropertiesController {
   ) {
     return this.propertiesService.remove(req.user.userId, id);
   }
-
 }

@@ -22,7 +22,8 @@ export class PartnerLeadsService {
     if (dto.consent !== true) {
       throw new BadRequestException({
         code: 'PARTNER_LEAD_CONSENT_REQUIRED',
-        message: 'Explicit consent is required before creating the service request.',
+        message:
+          'Explicit consent is required before creating the service request.',
       });
     }
 

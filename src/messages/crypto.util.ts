@@ -1,6 +1,8 @@
 import * as crypto from 'crypto';
 
-const RAW_KEY = process.env.MESSAGE_ENCRYPTION_KEY || 'propmatch_ai_secure_secret_key_32bytes!!';
+const RAW_KEY =
+  process.env.MESSAGE_ENCRYPTION_KEY ||
+  'propmatch_ai_secure_secret_key_32bytes!!';
 const ENCRYPTION_KEY = Buffer.from(RAW_KEY.padEnd(32, '0').slice(0, 32));
 const ALGORITHM = 'aes-256-gcm';
 

@@ -78,7 +78,10 @@ describe('VerificationService submission lifecycle', () => {
   };
   const resubmissionUser = {
     fullName: 'Test User',
-    identityVerification: { status: 'RESUBMISSION_REQUIRED', ...databaseOldKeys },
+    identityVerification: {
+      status: 'RESUBMISSION_REQUIRED',
+      ...databaseOldKeys,
+    },
   };
 
   beforeEach(() => {

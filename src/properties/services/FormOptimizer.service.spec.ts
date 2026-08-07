@@ -7,11 +7,13 @@ describe('FormOptimizerService', () => {
   });
 
   it('streams a deterministic fallback when the SBG provider is unreachable', async () => {
-    const complete = jest.fn().mockRejectedValue(new Error('network unavailable'));
+    const complete = jest
+      .fn()
+      .mockRejectedValue(new Error('network unavailable'));
     const chunks: Array<{ type: string; value?: string }> = [];
 
     await new Promise<void>((resolve, reject) => {
-    new FormOptimizerService({ complete } as unknown as SbgChatService)
+      new FormOptimizerService({ complete })
         .optimizeDescriptionStream({
           description: 'شقة هادئة للإيجار',
           city: 'المنصورة',

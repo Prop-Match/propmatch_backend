@@ -66,9 +66,9 @@ describe('PropertiesService archiving', () => {
       {} as never,
     );
 
-    await expect(service.archive('owner-2', 'property-1')).rejects.toMatchObject(
-      { status: 404 },
-    );
+    await expect(
+      service.archive('owner-2', 'property-1'),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it('excludes archived properties from public listings', async () => {
@@ -95,7 +95,9 @@ describe('PropertiesService archiving', () => {
     );
 
     await expect(service.getMyProperties('owner-1')).resolves.toEqual({
-      items: [expect.objectContaining({ id: 'property-1', status: 'ARCHIVED' })],
+      items: [
+        expect.objectContaining({ id: 'property-1', status: 'ARCHIVED' }),
+      ],
       total: 1,
     });
     expect(findMany).toHaveBeenCalledWith(

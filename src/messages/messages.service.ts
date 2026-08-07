@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { ChatUploadStorageService } from '../uploads/chat-upload-storage.service';
 import { decryptText, encryptText } from './crypto.util';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
+    private readonly chatUploads: ChatUploadStorageService,
   ) {}
 
   private async connectionFor(userId: string, id: string) {
@@ -88,6 +90,7 @@ export class MessagesService {
         senderId: true,
         body: true,
         createdAt: true,
+        editedAt: true,
         attachmentUrl: true,
         attachmentType: true,
         attachmentName: true,
@@ -98,6 +101,7 @@ export class MessagesService {
       ...m,
       body: decryptText(m.body),
       createdAt: m.createdAt.toISOString(),
+      editedAt: m.editedAt?.toISOString() ?? null,
       isMine: m.senderId === userId,
     }));
   }
@@ -195,10 +199,10 @@ export class MessagesService {
     // guard, and editing must never blank out a message body.
     const body = (rawBody ?? '').trim();
     if (!body) throw new BadRequestException('لا يمكن ترك الرسالة فارغة');
-    if (body.length > 1000)
-      throw new BadRequestException('الرسالة طويلة جدًا');
+    if (body.length > 1000) throw new BadRequestException('الرسالة طويلة جدًا');
 
-    const diffMinutes = (Date.now() - message.createdAt.getTime()) / (1000 * 60);
+    const diffMinutes =
+      (Date.now() - message.createdAt.getTime()) / (1000 * 60);
     if (diffMinutes > 15) {
       throw new BadRequestException(
         'لا يمكنك تعديل الرسالة بعد مرور 15 دقيقة من إرسالها',
@@ -207,19 +211,26 @@ export class MessagesService {
 
     const updated = await this.prisma.message.update({
       where: { id: messageId },
-      data: { body: encryptText(body) },
+      data: { body: encryptText(body), editedAt: new Date() },
     });
+    const editedAt = updated.editedAt?.toISOString() ?? null;
 
     // Mirror the edit to the peer's open conversation in real time.
     this.realtime.emitMessageEdited(
       this.recipientOf(message.matchConnection, userId),
-      { id: updated.id, matchConnectionId: updated.matchConnectionId, body },
+      {
+        id: updated.id,
+        matchConnectionId: updated.matchConnectionId,
+        body,
+        editedAt,
+      },
     );
 
     return {
       ...updated,
       body,
       createdAt: updated.createdAt.toISOString(),
+      editedAt,
       isMine: true,
     };
   }
@@ -235,7 +246,8 @@ export class MessagesService {
     if (message.senderId !== userId)
       throw new BadRequestException('لا يمكنك حذف رسالة شخص آخر');
 
-    const diffMinutes = (Date.now() - message.createdAt.getTime()) / (1000 * 60);
+    const diffMinutes =
+      (Date.now() - message.createdAt.getTime()) / (1000 * 60);
     if (diffMinutes > 15) {
       throw new BadRequestException(
         'لا يمكنك حذف الرسالة بعد مرور 15 دقيقة من إرسالها',
@@ -243,6 +255,10 @@ export class MessagesService {
     }
 
     await this.prisma.message.delete({ where: { id: messageId } });
+
+    // The row is gone; also drop the uploaded file so it doesn't orphan in the
+    // volume. Best-effort — a missing/failed unlink must not fail the delete.
+    await this.chatUploads.deleteByUrl(message.attachmentUrl);
 
     // Remove it from the peer's open conversation in real time.
     this.realtime.emitMessageDeleted(

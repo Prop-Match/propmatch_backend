@@ -13,7 +13,11 @@ describe('TenantRequestsController extraction', () => {
   );
 
   it('delegates only the validated tenant text to the extraction service', async () => {
-    extract.mockResolvedValue({ originalText: 'request', suggestions: {}, missingFields: [] });
+    extract.mockResolvedValue({
+      originalText: 'request',
+      suggestions: {},
+      missingFields: [],
+    });
 
     await expect(controller.extract({ text: 'request' })).resolves.toEqual({
       originalText: 'request',
@@ -24,8 +28,13 @@ describe('TenantRequestsController extraction', () => {
   });
 
   it('declares the existing tenant and verification guards for extraction', () => {
-    expect(Reflect.getMetadata(ROLES_KEY, controller.extract)).toEqual(['TENANT']);
-    const guards = Reflect.getMetadata(GUARDS_METADATA, controller.extract) as unknown[];
+    expect(Reflect.getMetadata(ROLES_KEY, controller.extract)).toEqual([
+      'TENANT',
+    ]);
+    const guards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      controller.extract,
+    ) as unknown[];
     expect(guards).toContain(VerifiedGuard);
   });
 });

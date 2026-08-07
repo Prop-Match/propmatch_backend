@@ -4,7 +4,9 @@ import { ExtractTenantRequestDto } from './extract-tenant-request.dto';
 
 describe('ExtractTenantRequestDto', () => {
   it('trims valid text before extraction', async () => {
-    const dto = plainToInstance(ExtractTenantRequestDto, { text: '  طلب شقة  ' });
+    const dto = plainToInstance(ExtractTenantRequestDto, {
+      text: '  طلب شقة  ',
+    });
 
     expect(await validate(dto)).toHaveLength(0);
     expect(dto.text).toBe('طلب شقة');

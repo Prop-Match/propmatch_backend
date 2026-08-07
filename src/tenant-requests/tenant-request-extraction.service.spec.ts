@@ -1,4 +1,8 @@
-import { BadGatewayException, GatewayTimeoutException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  GatewayTimeoutException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   SbgChatInvalidResponseError,
   SbgChatService,
@@ -22,9 +26,9 @@ const completeSuggestions = (overrides: Record<string, unknown> = {}) =>
 
 describe('TenantRequestExtractionService', () => {
   const complete = jest.fn();
-  const service = new TenantRequestExtractionService(
-    { complete } as unknown as SbgChatService,
-  );
+  const service = new TenantRequestExtractionService({
+    complete,
+  });
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -80,8 +84,14 @@ describe('TenantRequestExtractionService', () => {
     ['invalid property type', completeSuggestions({ propertyType: 'HOUSE' })],
     ['fractional bedrooms', completeSuggestions({ requiredBedrooms: 1.5 })],
     ['out-of-range flexibility', completeSuggestions({ flexibilityScore: 11 })],
-    ['contradictory budgets', completeSuggestions({ minBudget: 9000, maxBudget: 7000 })],
-    ['unknown provider field', JSON.stringify({ ...JSON.parse(completeSuggestions()), extra: true })],
+    [
+      'contradictory budgets',
+      completeSuggestions({ minBudget: 9000, maxBudget: 7000 }),
+    ],
+    [
+      'unknown provider field',
+      JSON.stringify({ ...JSON.parse(completeSuggestions()), extra: true }),
+    ],
     ['malformed JSON', '{not JSON'],
   ])('rejects %s as an invalid provider response', async (_label, response) => {
     complete.mockResolvedValue(response);

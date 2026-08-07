@@ -35,7 +35,9 @@ export class FavoritesService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const items = favorites.map((fav) => transformPropertyToSummary(fav.property));
+    const items = favorites.map((fav) =>
+      transformPropertyToSummary(fav.property),
+    );
     return { items };
   }
 

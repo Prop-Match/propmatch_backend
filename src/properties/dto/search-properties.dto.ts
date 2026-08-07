@@ -1,6 +1,14 @@
 import { PropertyType } from '@generated/prisma/enums';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 /**
  * Hybrid search query (PRO-11). Matches the frontend `PropertySearchQuery`

@@ -17,11 +17,11 @@ import {
  */
 @Injectable()
 export class UserThrottlerGuard extends ThrottlerGuard {
-  protected async getTracker(req: Record<string, unknown>): Promise<string> {
+  protected getTracker(req: Record<string, unknown>): Promise<string> {
     const user = req.user as { userId?: string } | undefined;
-    if (user?.userId) return `user:${user.userId}`;
+    if (user?.userId) return Promise.resolve(`user:${user.userId}`);
     const ip = (req.ip as string | undefined) ?? 'unknown';
-    return `ip:${ip}`;
+    return Promise.resolve(`ip:${ip}`);
   }
 
   protected async throwThrottlingException(

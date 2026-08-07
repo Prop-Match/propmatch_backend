@@ -37,7 +37,9 @@ describe('LegalSupportController', () => {
       // Provides the ThrottlerStorage/options the controller's
       // UserThrottlerGuard depends on. A 20/min window is far above the 4
       // requests this suite makes, so throttling never trips here.
-      imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 20 }])],
+      imports: [
+        ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 20 }]),
+      ],
       controllers: [LegalSupportController],
       providers: [
         {

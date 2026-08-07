@@ -117,7 +117,11 @@ export class RealtimeGateway
   async handleTyping(
     @ConnectedSocket() client: Socket,
     @MessageBody()
-    body: { scope: 'match' | 'support'; conversationId: string; isTyping: boolean },
+    body: {
+      scope: 'match' | 'support';
+      conversationId: string;
+      isTyping: boolean;
+    },
   ): Promise<void> {
     const userId = client.data.userId as string | undefined;
     if (!userId || !body?.conversationId) return;

@@ -30,7 +30,10 @@ export class PdfRendererService {
       await page.setJavaScriptEnabled(false);
       await page.setRequestInterception(true);
       page.on('request', (request) => void request.abort());
-      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+      await page.setContent(html, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15_000,
+      });
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,

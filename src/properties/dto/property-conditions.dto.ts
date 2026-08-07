@@ -1,25 +1,24 @@
-import { IsBoolean } from "class-validator";
+import { IsBoolean } from 'class-validator';
 
 export class PropertyConditionsDto {
-    @IsBoolean()
-    familiesOnly: boolean;
+  @IsBoolean()
+  familiesOnly: boolean;
 
-    @IsBoolean()
-    studentsAllowed: boolean;
+  @IsBoolean()
+  studentsAllowed: boolean;
 
-    @IsBoolean()
-    singlesAllowed: boolean;
+  @IsBoolean()
+  singlesAllowed: boolean;
 
-    @IsBoolean()
-    foreignersAllowed: boolean;
+  @IsBoolean()
+  foreignersAllowed: boolean;
 
-    @IsBoolean()
-    childrenAllowed: boolean;
+  @IsBoolean()
+  childrenAllowed: boolean;
 
-    @IsBoolean()
-    petsAllowed: boolean;
+  @IsBoolean()
+  petsAllowed: boolean;
 
-    @IsBoolean()
-    smokingAllowed: boolean;
+  @IsBoolean()
+  smokingAllowed: boolean;
 }
-

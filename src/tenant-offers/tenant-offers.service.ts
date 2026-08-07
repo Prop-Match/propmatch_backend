@@ -172,7 +172,11 @@ export class TenantOffersService {
   }
 
   /** POST /landlord/listing-offers/:id/counter */
-  async landlordCounter(ownerId: string, offerId: string, dto: CounterOfferDto) {
+  async landlordCounter(
+    ownerId: string,
+    offerId: string,
+    dto: CounterOfferDto,
+  ) {
     const offer = await this.requireOffer(offerId, { ownerId });
     if (offer.status !== 'PENDING') {
       throw new ConflictException('لا يمكن تقديم عرض مضاد في هذه الحالة');
@@ -191,7 +195,11 @@ export class TenantOffersService {
       message: `اقترح المالك إيجاراً بقيمة ${dto.counterPrice} ج.م.`,
       link: '/tenant/offers?tab=sent',
     });
-    return { id: offerId, status: 'COUNTERED' as const, counterPrice: dto.counterPrice };
+    return {
+      id: offerId,
+      status: 'COUNTERED' as const,
+      counterPrice: dto.counterPrice,
+    };
   }
 
   /** POST /tenant/listing-offers/:id/accept — tenant accepts the landlord's counter. */
@@ -200,7 +208,11 @@ export class TenantOffersService {
     if (offer.status !== 'COUNTERED') {
       throw new ConflictException('لا يوجد عرض مضاد لقبوله');
     }
-    return this.settleAsMatch(offer.id, offer.counterPrice ?? offer.proposedPrice, 'owner');
+    return this.settleAsMatch(
+      offer.id,
+      offer.counterPrice ?? offer.proposedPrice,
+      'owner',
+    );
   }
 
   /** POST /tenant/listing-offers/:id/withdraw */
@@ -287,7 +299,10 @@ export class TenantOffersService {
       type: 'NEW_MATCH',
       title: 'تم قبول العرض 🎉',
       message: `تم الاتفاق على إيجار بقيمة ${agreedPrice} ج.م. تم فتح المحادثة.`,
-      link: notify === 'tenant' ? '/tenant/offers?tab=sent' : '/landlord/offers?tab=received',
+      link:
+        notify === 'tenant'
+          ? '/tenant/offers?tab=sent'
+          : '/landlord/offers?tab=received',
     });
 
     return {

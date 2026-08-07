@@ -60,44 +60,47 @@ export class PaymobService implements IPaymentGateway {
           }
         }
 
-        const intentionRes: AxiosResponse<{ id: number | string; client_secret: string }> =
-          await firstValueFrom(
-            this.httpService.post(
-              `${this.BASE_URL}/v1/intention/`,
-              {
-                amount: Math.round(amount * 100),
-                currency: 'EGP',
-                payment_methods: integrationIds.length > 0 ? integrationIds : undefined,
-                special_reference: `${paymentType}_${userId}_${Date.now()}`,
-                billing_data: {
-                  first_name: user.fullName || 'NA',
-                  last_name: 'NA',
-                  email: user.email,
-                  phone_number: user.phoneNumber || '01000000000',
-                  apartment: 'NA',
-                  floor: 'NA',
-                  street: 'NA',
-                  building: 'NA',
-                  shipping_method: 'NA',
-                  postal_code: 'NA',
-                  city: 'NA',
-                  state: 'NA',
-                  country: 'EGY',
-                },
-                customer: {
-                  first_name: user.fullName || 'NA',
-                  last_name: 'NA',
-                  email: user.email,
-                },
+        const intentionRes: AxiosResponse<{
+          id: number | string;
+          client_secret: string;
+        }> = await firstValueFrom(
+          this.httpService.post(
+            `${this.BASE_URL}/v1/intention/`,
+            {
+              amount: Math.round(amount * 100),
+              currency: 'EGP',
+              payment_methods:
+                integrationIds.length > 0 ? integrationIds : undefined,
+              special_reference: `${paymentType}_${userId}_${Date.now()}`,
+              billing_data: {
+                first_name: user.fullName || 'NA',
+                last_name: 'NA',
+                email: user.email,
+                phone_number: user.phoneNumber || '01000000000',
+                apartment: 'NA',
+                floor: 'NA',
+                street: 'NA',
+                building: 'NA',
+                shipping_method: 'NA',
+                postal_code: 'NA',
+                city: 'NA',
+                state: 'NA',
+                country: 'EGY',
               },
-              {
-                headers: {
-                  Authorization: `Token ${this.SECRET_KEY}`,
-                  'Content-Type': 'application/json',
-                },
+              customer: {
+                first_name: user.fullName || 'NA',
+                last_name: 'NA',
+                email: user.email,
               },
-            ),
-          );
+            },
+            {
+              headers: {
+                Authorization: `Token ${this.SECRET_KEY}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          ),
+        );
 
         const clientSecret = String(intentionRes.data.client_secret);
         const intentionId = String(intentionRes.data.id);
@@ -183,13 +186,16 @@ export class PaymobService implements IPaymentGateway {
             redirect_url?: string;
             iframe_redirection_token?: string;
           }> = await firstValueFrom(
-            this.httpService.post(`${this.BASE_URL}/api/acceptance/payments/pay`, {
-              payment_token: paymentToken,
-              source: {
-                identifier: walletPhone,
-                subtype: 'WALLET',
+            this.httpService.post(
+              `${this.BASE_URL}/api/acceptance/payments/pay`,
+              {
+                payment_token: paymentToken,
+                source: {
+                  identifier: walletPhone,
+                  subtype: 'WALLET',
+                },
               },
-            }),
+            ),
           );
 
           if (payRes.data?.redirect_url) {
@@ -200,7 +206,8 @@ export class PaymobService implements IPaymentGateway {
           }
           if (payRes.data?.iframe_redirection_token) {
             const walletIframeId =
-              process.env.PAYMOB_WALLET_IFRAME_ID || process.env.PAYMOB_IFRAME_ID;
+              process.env.PAYMOB_WALLET_IFRAME_ID ||
+              process.env.PAYMOB_IFRAME_ID;
             return {
               checkoutUrl: `${this.BASE_URL}/api/acceptance/iframes/${walletIframeId}?payment_token=${payRes.data.iframe_redirection_token}`,
               providerOrderId: String(orderId),
@@ -251,7 +258,12 @@ export class PaymobService implements IPaymentGateway {
   ): WebhookResult {
     const obj = body?.obj as PaymobWebhookTransaction | undefined;
     if (!obj) {
-      return { success: false, isFinal: false, isValid: false, transactionId: '' };
+      return {
+        success: false,
+        isFinal: false,
+        isValid: false,
+        transactionId: '',
+      };
     }
     const fields = [
       obj.amount_cents,
@@ -292,7 +304,12 @@ export class PaymobService implements IPaymentGateway {
       this.logger.error(`String hashed: "${hmacString}"`);
       this.logger.error(`Computed HMAC:  ${computed}`);
       this.logger.error(`Received HMAC:  ${receivedHmac}`);
-      return { isValid: false, success: false, isFinal: false, transactionId: '' };
+      return {
+        isValid: false,
+        success: false,
+        isFinal: false,
+        transactionId: '',
+      };
     }
     const extras = obj.payment_key_claims?.extra || obj.order?.data;
     return {

@@ -78,7 +78,9 @@ export class ChromaPropertyService {
       if (!vectorId.startsWith('property:')) return [];
       const propertyId = vectorId.slice('property:'.length);
       if (!propertyId) return [];
-      return [{ vectorId, propertyId, distance: response.data.distances[0]?.[index] }];
+      return [
+        { vectorId, propertyId, distance: response.data.distances[0]?.[index] },
+      ];
     });
   }
 

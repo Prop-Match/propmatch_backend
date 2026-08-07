@@ -243,7 +243,12 @@ export class RealtimeService {
   /** Notify the other party that a match message's body changed. */
   emitMessageEdited(
     userId: string,
-    payload: { id: string; matchConnectionId: string; body: string },
+    payload: {
+      id: string;
+      matchConnectionId: string;
+      body: string;
+      editedAt: string | null;
+    },
   ): void {
     this.gateway.emitToUser(userId, SOCKET_EVENTS.messageEdited, payload);
   }

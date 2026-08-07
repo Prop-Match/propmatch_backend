@@ -83,9 +83,9 @@ describe('LegalSupportService', () => {
       }),
     );
 
-    await expect(
-      service.chat({ message: 'عقد' }, user),
-    ).rejects.toMatchObject<Partial<HttpException>>({ status: 502 });
+    await expect(service.chat({ message: 'عقد' }, user)).rejects.toMatchObject<
+      Partial<HttpException>
+    >({ status: 502 });
   });
 
   it('fails clearly when the internal service boundary is not configured', async () => {

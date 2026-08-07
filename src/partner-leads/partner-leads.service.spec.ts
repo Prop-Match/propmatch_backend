@@ -11,7 +11,10 @@ describe('PartnerLeadsService', () => {
 
   beforeEach(() => {
     prisma = {
-      partnerLead: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      partnerLead: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
     };
     realtime = { partnerLeadCreated: jest.fn() };
     service = new PartnerLeadsService(prisma as never, realtime as never);
@@ -33,7 +36,10 @@ describe('PartnerLeadsService', () => {
     async (serviceType) => {
       mockCreatedLead(serviceType);
 
-      const result = await service.create(userId, { serviceType, consent: true });
+      const result = await service.create(userId, {
+        serviceType,
+        consent: true,
+      });
 
       expect(prisma.partnerLead.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -75,8 +81,9 @@ describe('PartnerLeadsService', () => {
   it('rejects an equivalent pending lead with a stable 409 code', async () => {
     prisma.partnerLead.findFirst.mockResolvedValue({ id: 'existing-lead' });
 
-    await expect(service.create(userId, { serviceType: 'MOVING', consent: true }))
-      .rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      service.create(userId, { serviceType: 'MOVING', consent: true }),
+    ).rejects.toBeInstanceOf(ConflictException);
     await service
       .create(userId, { serviceType: 'MOVING', consent: true })
       .catch((error: ConflictException) => {
