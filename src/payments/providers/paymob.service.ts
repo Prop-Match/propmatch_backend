@@ -13,6 +13,11 @@ import {
   PaymobWebhookTransaction,
 } from '../interfaces/paymob.types';
 
+const CARD_UNAVAILABLE_MESSAGE =
+  'خدمة الدفع بالبطاقات غير متاحة حالياً. حاول مرة أخرى لاحقاً.';
+const WALLET_UNAVAILABLE_MESSAGE =
+  'خدمة الدفع بالمحفظة الإلكترونية غير متاحة حالياً. حاول مرة أخرى لاحقاً.';
+
 @Injectable()
 export class PaymobService implements IPaymentGateway {
   constructor(
@@ -32,6 +37,7 @@ export class PaymobService implements IPaymentGateway {
     paymentType: string,
     amount: number,
     method?: 'CARD' | 'WALLET',
+    walletPhone?: string,
   ): Promise<{ checkoutUrl: string; providerOrderId: string }> {
     try {
       const user = await this.prisma.user.findUniqueOrThrow({
@@ -47,57 +53,59 @@ export class PaymobService implements IPaymentGateway {
 
       // 1. If PAYMOB_SECRET_KEY is provided, use Intention API + Unified Checkout as specified in code-nodejs.md
       if (this.SECRET_KEY) {
-        const integrationIds: number[] = [];
-        if (method === 'WALLET') {
-          if (walletIntegrationId) {
-            integrationIds.push(Number(walletIntegrationId));
-          } else if (cardIntegrationId) {
-            integrationIds.push(Number(cardIntegrationId));
-          }
-        } else {
-          if (cardIntegrationId) {
-            integrationIds.push(Number(cardIntegrationId));
-          }
+        const selectedIntegrationId =
+          method === 'WALLET' ? walletIntegrationId : cardIntegrationId;
+        if (!selectedIntegrationId) {
+          this.logger.error(
+            `Paymob ${method === 'WALLET' ? 'wallet' : 'card'} integration ID is missing`,
+          );
+          throw new BadRequestException(
+            method === 'WALLET'
+              ? WALLET_UNAVAILABLE_MESSAGE
+              : CARD_UNAVAILABLE_MESSAGE,
+          );
         }
 
-        const intentionRes: AxiosResponse<{ id: number | string; client_secret: string }> =
-          await firstValueFrom(
-            this.httpService.post(
-              `${this.BASE_URL}/v1/intention/`,
-              {
-                amount: Math.round(amount * 100),
-                currency: 'EGP',
-                payment_methods: integrationIds.length > 0 ? integrationIds : undefined,
-                special_reference: `${paymentType}_${userId}_${Date.now()}`,
-                billing_data: {
-                  first_name: user.fullName || 'NA',
-                  last_name: 'NA',
-                  email: user.email,
-                  phone_number: user.phoneNumber || '01000000000',
-                  apartment: 'NA',
-                  floor: 'NA',
-                  street: 'NA',
-                  building: 'NA',
-                  shipping_method: 'NA',
-                  postal_code: 'NA',
-                  city: 'NA',
-                  state: 'NA',
-                  country: 'EGY',
-                },
-                customer: {
-                  first_name: user.fullName || 'NA',
-                  last_name: 'NA',
-                  email: user.email,
-                },
+        const intentionRes: AxiosResponse<{
+          id: number | string;
+          client_secret: string;
+        }> = await firstValueFrom(
+          this.httpService.post(
+            `${this.BASE_URL}/v1/intention/`,
+            {
+              amount: Math.round(amount * 100),
+              currency: 'EGP',
+              payment_methods: [Number(selectedIntegrationId)],
+              special_reference: `${paymentType}_${userId}_${Date.now()}`,
+              billing_data: {
+                first_name: user.fullName || 'NA',
+                last_name: 'NA',
+                email: user.email,
+                phone_number: walletPhone || user.phoneNumber || 'NA',
+                apartment: 'NA',
+                floor: 'NA',
+                street: 'NA',
+                building: 'NA',
+                shipping_method: 'NA',
+                postal_code: 'NA',
+                city: 'NA',
+                state: 'NA',
+                country: 'EGY',
               },
-              {
-                headers: {
-                  Authorization: `Token ${this.SECRET_KEY}`,
-                  'Content-Type': 'application/json',
-                },
+              customer: {
+                first_name: user.fullName || 'NA',
+                last_name: 'NA',
+                email: user.email,
               },
-            ),
-          );
+            },
+            {
+              headers: {
+                Authorization: `Token ${this.SECRET_KEY}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          ),
+        );
 
         const clientSecret = String(intentionRes.data.client_secret);
         const intentionId = String(intentionRes.data.id);
@@ -114,9 +122,16 @@ export class PaymobService implements IPaymentGateway {
         this.logger.error(
           'Mobile Wallet checkout requested but PAYMOB_WALLET_INTEGRATION_ID is missing in .env!',
         );
+        throw new BadRequestException(WALLET_UNAVAILABLE_MESSAGE);
+      }
+      if (method === 'WALLET' && !walletPhone) {
         throw new BadRequestException(
-          'خدمة الدفع عبر المحافظ الإلكترونية غير مفعّلة حالياً (يرجى إعداد PAYMOB_WALLET_INTEGRATION_ID في ملف .env بالباكإند).',
+          'أدخل رقم الهاتف المرتبط بالمحفظة الإلكترونية.',
         );
+      }
+      if (!cardIntegrationId && method !== 'WALLET') {
+        this.logger.error('Paymob card integration ID is missing');
+        throw new BadRequestException(CARD_UNAVAILABLE_MESSAGE);
       }
 
       const integrationId =
@@ -158,7 +173,7 @@ export class PaymobService implements IPaymentGateway {
             first_name: user.fullName || 'NA',
             street: 'NA',
             building: 'NA',
-            phone_number: user.phoneNumber || 'NA',
+            phone_number: walletPhone || user.phoneNumber || 'NA',
             shipping_method: 'NA',
             postal_code: 'NA',
             city: 'NA',
@@ -175,58 +190,78 @@ export class PaymobService implements IPaymentGateway {
       // Mobile Wallet Pay Request
       if (method === 'WALLET') {
         try {
-          const walletPhone =
-            user.phoneNumber && user.phoneNumber !== 'NA'
-              ? user.phoneNumber
-              : '01000000000';
           const payRes: AxiosResponse<{
             redirect_url?: string;
+            iframe_redirection_url?: string;
             iframe_redirection_token?: string;
+            data?: { message?: string; txn_response_code?: string };
           }> = await firstValueFrom(
-            this.httpService.post(`${this.BASE_URL}/api/acceptance/payments/pay`, {
-              payment_token: paymentToken,
-              source: {
-                identifier: walletPhone,
-                subtype: 'WALLET',
+            this.httpService.post(
+              `${this.BASE_URL}/api/acceptance/payments/pay`,
+              {
+                payment_token: paymentToken,
+                source: {
+                  identifier: this.normalizeEgyptianPhone(walletPhone!),
+                  subtype: 'WALLET',
+                },
               },
-            }),
+            ),
           );
 
-          if (payRes.data?.redirect_url) {
+          const walletRedirectUrl =
+            payRes.data?.redirect_url || payRes.data?.iframe_redirection_url;
+          if (walletRedirectUrl) {
             return {
-              checkoutUrl: payRes.data.redirect_url,
+              checkoutUrl: walletRedirectUrl,
               providerOrderId: String(orderId),
             };
           }
           if (payRes.data?.iframe_redirection_token) {
-            const walletIframeId =
-              process.env.PAYMOB_WALLET_IFRAME_ID || process.env.PAYMOB_IFRAME_ID;
+            const walletIframeId = process.env.PAYMOB_WALLET_IFRAME_ID;
+            if (!walletIframeId) {
+              this.logger.error(
+                'Paymob returned a wallet iframe token but PAYMOB_WALLET_IFRAME_ID is missing',
+              );
+              throw new BadRequestException(WALLET_UNAVAILABLE_MESSAGE);
+            }
             return {
               checkoutUrl: `${this.BASE_URL}/api/acceptance/iframes/${walletIframeId}?payment_token=${payRes.data.iframe_redirection_token}`,
               providerOrderId: String(orderId),
             };
           }
+          const providerMessage = payRes.data?.data?.message;
+          this.logger.warn(
+            `Paymob wallet checkout returned no redirect URL${providerMessage ? `: ${providerMessage}` : ''}`,
+          );
+          if (providerMessage?.toLowerCase() === 'receiver is not registered') {
+            throw new BadRequestException(
+              'رقم الهاتف غير مسجل كمحفظة إلكترونية. في وضع الاختبار استخدم رقم محفظة Paymob التجريبي 01010101010.',
+            );
+          }
+          throw new BadRequestException(
+            'تعذر تجهيز محفظة الدفع الإلكترونية لدى Paymob. تحقق من رقم المحفظة ثم حاول مرة أخرى.',
+          );
         } catch (walletPayError) {
+          if (walletPayError instanceof BadRequestException) {
+            throw walletPayError;
+          }
           const axiosError = walletPayError as AxiosError;
           this.logger.error(
             'Direct Paymob wallet pay error:',
             axiosError.response?.data || axiosError.message,
           );
-          throw new BadRequestException(
-            'فشلت عملية تجهيز محفظة الدفع الإلكترونية لدى Paymob. تأكد من صحة PAYMOB_WALLET_INTEGRATION_ID.',
-          );
+          throw new BadRequestException(WALLET_UNAVAILABLE_MESSAGE);
         }
       }
 
-      const iframeId =
-        method === 'WALLET' && process.env.PAYMOB_WALLET_IFRAME_ID
-          ? process.env.PAYMOB_WALLET_IFRAME_ID
-          : process.env.PAYMOB_IFRAME_ID;
+      const iframeId = process.env.PAYMOB_IFRAME_ID;
+      if (!iframeId) {
+        this.logger.error('PAYMOB_IFRAME_ID is missing');
+        throw new BadRequestException(CARD_UNAVAILABLE_MESSAGE);
+      }
 
       return {
-        checkoutUrl: iframeId
-          ? `${this.BASE_URL}/api/acceptance/iframes/${iframeId}?payment_token=${paymentToken}`
-          : `${this.BASE_URL}/unifiedcheckout/?publicKey=${this.PUBLIC_KEY}&clientSecret=${paymentToken}`,
+        checkoutUrl: `${this.BASE_URL}/api/acceptance/iframes/${iframeId}?payment_token=${paymentToken}`,
         providerOrderId: String(orderId),
       };
     } catch (error) {
@@ -241,8 +276,17 @@ export class PaymobService implements IPaymentGateway {
         'Paymob Checkout Error:',
         errorData || axiosError.message || axiosError,
       );
-      throw new BadRequestException('Paymob payment initiation failed');
+      throw new BadRequestException(
+        'تعذر بدء عملية الدفع حالياً. حاول مرة أخرى لاحقاً.',
+      );
     }
+  }
+
+  private normalizeEgyptianPhone(phone: string): string {
+    const compact = phone.replace(/[\s-]/g, '');
+    if (compact.startsWith('+20')) return `0${compact.slice(3)}`;
+    if (compact.startsWith('0020')) return `0${compact.slice(4)}`;
+    return compact;
   }
 
   processWebhook(
@@ -251,7 +295,12 @@ export class PaymobService implements IPaymentGateway {
   ): WebhookResult {
     const obj = body?.obj as PaymobWebhookTransaction | undefined;
     if (!obj) {
-      return { success: false, isFinal: false, isValid: false, transactionId: '' };
+      return {
+        success: false,
+        isFinal: false,
+        isValid: false,
+        transactionId: '',
+      };
     }
     const fields = [
       obj.amount_cents,
@@ -292,7 +341,12 @@ export class PaymobService implements IPaymentGateway {
       this.logger.error(`String hashed: "${hmacString}"`);
       this.logger.error(`Computed HMAC:  ${computed}`);
       this.logger.error(`Received HMAC:  ${receivedHmac}`);
-      return { isValid: false, success: false, isFinal: false, transactionId: '' };
+      return {
+        isValid: false,
+        success: false,
+        isFinal: false,
+        transactionId: '',
+      };
     }
     const extras = obj.payment_key_claims?.extra || obj.order?.data;
     return {
