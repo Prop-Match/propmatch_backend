@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   FREE_ACTIVE_LISTING_LIMIT,
+  FREE_AI_USES_MONTHLY_ALLOTMENT,
   FREE_OFFERS_MONTHLY_ALLOTMENT,
   PREMIUM_ACTIVE_LISTING_LIMIT,
   PRICING_CATALOG,
@@ -47,7 +48,7 @@ export class QuotaService {
           userId,
           freeListingsLeft: 1,
           freeOffersLeft: FREE_OFFERS_MONTHLY_ALLOTMENT,
-          optimizerUsesLeft: 3,
+          optimizerUsesLeft: FREE_AI_USES_MONTHLY_ALLOTMENT,
           planType: 'FREE',
           maxActiveListings: 1,
         },
@@ -70,8 +71,8 @@ export class QuotaService {
     // Monthly Auto-Renewal with Carryover
     const daysSinceReset = now.getTime() - q.lastResetDate.getTime();
     if (daysSinceReset >= THIRTY_DAYS_MS) {
-      // Carry over unused quota + add monthly allotment (3 optimizer, 5 offers)
-      const newOptimizer = q.optimizerUsesLeft + 3;
+      // Carry over unused quota + add monthly allotment (5 optimizer, 5 offers)
+      const newOptimizer = q.optimizerUsesLeft + FREE_AI_USES_MONTHLY_ALLOTMENT;
       const newOffers = q.freeOffersLeft + FREE_OFFERS_MONTHLY_ALLOTMENT;
 
       q = await this.prisma.userQuota.update({
