@@ -418,3 +418,135 @@ describe('AdminService.softDeleteUser', () => {
     expect($transaction).not.toHaveBeenCalled();
   });
 });
+
+describe('AdminService.approveReactivation / rejectReactivation', () => {
+  const findUnique = jest.fn();
+  const userUpdate = jest.fn();
+  const activationRequestUpdate = jest.fn();
+  const $transaction = jest.fn();
+  const create = jest.fn();
+  const service = new AdminService(
+    {
+      activationRequest: { findUnique, update: activationRequestUpdate },
+      user: { update: userUpdate },
+      $transaction,
+      adminAuditLogEntry: { create },
+    } as unknown as PrismaService,
+    {} as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    userUpdate.mockResolvedValue({});
+    activationRequestUpdate.mockResolvedValue({});
+    $transaction.mockResolvedValue([]);
+    create.mockResolvedValue({});
+  });
+
+  it('approves: bumps tokenVersion, clears deletedAt, marks the request APPROVED', async () => {
+    findUnique.mockResolvedValue({
+      id: 'req-1',
+      userId: 'user-1',
+      status: 'PENDING',
+    });
+
+    await expect(
+      service.approveReactivation('admin-1', 'req-1'),
+    ).resolves.toEqual({ success: true, id: 'req-1' });
+
+    expect($transaction).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.anything(), expect.anything()]),
+    );
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        actorId: 'admin-1',
+        action: 'user:reactivate:approve',
+        subjectId: 'user-1',
+      },
+    });
+  });
+
+  it('does not touch the user or audit log for a request that is not PENDING', async () => {
+    findUnique.mockResolvedValue({
+      id: 'req-1',
+      userId: 'user-1',
+      status: 'APPROVED',
+    });
+
+    await expect(
+      service.approveReactivation('admin-1', 'req-1'),
+    ).rejects.toMatchObject({ status: 409 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('404s approval of a request that does not exist', async () => {
+    findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.approveReactivation('admin-1', 'missing'),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects: marks the request REJECTED without touching the user', async () => {
+    findUnique.mockResolvedValue({
+      id: 'req-1',
+      userId: 'user-1',
+      status: 'PENDING',
+    });
+    activationRequestUpdate.mockResolvedValue({});
+
+    await expect(
+      service.rejectReactivation('admin-1', 'req-1'),
+    ).resolves.toEqual({ success: true, id: 'req-1' });
+
+    expect(activationRequestUpdate).toHaveBeenCalledWith({
+      where: { id: 'req-1' },
+      data: { status: 'REJECTED' },
+    });
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminService.hardDeleteExpiredUsers', () => {
+  const findMany = jest.fn();
+  const del = jest.fn();
+  const service = new AdminService(
+    {
+      user: { findMany, delete: del },
+    } as unknown as PrismaService,
+    {} as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+  );
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('does nothing when there are no expired candidates', async () => {
+    findMany.mockResolvedValue([]);
+    await service.hardDeleteExpiredUsers();
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it("processes every candidate even when some deletes fail (one bad row can't stall the rest)", async () => {
+    const candidates = Array.from({ length: 5 }, (_, i) => ({
+      id: `user-${i}`,
+    }));
+    findMany.mockResolvedValue(candidates);
+    del.mockImplementation(({ where }: { where: { id: string } }) =>
+      where.id === 'user-2'
+        ? Promise.reject(new Error('foreign key violation'))
+        : Promise.resolve({}),
+    );
+
+    await service.hardDeleteExpiredUsers();
+
+    expect(del).toHaveBeenCalledTimes(5);
+    candidates.forEach((c) =>
+      expect(del).toHaveBeenCalledWith({ where: { id: c.id } }),
+    );
+  });
+});

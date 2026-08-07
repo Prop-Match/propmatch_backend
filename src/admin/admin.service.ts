@@ -13,6 +13,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { Queue } from 'bullmq';
 import { I18nContext } from 'nestjs-i18n';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   adminRoleFromSlug,
   capabilitiesFor,
@@ -35,6 +36,9 @@ import { ReviewDecisionDto } from './dto/review-decision.dto';
 import { AdminStats } from './interfaces/admin-stats.interface';
 
 const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
+const HARD_DELETE_GRACE_PERIOD_DAYS = 30;
+const HARD_DELETE_BATCH_SIZE = 20;
+const HARD_DELETE_BATCH_DELAY_MS = 1000;
 
 @Injectable()
 export class AdminService {
@@ -940,5 +944,151 @@ export class AdminService {
     await this.audit(adminId, 'user:delete', userId);
 
     return { success: true, id: userId };
+  }
+
+  /** GET /admin/reactivations — pending self-service reactivation requests. */
+  async listReactivationRequests() {
+    const requests = await this.prismaService.activationRequest.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        user: { select: { fullName: true, email: true, deletedAt: true } },
+      },
+    });
+    return {
+      items: requests.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        userFullName: r.user.fullName,
+        userEmail: r.user.email,
+        deletedAt: r.user.deletedAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * POST /admin/reactivations/:id/approve. Restores the account and bumps
+   * tokenVersion (revokes any lingering pre-deletion token — see
+   * JwtStrategy). Deliberately does NOT touch the user's ARCHIVED
+   * TenantRequests/Properties or enqueue the matching worker: reactivation
+   * restores the account, not its listings — the user re-publishes each one
+   * manually, on their own schedule, exactly as the business rule specifies.
+   */
+  async approveReactivation(adminId: string, requestId: string) {
+    const request = await this.prismaService.activationRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
+    }
+
+    await this.prismaService.$transaction([
+      this.prismaService.user.update({
+        where: { id: request.userId },
+        data: { deletedAt: null, tokenVersion: { increment: 1 } },
+      }),
+      this.prismaService.activationRequest.update({
+        where: { id: requestId },
+        data: { status: 'APPROVED' },
+      }),
+    ]);
+
+    await this.audit(adminId, 'user:reactivate:approve', request.userId);
+
+    return { success: true, id: requestId };
+  }
+
+  /** POST /admin/reactivations/:id/reject. */
+  async rejectReactivation(adminId: string, requestId: string) {
+    const request = await this.prismaService.activationRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
+    }
+
+    await this.prismaService.activationRequest.update({
+      where: { id: requestId },
+      data: { status: 'REJECTED' },
+    });
+
+    await this.audit(adminId, 'user:reactivate:reject', request.userId);
+
+    return { success: true, id: requestId };
+  }
+
+  /**
+   * Daily at midnight — permanently deletes accounts that have sat
+   * soft-deleted past the 30-day grace period.
+   *
+   * Batched deliberately: fetching every candidate up front and chunking it
+   * in memory (rather than repeatedly re-querying `deletedAt < cutoff`) means
+   * a user whose delete fails can never cause an infinite loop — a naive
+   * "keep querying the same WHERE clause" approach would refetch the same
+   * permanently-failing row forever. Promise.allSettled per batch means one
+   * failure doesn't abort the rest of that batch, and the delay between
+   * batches spreads the cascading-delete load instead of firing everything
+   * at Postgres in one burst.
+   *
+   * IMPORTANT — not yet safe to run for real: most of this schema's
+   * relations to User use Prisma's default onDelete: Restrict, not Cascade.
+   * A hard `user.delete()` will fail with a foreign-key violation for any
+   * user who ever created a message, offer, review, payment, etc. — which is
+   * effectively every real account. Deciding which relations should cascade
+   * (and which must NOT — e.g. cascading through MatchConnection would wipe
+   * the *other* party's message history) is a separate, deliberate schema
+   * decision this method does not make on its own. Until that's decided,
+   * this job will mostly log failures rather than actually deleting anyone,
+   * which is the safe failure mode — not a bug in the batching logic itself.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async hardDeleteExpiredUsers(): Promise<void> {
+    const cutoff = new Date(
+      Date.now() - HARD_DELETE_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const candidates = await this.prismaService.user.findMany({
+      where: { deletedAt: { lt: cutoff } },
+      select: { id: true },
+    });
+    if (candidates.length === 0) return;
+
+    let deletedCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < candidates.length; i += HARD_DELETE_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + HARD_DELETE_BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((u) =>
+          this.prismaService.user.delete({ where: { id: u.id } }),
+        ),
+      );
+      for (const [index, result] of results.entries()) {
+        if (result.status === 'fulfilled') {
+          deletedCount++;
+        } else {
+          failedCount++;
+          this.logger.error(
+            `Hard-delete failed for user ${batch[index].id}: ${
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason)
+            }`,
+          );
+        }
+      }
+      const isLastBatch = i + HARD_DELETE_BATCH_SIZE >= candidates.length;
+      if (!isLastBatch) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, HARD_DELETE_BATCH_DELAY_MS),
+        );
+      }
+    }
+
+    this.logger.log(
+      `Hard-delete cron: ${deletedCount} deleted, ${failedCount} failed (of ${candidates.length} candidates past the ${HARD_DELETE_GRACE_PERIOD_DAYS}-day grace period).`,
+    );
   }
 }

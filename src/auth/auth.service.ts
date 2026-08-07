@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ type TokenPayload = {
   sub: string;
   email: string;
   role: string;
+  tokenVersion: number;
 };
 
 type RefreshTokenPayload = TokenPayload & {
@@ -66,7 +68,25 @@ export class AuthService {
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
       );
     }
-    const payLoad = { sub: user.id, email: user.email, role: user.role };
+    // Valid credentials for a soft-deleted account: reject with a specific
+    // code (not the generic 401) so the frontend can distinguish "wrong
+    // password" from "this account still exists but was deleted" and offer
+    // reactivation instead of just failing.
+    if (user.deletedAt) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ACCOUNT_SUSPENDED',
+        message:
+          I18nContext.current()?.t('auth.ACCOUNT_SUSPENDED') ||
+          'هذا الحساب مجدول للحذف. يمكنك طلب إعادة التفعيل.',
+      });
+    }
+    const payLoad = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: user.tokenVersion,
+    };
     const mappedUser = transformUserToFrontend(user);
     const tokens = await this.createPairToken(payLoad);
     return {
@@ -119,6 +139,7 @@ export class AuthService {
       sub: newUser.id,
       email: newUser.email,
       role: newUser.role,
+      tokenVersion: newUser.tokenVersion,
     };
     const tokens = await this.createPairToken(payload);
     return {
@@ -126,6 +147,41 @@ export class AuthService {
       user: mappedUser,
     };
   }
+  /**
+   * POST /auth/request-reactivation — public. Requires the password (not
+   * just the email) so this can't be used to probe whether an arbitrary
+   * email is a deleted account. Creates one PENDING ActivationRequest; a
+   * user who already has a pending request just gets that one back rather
+   * than piling up duplicates for an admin to review.
+   */
+  async requestReactivation(email: string, password: string) {
+    const user = await this.userService.findByEmail(email);
+    if (!user || !user.deletedAt) {
+      // Same opaque failure whether the email doesn't exist, isn't deleted,
+      // or the password is wrong — never confirms account state to a caller
+      // who hasn't proven they own the credentials.
+      throw new UnauthorizedException(
+        I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
+      );
+    }
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
+      throw new UnauthorizedException(
+        I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
+      );
+    }
+
+    const existing = await this.prisma.activationRequest.findFirst({
+      where: { userId: user.id, status: 'PENDING' },
+    });
+    if (existing) return { id: existing.id, status: existing.status };
+
+    const request = await this.prisma.activationRequest.create({
+      data: { userId: user.id, status: 'PENDING' },
+    });
+    return { id: request.id, status: request.status };
+  }
+
   async getMe(userId: string) {
     const user = await this.userService.findById(userId);
     if (!user) {
@@ -156,12 +212,20 @@ export class AuthService {
           I18nContext.current()?.t('auth.USER_NOT_FOUND'),
         );
       }
+      // Same revocation guarantee as JwtStrategy, applied to the refresh
+      // path too — otherwise a refresh token minted before a deletion or
+      // reactivation could keep silently minting fresh access tokens
+      // forever, bypassing the access-token check entirely.
+      if (user.deletedAt || payload.tokenVersion !== user.tokenVersion) {
+        throw new UnauthorizedException();
+      }
 
       const mappedUser = transformUserToFrontend(user);
       const newPayload: TokenPayload = {
         sub: user.id,
         email: user.email,
         role: user.role,
+        tokenVersion: user.tokenVersion,
       };
       const tokens = await this.createPairToken(newPayload);
 

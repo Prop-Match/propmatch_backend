@@ -11,6 +11,9 @@ import { SOCKET_EVENTS } from './realtime.contract';
 const TEST_SECRET = 'test-secret';
 
 // notifyUser() persists via Prisma; stub it so the test needs no database.
+// user.findUnique backs the handshake's revocation check (JwtStrategy's
+// socket-side twin) — every test token below is minted with tokenVersion: 0
+// to match this default.
 const prismaStub = {
   notification: {
     create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -20,6 +23,9 @@ const prismaStub = {
       link: null,
       ...data,
     })),
+  },
+  user: {
+    findUnique: jest.fn(async () => ({ deletedAt: null, tokenVersion: 0 })),
   },
 };
 
@@ -60,7 +66,7 @@ describe('RealtimeGateway', () => {
   const sockets: Socket[] = [];
 
   const tokenFor = (sub: string, role: string) =>
-    jwt.sign({ sub, email: `${sub}@x.com`, role });
+    jwt.sign({ sub, email: `${sub}@x.com`, role, tokenVersion: 0 });
 
   /** Connect a client and wait until it's actually connected. */
   async function connect(opts: { token?: string } = {}): Promise<Socket> {

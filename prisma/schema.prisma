@@ -167,6 +167,12 @@ model User {
    * rejects any token for a user with this set, revoking sessions immediately
    * despite JWTs being otherwise stateless. */
   deletedAt    DateTime? @map("deleted_at")
+  /** Bumped on reactivation (and available for any future forced-logout use).
+   * JwtStrategy rejects a token whose embedded tokenVersion doesn't match
+   * this, so tokens minted before a reactivation can't outlive it. */
+  tokenVersion Int       @default(0) @map("token_version")
+
+  activationRequests ActivationRequest[]
 
   //forget password
   resetToken           String?               @map("reset_token")
@@ -597,6 +603,26 @@ model AdminAuditLogEntry {
 
   @@index([at])
   @@map("admin_audit_log_entry")
+}
+
+enum ActivationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/** A soft-deleted user's self-service request to have an admin restore their
+ * account (POST /auth/request-reactivation). One row per attempt — a user
+ * can be rejected and request again later. */
+model ActivationRequest {
+  id        String                  @id @default(uuid()) @db.Uuid
+  userId    String                  @map("user_id") @db.Uuid
+  user      User                    @relation(fields: [userId], references: [id])
+  status    ActivationRequestStatus @default(PENDING)
+  createdAt DateTime                @default(now()) @map("created_at")
+
+  @@index([userId, status])
+  @@map("activation_request")
 }
 
 model Country {

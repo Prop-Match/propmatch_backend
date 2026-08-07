@@ -16,6 +16,7 @@ import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { ForgetPasswordDto } from './dto/forget-password.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { RequestReactivationDto } from './dto/request-reactivation.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SigninDto } from './dto/signin.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -41,6 +42,12 @@ export class AuthController {
   @Post('forgot-password')
   forgotPassword(@Body('email') _email?: string) {
     return { sent: true };
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('request-reactivation')
+  async requestReactivation(@Body() dto: RequestReactivationDto) {
+    return await this.authService.requestReactivation(dto.email, dto.password);
   }
 
   @Post('register')

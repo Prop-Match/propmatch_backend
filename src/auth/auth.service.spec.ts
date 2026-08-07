@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 
 describe('AuthService refresh tokens', () => {
@@ -19,6 +20,8 @@ describe('AuthService refresh tokens', () => {
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     identityVerification: null,
+    deletedAt: null as Date | null,
+    tokenVersion: 0,
   };
 
   const jwtService = {
@@ -69,6 +72,7 @@ describe('AuthService refresh tokens', () => {
       sub: user.id,
       email: user.email,
       role: user.role,
+      tokenVersion: 0,
       tokenType: 'refresh',
     });
 
@@ -85,7 +89,7 @@ describe('AuthService refresh tokens', () => {
     });
     expect(jwtService.signAsync).toHaveBeenNthCalledWith(
       1,
-      { sub: user.id, email: user.email, role: 'ADMIN' },
+      { sub: user.id, email: user.email, role: 'ADMIN', tokenVersion: 0 },
       { secret: 'access-secret', expiresIn: '1h' },
     );
     expect(jwtService.signAsync).toHaveBeenNthCalledWith(
@@ -94,10 +98,43 @@ describe('AuthService refresh tokens', () => {
         sub: user.id,
         email: user.email,
         role: 'ADMIN',
+        tokenVersion: 0,
         tokenType: 'refresh',
       },
       { secret: 'refresh-secret', expiresIn: '7d' },
     );
+  });
+
+  it('rejects a refresh token for a soft-deleted user', async () => {
+    jwtService.verifyAsync.mockResolvedValue({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: 0,
+      tokenType: 'refresh',
+    });
+    userService.findById.mockResolvedValue({ ...user, deletedAt: new Date() });
+
+    await expect(
+      service.refresh({ refreshToken: 'valid-refresh-token' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(jwtService.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects a refresh token minted before a tokenVersion bump', async () => {
+    jwtService.verifyAsync.mockResolvedValue({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: 0,
+      tokenType: 'refresh',
+    });
+    userService.findById.mockResolvedValue({ ...user, tokenVersion: 1 });
+
+    await expect(
+      service.refresh({ refreshToken: 'valid-refresh-token' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(jwtService.signAsync).not.toHaveBeenCalled();
   });
 
   it('rejects a valid JWT that is not a refresh token', async () => {
@@ -124,5 +161,116 @@ describe('AuthService refresh tokens', () => {
 
     expect(userService.findById).not.toHaveBeenCalled();
     expect(jwtService.signAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService — soft-delete edge cases', () => {
+  const plainPassword = 'Password123!';
+  const passwordHash = bcrypt.hashSync(plainPassword, 4);
+
+  const deletedUser = {
+    id: 'user-1',
+    fullName: 'Deleted User',
+    email: 'deleted@example.com',
+    phoneNumber: '01000000000',
+    passwordHash,
+    role: 'TENANT',
+    avatarUrl: null,
+    isActive: true,
+    lastLoginAt: null,
+    resetToken: null,
+    resetTokenExpiry: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    identityVerification: null,
+    deletedAt: new Date('2026-07-01T00:00:00.000Z'),
+    tokenVersion: 0,
+  };
+
+  const jwtService = { signAsync: jest.fn() };
+  const userService = { findByEmail: jest.fn() };
+  const prisma = {
+    activationRequest: { findFirst: jest.fn(), create: jest.fn() },
+    loginAttempt: { create: jest.fn() },
+  };
+
+  const service = new AuthService(
+    {} as never,
+    userService as never,
+    jwtService as unknown as JwtService,
+    prisma as never,
+    {} as unknown as ConfigService,
+  );
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('rejects login for a soft-deleted user with 403 ACCOUNT_SUSPENDED, even with valid credentials', async () => {
+    userService.findByEmail.mockResolvedValue(deletedUser);
+
+    await expect(
+      service.signIn(deletedUser.email, plainPassword, '127.0.0.1'),
+    ).rejects.toMatchObject({
+      status: 403,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      response: expect.objectContaining({ code: 'ACCOUNT_SUSPENDED' }),
+    });
+    expect(jwtService.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects login for a soft-deleted user before checking suspension if the password is wrong', async () => {
+    userService.findByEmail.mockResolvedValue(deletedUser);
+
+    await expect(
+      service.signIn(deletedUser.email, 'wrong-password', '127.0.0.1'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('creates a PENDING ActivationRequest for a soft-deleted user with valid credentials', async () => {
+    userService.findByEmail.mockResolvedValue(deletedUser);
+    prisma.activationRequest.findFirst.mockResolvedValue(null);
+    prisma.activationRequest.create.mockResolvedValue({
+      id: 'req-1',
+      status: 'PENDING',
+    });
+
+    await expect(
+      service.requestReactivation(deletedUser.email, plainPassword),
+    ).resolves.toEqual({ id: 'req-1', status: 'PENDING' });
+    expect(prisma.activationRequest.create).toHaveBeenCalledWith({
+      data: { userId: deletedUser.id, status: 'PENDING' },
+    });
+  });
+
+  it('returns the existing PENDING request instead of creating a duplicate', async () => {
+    userService.findByEmail.mockResolvedValue(deletedUser);
+    prisma.activationRequest.findFirst.mockResolvedValue({
+      id: 'existing-req',
+      status: 'PENDING',
+    });
+
+    await expect(
+      service.requestReactivation(deletedUser.email, plainPassword),
+    ).resolves.toEqual({ id: 'existing-req', status: 'PENDING' });
+    expect(prisma.activationRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reactivation request for an account that is not deleted', async () => {
+    userService.findByEmail.mockResolvedValue({
+      ...deletedUser,
+      deletedAt: null,
+    });
+
+    await expect(
+      service.requestReactivation(deletedUser.email, plainPassword),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects a reactivation request with a wrong password', async () => {
+    userService.findByEmail.mockResolvedValue(deletedUser);
+
+    await expect(
+      service.requestReactivation(deletedUser.email, 'wrong-password'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.activationRequest.create).not.toHaveBeenCalled();
   });
 });

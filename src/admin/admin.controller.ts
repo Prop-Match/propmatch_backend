@@ -242,4 +242,36 @@ export class AdminController {
   ) {
     return this.adminService.softDeleteUser(req.user.userId, id);
   }
+
+  @Get('reactivations')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async listReactivations() {
+    return this.adminService.listReactivationRequests();
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('reactivations/:id/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async approveReactivation(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.approveReactivation(req.user.userId, id);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('reactivations/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async rejectReactivation(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.rejectReactivation(req.user.userId, id);
+  }
 }
