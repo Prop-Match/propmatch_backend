@@ -13,6 +13,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
 import { RejectDraftDto } from './dto/reject-draft.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
@@ -30,7 +32,8 @@ import { LeaseContractsService } from './lease-contracts.service';
  * landlord with an optional note).
  */
 @Controller('matches/:matchConnectionId/contract')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('TENANT', 'LANDLORD')
 export class LeaseContractsController {
   constructor(
     private readonly leaseContractsService: LeaseContractsService,
@@ -145,7 +148,8 @@ export class LeaseContractsController {
  * (landlord, tenant) pair.
  */
 @Controller('contracts')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('TENANT', 'LANDLORD')
 export class LeaseContractByIdController {
   constructor(
     private readonly leaseContractsService: LeaseContractsService,
