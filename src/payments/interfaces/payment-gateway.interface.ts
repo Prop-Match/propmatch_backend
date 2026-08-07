@@ -12,6 +12,7 @@ export interface IPaymentGateway {
     userId: string,
     paymentType: string,
     amount: number,
+    method?: 'CARD' | 'WALLET',
   ): Promise<{ checkoutUrl: string; providerOrderId: string }>;
   processWebhook(
     query: Record<string, string>,

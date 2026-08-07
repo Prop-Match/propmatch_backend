@@ -507,11 +507,12 @@ export class PropertiesService {
   async getMyProperties(ownerId: string) {
     const [properties, total] = await Promise.all([
       this.prisma.property.findMany({
-        where: { ownerId, status: { not: 'ARCHIVED' } },
+        // Archived listings remain available to their owner for management.
+        where: { ownerId },
         include: PropertiesService.DETAIL_INCLUDE,
       }),
       this.prisma.property.count({
-        where: { ownerId, status: { not: 'ARCHIVED' } },
+        where: { ownerId },
       }),
     ]);
 
@@ -551,11 +552,37 @@ export class PropertiesService {
   /** Soft-archive a listing (ERD: never delete). */
   async archive(ownerId: string, propertyId: string) {
     await this.requireOwnedProperty(ownerId, propertyId);
-    await this.prisma.property.update({
+    const property = await this.prisma.property.update({
       where: { id: propertyId },
       data: { status: 'ARCHIVED' },
+      include: PropertiesService.DETAIL_INCLUDE,
     });
-    return { ok: true };
+    return {
+      property: transformPropertyToDetail(property, { contactRevealed: true }),
+    };
+  }
+
+  /** Restore an owner listing into moderation; never republish it directly. */
+  async unarchive(ownerId: string, propertyId: string) {
+    await this.requireOwnedProperty(ownerId, propertyId);
+    const property = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        status: 'PENDING',
+        isBoosted: false,
+        boostedUntil: null,
+        approvedBy: null,
+      },
+      include: PropertiesService.DETAIL_INCLUDE,
+    });
+    if (property.approvedAt) {
+      this.realtimeService.propertyEdited(property);
+    } else {
+      this.realtimeService.propertySubmitted(property);
+    }
+    return {
+      property: transformPropertyToDetail(property, { contactRevealed: true }),
+    };
   }
 
   /**
@@ -784,7 +811,7 @@ export class PropertiesService {
     const isAdmin = viewer?.role === 'ADMIN';
     const isOwner = viewer?.userId === property.ownerId;
     if (
-      (property.status === 'ARCHIVED' && !isAdmin) ||
+      (property.status === 'ARCHIVED' && !isOwner && !isAdmin) ||
       (property.status !== 'APPROVED' && !isOwner && !isAdmin)
     ) {
       throw new NotFoundException('العقار غير موجود');
@@ -821,4 +848,32 @@ export class PropertiesService {
       });
     });
   }
+
+  async getAllTenantRequests() {
+    const requests = await this.prisma.tenantRequest.findMany({
+      where: { status: 'APPROVED' },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: { ownerOffers: true },
+        },
+      },
+    });
+    return {
+      items: requests.map((r) => ({
+        id: r.id,
+        minBudget: r.minBudget,
+        maxBudget: r.maxBudget,
+        preferredLocations: r.preferredLocations,
+        propertyType: r.propertyType,
+        requiredBedrooms: r.requiredBedrooms,
+        needsFurnished: r.needsFurnished,
+        flexibilityScore: r.flexibilityScore,
+        lifestyleRequirements: r.lifestyleRequirements,
+        offersCount: r._count?.ownerOffers ?? 0,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    };
+  }
 }
+

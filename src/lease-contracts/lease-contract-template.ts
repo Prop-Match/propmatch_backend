@@ -71,9 +71,9 @@ const MANDATORY_CLAUSES: { title: string; body: string }[] = [
 
 export interface LeaseContractHtmlInput {
   ownerName: string;
-  ownerNationalId: string;
+  ownerNationalId: string | null;
   tenantName: string;
-  tenantNationalId: string;
+  tenantNationalId: string | null;
   propertyAddress: string;
   rentAmount: number;
   startDate: Date;
@@ -177,8 +177,8 @@ export function buildLeaseContractHtml(input: LeaseContractHtmlInput): string {
 
   <p>إنه في يوم ${fmtDate(input.generatedAt)}، تم الاتفاق بين كل من:</p>
 
-  <div class="party"><b>الطرف الأول (المالك):</b> ${esc(input.ownerName)} — الرقم القومي: ${ltr(esc(input.ownerNationalId))}</div>
-  <div class="party"><b>الطرف الثاني (المستأجر):</b> ${esc(input.tenantName)} — الرقم القومي: ${ltr(esc(input.tenantNationalId))}</div>
+  <div class="party"><b>الطرف الأول (المالك):</b> ${esc(input.ownerName)}${input.ownerNationalId ? ` — الرقم القومي: ${ltr(esc(input.ownerNationalId))}` : ' — الهوية موثقة لدى المنصة'}</div>
+  <div class="party"><b>الطرف الثاني (المستأجر):</b> ${esc(input.tenantName)}${input.tenantNationalId ? ` — الرقم القومي: ${ltr(esc(input.tenantNationalId))}` : ' — الهوية موثقة لدى المنصة'}</div>
 
   ${mandatoryHtml}
   ${customHtml}

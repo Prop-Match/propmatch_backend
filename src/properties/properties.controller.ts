@@ -98,6 +98,17 @@ export class PropertiesController {
     return this.propertiesService.getAll(query);
   }
 
+  /**
+   * GET /api/tenant-requests
+   *
+   * Public on purpose: anonymous users browse tenant requests without logging in.
+   */
+  @Get('tenant-requests')
+  async getAllTenantRequests() {
+    return this.propertiesService.getAllTenantRequests();
+  }
+
+
   /** Public semantic browse endpoint; PostgreSQL approval status remains authoritative. */
   @Get('properties/search/semantic')
   async semanticSearch(
@@ -123,11 +134,43 @@ export class PropertiesController {
     return this.propertiesService.boost(req.user.userId, id);
   }
 
-  // Soft-archive a listing.
+  /**
+   * PATCH /api/properties/:propertyId/archive
+   *
+   * Owner-only, non-destructive property archiving. The landlord route below
+   * remains available for clients that already use it.
+   */
+  @Patch('properties/:propertyId/archive')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
+  async archiveOwnProperty(
+    @Request() req: { user: { userId: string } },
+    @Param('propertyId') propertyId: string,
+  ) {
+    return this.propertiesService.archive(req.user.userId, propertyId);
+  }
+
+  /**
+   * PATCH /api/properties/:propertyId/unarchive
+   *
+   * Restoring a listing never republishes it directly: it returns to PENDING
+   * so moderation can review it before it appears in tenant-facing results.
+   */
+  @Patch('properties/:propertyId/unarchive')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
+  async unarchiveOwnProperty(
+    @Request() req: { user: { userId: string } },
+    @Param('propertyId') propertyId: string,
+  ) {
+    return this.propertiesService.unarchive(req.user.userId, propertyId);
+  }
+
+  // Backward-compatible soft-archive route for existing landlord clients.
   @Post('landlord/properties/:id/archive')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('LANDLORD')
-  async archiveProperty(
+  async archiveLandlordProperty(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
   ) {

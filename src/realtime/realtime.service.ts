@@ -193,6 +193,49 @@ export class RealtimeService {
     return payload;
   }
 
+  /**
+   * Bulk variant of notifyUser for fan-out notifications (Smart Matchmaker:
+   * one tenant request can clear the match threshold for many landlords at
+   * once). One `createManyAndReturn` instead of N sequential `create` calls,
+   * still persist-then-emit — the DB rows are the source of truth, the
+   * per-user emits afterward are delivery only.
+   */
+  async notifyUsers(
+    inputs: {
+      userId: string;
+      type: NotificationType;
+      title: string;
+      message: string;
+      link?: string | null;
+    }[],
+  ): Promise<NotificationPayload[]> {
+    if (inputs.length === 0) return [];
+
+    const rows = await this.prisma.notification.createManyAndReturn({
+      data: inputs.map((input) => ({
+        userId: input.userId,
+        type: input.type,
+        title: input.title,
+        message: input.message,
+        link: input.link ?? null,
+      })),
+    });
+
+    return rows.map((row) => {
+      const payload: NotificationPayload = {
+        id: row.id,
+        type: row.type,
+        title: row.title,
+        message: row.message,
+        link: row.link,
+        isRead: row.isRead,
+        createdAt: row.createdAt.toISOString(),
+      };
+      this.gateway.emitToUser(row.userId, SOCKET_EVENTS.notification, payload);
+      return payload;
+    });
+  }
+
   emitMessage(userId: string, payload: unknown): void {
     this.gateway.emitToUser(userId, SOCKET_EVENTS.message, payload);
   }

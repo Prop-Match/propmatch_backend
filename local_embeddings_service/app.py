@@ -43,6 +43,11 @@ class QueryRequest(BaseModel):
     n_results: int = Field(default=10, ge=1, le=100)
 
 
+class DeleteRequest(BaseModel):
+    collection: str = Field(default=COLLECTION_NAME, min_length=1)
+    id: str = Field(min_length=1)
+
+
 @lru_cache(maxsize=1)
 def get_model() -> SentenceTransformer:
     logger.info("Loading embedding model %s on CPU", MODEL_NAME)
@@ -111,3 +116,13 @@ def query(request: QueryRequest) -> dict[str, Any]:
     except Exception as error:  # pragma: no cover - Chroma failures
         logger.exception("Chroma query failed")
         raise HTTPException(status_code=503, detail="Local Chroma query failed") from error
+
+
+@app.post("/delete")
+def delete(request: DeleteRequest) -> dict[str, str]:
+    try:
+        get_collection(request.collection).delete(ids=[request.id])
+        return {"status": "deleted", "collection": request.collection}
+    except Exception as error:  # pragma: no cover - Chroma failures
+        logger.exception("Chroma delete failed")
+        raise HTTPException(status_code=503, detail="Local Chroma delete failed") from error

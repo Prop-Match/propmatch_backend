@@ -81,4 +81,13 @@ export class ChromaPropertyService {
       return [{ vectorId, propertyId, distance: response.data.distances[0]?.[index] }];
     });
   }
+
+  /** Removes an archived property's vector from one provider collection. */
+  async remove(provider: EmbeddingProvider, vectorId: string): Promise<void> {
+    await axios.post(
+      `${this.serviceUrl}/delete`,
+      { collection: this.collectionFor(provider), id: vectorId },
+      { timeout: 30_000 },
+    );
+  }
 }

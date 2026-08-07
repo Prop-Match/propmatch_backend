@@ -74,7 +74,10 @@ describe('RealtimeGateway', () => {
         RealtimeGateway,
         RealtimeService,
         { provide: PrismaService, useValue: prismaStub },
-        { provide: ConfigService, useValue: { get: () => TEST_SECRET } },
+        {
+          provide: ConfigService,
+          useValue: { get: () => TEST_SECRET, getOrThrow: () => TEST_SECRET },
+        },
       ],
     }).compile();
 
