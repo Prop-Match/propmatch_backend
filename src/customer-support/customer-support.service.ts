@@ -353,15 +353,16 @@ export class CustomerSupportService {
       where: { id: user.userId },
       include: { identityVerification: true },
     });
+    // Minimize what crosses the trust boundary to the external LLM: the
+    // assistant only needs the account role and whether KYC is verified to
+    // tailor guidance. The user's real name and free-text KYC rejection reason
+    // are PII with no bearing on a how-to answer, so they are NOT sent.
     const body = {
       message,
       history,
       userContext: {
-        fullName: userDetails?.fullName,
         role: user.role,
         kycStatus: userDetails?.identityVerification?.status || 'NOT_SUBMITTED',
-        kycRejectionReason:
-          userDetails?.identityVerification?.rejectionReason || null,
       },
     };
     let response: Response;
