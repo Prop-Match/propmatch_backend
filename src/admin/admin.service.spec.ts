@@ -328,6 +328,7 @@ describe('AdminService.softDeleteUser', () => {
   const propertyUpdateMany = jest.fn();
   const $transaction = jest.fn();
   const create = jest.fn();
+  const forceLogoutUser = jest.fn();
   const service = new AdminService(
     {
       user: { findUnique, update: userUpdate },
@@ -336,7 +337,7 @@ describe('AdminService.softDeleteUser', () => {
       $transaction,
       adminAuditLogEntry: { create },
     } as unknown as PrismaService,
-    {} as RealtimeService,
+    { forceLogoutUser } as unknown as RealtimeService,
     {} as PrivateObjectStorage,
     {} as PropertyApprovalIndexingService,
     noopQueue,
@@ -352,7 +353,7 @@ describe('AdminService.softDeleteUser', () => {
     create.mockResolvedValue({});
   });
 
-  it('soft-deletes a tenant and archives their requests', async () => {
+  it('soft-deletes a tenant, archives their requests, and force-logs-out their live socket', async () => {
     findUnique.mockResolvedValue({
       id: 'user-1',
       role: 'TENANT',
@@ -365,6 +366,7 @@ describe('AdminService.softDeleteUser', () => {
       id: 'user-1',
     });
 
+    expect(forceLogoutUser).toHaveBeenCalledWith('user-1');
     expect($transaction).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.anything(),

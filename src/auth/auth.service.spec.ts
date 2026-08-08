@@ -193,8 +193,12 @@ describe('AuthService — soft-delete edge cases', () => {
   const prisma = {
     activationRequest: { findFirst: jest.fn(), create: jest.fn() },
     loginAttempt: { create: jest.fn() },
+    user: { findMany: jest.fn() },
   };
-  const realtimeService = { reactivationRequested: jest.fn() };
+  const realtimeService = {
+    reactivationRequested: jest.fn(),
+    notifyUsers: jest.fn(),
+  };
 
   const service = new AuthService(
     {} as never,
@@ -205,7 +209,11 @@ describe('AuthService — soft-delete edge cases', () => {
     realtimeService as never,
   );
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.user.findMany.mockResolvedValue([]);
+    realtimeService.notifyUsers.mockResolvedValue([]);
+  });
 
   it('rejects login for a soft-deleted user with 403 ACCOUNT_SUSPENDED, even with valid credentials', async () => {
     userService.findByEmail.mockResolvedValue(deletedUser);
@@ -234,7 +242,12 @@ describe('AuthService — soft-delete edge cases', () => {
     prisma.activationRequest.create.mockResolvedValue({
       id: 'req-1',
       status: 'PENDING',
+      createdAt: new Date('2026-08-08T00:00:00.000Z'),
     });
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'admin-1' },
+      { id: 'admin-2' },
+    ]);
 
     await expect(
       service.requestReactivation(deletedUser.email, plainPassword),
@@ -242,6 +255,53 @@ describe('AuthService — soft-delete edge cases', () => {
     expect(prisma.activationRequest.create).toHaveBeenCalledWith({
       data: { userId: deletedUser.id, status: 'PENDING' },
     });
+  });
+
+  it('persists a REACTIVATION_REQUEST notification for every admin, and skips the call when there are none', async () => {
+    userService.findByEmail.mockResolvedValue(deletedUser);
+    prisma.activationRequest.findFirst.mockResolvedValue(null);
+    prisma.activationRequest.create.mockResolvedValue({
+      id: 'req-1',
+      status: 'PENDING',
+      createdAt: new Date('2026-08-08T00:00:00.000Z'),
+    });
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'admin-1' },
+      { id: 'admin-2' },
+    ]);
+
+    await service.requestReactivation(deletedUser.email, plainPassword);
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: { role: 'ADMIN', deletedAt: null },
+      select: { id: true },
+    });
+    expect(realtimeService.notifyUsers).toHaveBeenCalledWith([
+      expect.objectContaining({
+        userId: 'admin-1',
+        type: 'REACTIVATION_REQUEST',
+      }),
+      expect.objectContaining({
+        userId: 'admin-2',
+        type: 'REACTIVATION_REQUEST',
+      }),
+    ]);
+    expect(realtimeService.reactivationRequested).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: 'req-1', userId: deletedUser.id }),
+    );
+
+    jest.clearAllMocks();
+    userService.findByEmail.mockResolvedValue(deletedUser);
+    prisma.activationRequest.findFirst.mockResolvedValue(null);
+    prisma.activationRequest.create.mockResolvedValue({
+      id: 'req-2',
+      status: 'PENDING',
+      createdAt: new Date('2026-08-08T00:00:00.000Z'),
+    });
+    prisma.user.findMany.mockResolvedValue([]);
+
+    await service.requestReactivation(deletedUser.email, plainPassword);
+    expect(realtimeService.notifyUsers).not.toHaveBeenCalled();
   });
 
   it('returns the existing PENDING request instead of creating a duplicate', async () => {

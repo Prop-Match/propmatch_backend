@@ -14,6 +14,11 @@ export const SOCKET_EVENTS = {
   paymentUpdated: 'payment:updated',
   /** Client→server + server→other-party typing relay (match + support chat). */
   typing: 'typing',
+  /** A soft-deleted/suspended user's live socket must drop immediately. */
+  forceLogout: 'force_logout',
+  /** A dedicated alert (distinct from the generic admin:queue:item) so the
+   * admin bell can toast + refetch without decoding a queue-item shape. */
+  newReactivationRequest: 'new_reactivation_request',
 } as const;
 
 /** Rooms. One per user; admins additionally share the `admins` room. */
@@ -35,7 +40,8 @@ export type NotificationType =
   | 'CONTRACT_REJECTED'
   | 'HIGH_MATCH_TENANT_REQUEST'
   | 'ACCOUNT_REACTIVATED'
-  | 'ACCOUNT_REACTIVATION_REJECTED';
+  | 'ACCOUNT_REACTIVATION_REJECTED'
+  | 'REACTIVATION_REQUEST';
 
 export interface NotificationPayload {
   id: string;
@@ -91,6 +97,14 @@ export interface SupportMessagePayload {
   content: string;
   internal: boolean;
   at: string;
+}
+
+export interface ReactivationRequestedPayload {
+  requestId: string;
+  userId: string;
+  userFullName: string;
+  userEmail: string;
+  createdAt: string;
 }
 
 export interface PaymentUpdatedPayload {

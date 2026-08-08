@@ -103,6 +103,8 @@ enum NotificationType {
   HIGH_MATCH_TENANT_REQUEST
   ACCOUNT_REACTIVATED
   ACCOUNT_REACTIVATION_REJECTED
+  /** A soft-deleted user requested reactivation — persisted to admins' bells. */
+  REACTIVATION_REQUEST
 }
 
 enum TenantRequestStatus {

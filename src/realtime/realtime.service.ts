@@ -9,6 +9,7 @@ import {
   type NotificationPayload,
   type NotificationType,
   type QueueItem,
+  type ReactivationRequestedPayload,
 } from './realtime.contract';
 import { RealtimeGateway } from './realtime.gateway';
 
@@ -153,17 +154,25 @@ export class RealtimeService {
   /**
    * A soft-deleted user requested account reactivation.
    *
-   * Ephemeral like the other *Submitted announcements above — the row is
-   * reconstructable from GET /admin/reactivations, so a reconnecting admin
-   * catches up on fetch. No frontend queue widget renders type:'reactivation'
-   * yet (unlike kyc/property/request/review, which each have a dedicated
-   * section on the admin moderation dashboard); this just makes the event
-   * reach connected admins now, ready for that UI whenever it's built.
+   * Emits twice, deliberately:
+   * - `announce()` (admin:queue:item, type:'reactivation') is ephemeral like
+   *   the other *Submitted announcements above — the row is reconstructable
+   *   from GET /admin/reactivations, so a reconnecting admin catches up on
+   *   fetch. No frontend queue widget renders type:'reactivation' yet
+   *   (unlike kyc/property/request/review, which each have a dedicated
+   *   section on the admin moderation dashboard); this keeps that path alive
+   *   for whenever that UI is built.
+   * - `newReactivationRequest` is a dedicated alert carrying the user's email
+   *   so the admin notification bell can toast immediately and invalidate its
+   *   pending-reactivations query, without decoding the generic queue-item
+   *   shape. Both go to the same `admins` room (ADMIN_ROOM, joined in
+   *   RealtimeGateway.handleConnection) — no separate room needed.
    */
   reactivationRequested(input: {
     requestId: string;
     userId: string;
     userFullName: string;
+    userEmail: string;
     createdAt?: Date;
   }): void {
     this.announce({
@@ -173,6 +182,30 @@ export class RealtimeService {
       title: input.userFullName,
       subtitle: 'طلب إعادة تفعيل حساب محذوف',
       submittedAt: iso(input.createdAt),
+    });
+
+    const payload: ReactivationRequestedPayload = {
+      requestId: input.requestId,
+      userId: input.userId,
+      userFullName: input.userFullName,
+      userEmail: input.userEmail,
+      createdAt: iso(input.createdAt),
+    };
+    this.gateway.emitToAdmins(SOCKET_EVENTS.newReactivationRequest, payload);
+  }
+
+  /**
+   * Kick a user's live socket(s) the instant their account is suspended —
+   * closes the passive-invalidation gap where a soft-deleted user who's
+   * already connected keeps working until their next HTTP request. The
+   * frontend must clear its own auth state on receipt; this only delivers
+   * the signal, the same persist-then-emit split doesn't apply here since
+   * there's nothing to persist (deletedAt is already written by the caller's
+   * transaction before this is called).
+   */
+  forceLogoutUser(userId: string): void {
+    this.gateway.emitToUser(userId, SOCKET_EVENTS.forceLogout, {
+      reason: 'ACCOUNT_SUSPENDED',
     });
   }
 

@@ -946,6 +946,12 @@ export class AdminService {
 
     await this.audit(adminId, 'user:delete', userId);
 
+    // Passive invalidation (JwtStrategy/gateway middleware checking
+    // deletedAt) only blocks the user on their *next* request/reconnect —
+    // if they're already connected, kick the live socket now so a currently
+    // active session doesn't keep working until it happens to refresh.
+    this.realtimeService.forceLogoutUser(userId);
+
     return { success: true, id: userId };
   }
 

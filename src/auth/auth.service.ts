@@ -181,10 +181,31 @@ export class AuthService {
     const request = await this.prisma.activationRequest.create({
       data: { userId: user.id, status: 'PENDING' },
     });
+
+    // Persisted admin-facing notification, so the bell dropdown's HTTP
+    // fetch (GET /notifications) shows it too, not just the live toast —
+    // reactivationRequested() below is delivery-only and ephemeral.
+    const admins = await this.prisma.user.findMany({
+      where: { role: 'ADMIN', deletedAt: null },
+      select: { id: true },
+    });
+    if (admins.length > 0) {
+      await this.realtimeService.notifyUsers(
+        admins.map((admin) => ({
+          userId: admin.id,
+          type: 'REACTIVATION_REQUEST',
+          title: 'طلب إعادة تفعيل حساب جديد',
+          message: `${user.fullName} (${user.email}) طلب إعادة تفعيل حسابه المحذوف.`,
+          link: '/admin/reactivations',
+        })),
+      );
+    }
+
     this.realtimeService.reactivationRequested({
       requestId: request.id,
       userId: user.id,
       userFullName: user.fullName,
+      userEmail: user.email,
       createdAt: request.createdAt,
     });
     return { id: request.id, status: request.status };
