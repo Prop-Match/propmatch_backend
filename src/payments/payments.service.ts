@@ -20,6 +20,7 @@ import {
   PRICING_CATALOG,
 } from './pricing.catalog';
 import { PaymobService } from './providers/paymob.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class PaymentsService {
@@ -28,6 +29,7 @@ export class PaymentsService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly gateway: PaymobService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async checkout(
@@ -78,6 +80,7 @@ export class PaymentsService {
         dto.paymentType,
         product.priceEgp,
         dto.method,
+        dto.walletPhone,
       );
 
     await this.prismaService.paymentTransaction.create({
@@ -111,6 +114,8 @@ export class PaymentsService {
 
     let userId = result.userId;
     let paymentType = result.paymentType;
+    let savedTransaction: { userId: string; providerOrderId: string } | null =
+      null;
 
     if (result.providerOrderId) {
       const transaction =
@@ -118,6 +123,7 @@ export class PaymentsService {
           where: { providerOrderId: result.providerOrderId },
         });
       if (transaction) {
+        savedTransaction = transaction;
         // The signed provider order stored at checkout is authoritative. Never
         // grant an entitlement from client-controlled webhook metadata.
         userId = transaction.userId;
@@ -133,13 +139,21 @@ export class PaymentsService {
         result.providerOrderId,
       );
     } else if (result.isFinal && result.providerOrderId) {
-      await this.prismaService.paymentTransaction.updateMany({
+      const updated = await this.prismaService.paymentTransaction.updateMany({
         where: { providerOrderId: result.providerOrderId, status: 'PENDING' },
         data: {
           status: 'FAILED',
           providerTransactionId: result.transactionId,
         },
       });
+      if (updated.count === 1 && savedTransaction) {
+        this.realtime.paymentUpdated(savedTransaction.userId, {
+          providerOrderId: savedTransaction.providerOrderId,
+          status: 'FAILED',
+          providerTransactionId: result.transactionId,
+          paidAt: null,
+        });
+      }
     }
     return { received: true };
   }
@@ -154,79 +168,33 @@ export class PaymentsService {
     return transaction;
   }
 
-  async reconcileTransaction(userId: string, providerOrderId: string) {
-    const transaction = await this.getTransaction(userId, providerOrderId);
-    if (transaction.status === 'SUCCESS') {
-      return transaction;
-    }
-
-    const { isSuccessful, transactionId } =
-      await this.gateway.checkTransactionStatus(providerOrderId);
-    if (isSuccessful && transactionId) {
-      await this.processSuccessfulPayment(
-        transaction.userId,
-        transaction.paymentType,
-        transactionId,
-        providerOrderId,
-      );
-    }
-    return this.getTransaction(userId, providerOrderId);
-  }
-
-  async reconcilePendingForUser(userId: string) {
-    const pendingTransactions =
-      await this.prismaService.paymentTransaction.findMany({
-        where: { userId, status: 'PENDING' },
-        orderBy: { createdAt: 'desc' },
-      });
-    return Promise.all(
-      pendingTransactions.map((transaction) =>
-        this.reconcileTransaction(userId, transaction.providerOrderId),
-      ),
-    );
-  }
-
   private async processSuccessfulPayment(
     userId: string,
     paymentType: string,
     transactionId: string,
     providerOrderId?: string,
   ): Promise<void> {
-    const existing = await this.prismaService.paymentTransaction.findFirst({
-      where: { providerTransactionId: transactionId },
-    });
-    if (existing) return;
+    if (!providerOrderId) {
+      this.logger.error('Successful Paymob callback has no provider order ID');
+      return;
+    }
 
-    await this.prismaService.$transaction(async (tx) => {
-      let targetPropertyId: string | null = null;
-      if (providerOrderId) {
-        const transaction = await tx.paymentTransaction.update({
-          where: { providerOrderId },
-          data: {
-            status: 'SUCCESS',
-            providerTransactionId: transactionId,
-            paidAt: new Date(),
-          },
-        });
-        targetPropertyId = transaction.targetPropertyId;
-      } else {
-        const transaction = await tx.paymentTransaction.findFirst({
-          where: { userId, status: 'PENDING' },
-          orderBy: { createdAt: 'desc' },
-        });
-        if (!transaction) {
-          throw new NotFoundException('Pending payment transaction not found');
-        }
-        targetPropertyId = transaction.targetPropertyId;
-        await tx.paymentTransaction.update({
-          where: { id: transaction.id },
-          data: {
-            status: 'SUCCESS',
-            providerTransactionId: transactionId,
-            paidAt: new Date(),
-          },
-        });
-      }
+    const paidAt = new Date();
+    const applied = await this.prismaService.$transaction(async (tx) => {
+      const claimed = await tx.paymentTransaction.updateMany({
+        where: { providerOrderId, status: 'PENDING' },
+        data: {
+          status: 'SUCCESS',
+          providerTransactionId: transactionId,
+          paidAt,
+        },
+      });
+      if (claimed.count === 0) return false;
+
+      const transaction = await tx.paymentTransaction.findUniqueOrThrow({
+        where: { providerOrderId },
+      });
+      const targetPropertyId = transaction.targetPropertyId;
 
       if (!isBillablePaymentType(paymentType)) {
         this.logger.warn(
@@ -256,7 +224,7 @@ export class PaymentsService {
             planExpiresAt,
             maxActiveListings: PREMIUM_ACTIVE_LISTING_LIMIT,
             optimizerUsesLeft,
-            freeOffersLeft: 3,
+            freeOffersLeft: 5,
           },
           update: {
             planType: 'PREMIUM',
@@ -286,7 +254,7 @@ export class PaymentsService {
             planExpiresAt,
             maxActiveListings: OWNER_PLUS_ACTIVE_LISTING_LIMIT,
             optimizerUsesLeft,
-            freeOffersLeft: 3,
+            freeOffersLeft: 5,
           },
           update: {
             planType: 'OWNER_PLUS',
@@ -332,7 +300,17 @@ export class PaymentsService {
           update: { optimizerUsesLeft: { increment: AI_ADDON_USES } },
         });
       }
+      return true;
     });
+
+    if (applied) {
+      this.realtime.paymentUpdated(userId, {
+        providerOrderId,
+        status: 'SUCCESS',
+        providerTransactionId: transactionId,
+        paidAt: paidAt.toISOString(),
+      });
+    }
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -351,6 +329,8 @@ export class PaymentsService {
           status: 'PENDING',
           createdAt: { lte: new Date(Date.now() - 30 * 60_000) },
         },
+        take: 100,
+        orderBy: { createdAt: 'asc' },
       });
 
     for (const transaction of pendingTransactions) {

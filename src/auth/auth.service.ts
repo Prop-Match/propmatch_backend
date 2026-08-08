@@ -108,7 +108,7 @@ export class AuthService {
               create: {
                 freeListingsLeft: 0,
                 optimizerUsesLeft: 0,
-                freeOffersLeft: 3,
+                freeOffersLeft: 5,
               },
             },
           }

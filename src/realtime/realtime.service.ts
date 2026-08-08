@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   SOCKET_EVENTS,
+  type PaymentUpdatedPayload,
   SupportMessagePayload,
   SupportTicketPayload,
   type NotificationPayload,
@@ -271,6 +272,10 @@ export class RealtimeService {
     },
   ): void {
     this.gateway.emitToUser(userId, SOCKET_EVENTS.accountSuspended, payload);
+  }
+
+  paymentUpdated(userId: string, payload: PaymentUpdatedPayload): void {
+    this.gateway.emitToUser(userId, SOCKET_EVENTS.paymentUpdated, payload);
   }
 
   async emitToRole(

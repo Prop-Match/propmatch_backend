@@ -1,8 +1,15 @@
-import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
-import { Inject } from '@nestjs/common';
 import type { PrivateObjectStorage } from './private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from './private-object-storage.token';
+
 
 @Controller('storage/private')
 export class PrivateStorageController {
@@ -10,7 +17,6 @@ export class PrivateStorageController {
     @Inject(PRIVATE_OBJECT_STORAGE)
     private readonly privateObjectStorage: PrivateObjectStorage,
   ) {}
-
   @Get(':token')
   async read(@Param('token') token: string, @Res() response: Response) {
     try {

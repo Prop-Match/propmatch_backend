@@ -1,9 +1,11 @@
-import { IsString, Matches, ValidateIf } from 'class-validator';
+import { IsDefined, IsString, Matches } from 'class-validator';
 import { i18nValidationMessage } from 'nestjs-i18n';
 
 export class SubmitVerificationDto {
-  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsDefined({ message: i18nValidationMessage('validation.REQUIRED') })
   @IsString({ message: i18nValidationMessage('validation.INVALID_STRING') })
-  @Matches(/\S/, { message: i18nValidationMessage('validation.REQUIRED') })
-  nationalId?: string;
+  @Matches(/^\d{14}$/, {
+    message: 'الرقم القومي يجب أن يتكون من 14 رقمًا.',
+  })
+  nationalId!: string;
 }

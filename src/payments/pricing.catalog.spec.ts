@@ -9,9 +9,12 @@ import {
 } from './pricing.catalog';
 
 describe('revised broker-free pricing catalog', () => {
-  it('exposes only the three approved checkout products at report prices', () => {
+  it('exposes the approved checkout products at catalog prices', () => {
     expect(BILLABLE_PAYMENT_TYPES).toEqual([
       'PREMIUM_OWNER',
+      'OWNER_PLUS',
+      'SINGLE_LISTING',
+      'SINGLE_OFFER',
       'BOOST_LISTING',
       'AI_ADDON',
     ]);
@@ -24,13 +27,15 @@ describe('revised broker-free pricing catalog', () => {
       ),
     ).toEqual({
       PREMIUM_OWNER: 999,
+      OWNER_PLUS: 499,
+      SINGLE_LISTING: 149,
+      SINGLE_OFFER: 99,
       BOOST_LISTING: 349,
       AI_ADDON: 199,
     });
   });
 
   it('does not allow removed or historical products at checkout', () => {
-    expect(isBillablePaymentType('OWNER_PLUS')).toBe(false);
     expect(isBillablePaymentType('NEW_LISTING')).toBe(false);
     expect(isBillablePaymentType('REFILL_MATCHES')).toBe(false);
     expect(isBillablePaymentType('OFFER_PACK')).toBe(false);
@@ -42,6 +47,6 @@ describe('revised broker-free pricing catalog', () => {
     expect(FREE_ACTIVE_LISTING_LIMIT).toBe(1);
     expect(PREMIUM_ACTIVE_LISTING_LIMIT).toBe(5);
     expect(PREMIUM_INCLUDED_AI_USES).toBe(5);
-    expect(BOOST_DURATION_DAYS).toBe(7);
+    expect(BOOST_DURATION_DAYS).toBe(30);
   });
 });

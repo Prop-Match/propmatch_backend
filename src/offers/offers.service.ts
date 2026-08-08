@@ -145,6 +145,7 @@ export class OffersService {
                     tenantId: o.tenantRequest.tenantId,
                     ownerId: landlordId,
                     propertyId: o.propertyId!,
+                    tenantRequestId: o.tenantRequestId,
                     status: 'CONNECTED',
                   },
                   select: { id: true },
@@ -295,6 +296,7 @@ export class OffersService {
             tenantId: request?.tenantId,
             ownerId: offer.ownerId,
             propertyId: offer.propertyId!,
+            tenantRequestId: offer.tenantRequestId,
             status: 'CONNECTED',
           },
           select: { id: true },
@@ -354,8 +356,9 @@ export class OffersService {
   }
 
   /**
-   * POST /tenant/offers/:id/accept â€” creates a CONNECTED match, fulfils the
-   * request, and reveals both parties' contact info.
+   * POST /tenant/offers/:id/accept creates a discussion connection and reveals
+   * contact details. The request stays active until the tenant separately
+   * confirms that an agreement was reached.
    */
   async acceptOffer(tenantId: string, offerId: string) {
     const offer = await this.findOwnedOffer(tenantId, offerId);
@@ -378,11 +381,11 @@ export class OffersService {
     });
     const { score: matchScore } = this.computeHybridMatch(request, property);
     const connection = await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.tenantRequest.updateMany({
+      const activeRequest = await tx.tenantRequest.findFirst({
         where: { id: offer.tenantRequestId, status: 'APPROVED' },
-        data: { status: 'FULFILLED' },
+        select: { id: true },
       });
-      if (claimed.count !== 1)
+      if (!activeRequest)
         throw new ConflictException('Tenant request is no longer available.');
       const accepted = await tx.ownerOffer.updateMany({
         where: { id: offerId, status: { in: ['SENT', 'VIEWED'] } },
@@ -392,19 +395,12 @@ export class OffersService {
         throw new ConflictException(
           'Offer cannot be accepted in its current state.',
         );
-      await tx.ownerOffer.updateMany({
-        where: {
-          tenantRequestId: offer.tenantRequestId,
-          id: { not: offerId },
-          status: { in: ['SENT', 'VIEWED'] },
-        },
-        data: { status: 'REJECTED' },
-      });
       return tx.matchConnection.create({
         data: {
           tenantId,
           propertyId: property.id,
           ownerId: offer.ownerId,
+          tenantRequestId: offer.tenantRequestId,
           matchScore,
           status: 'CONNECTED',
         },

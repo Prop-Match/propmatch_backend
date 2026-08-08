@@ -1,19 +1,27 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { ChatUploadStorageService } from '../uploads/chat-upload-storage.service';
 import { decryptText, encryptText } from './crypto.util';
+import { ChromaPropertyService } from '../properties/chroma-property.service';
+import { PropertyEmbeddingService } from '../properties/property-embedding.service';
 
 @Injectable()
 export class MessagesService {
+  private readonly logger = new Logger(MessagesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
     private readonly chatUploads: ChatUploadStorageService,
+    private readonly chromaService: ChromaPropertyService,
+    private readonly embeddingService: PropertyEmbeddingService,
   ) {}
 
   private async connectionFor(userId: string, id: string) {
@@ -40,6 +48,8 @@ export class MessagesService {
         tenantId: true,
         ownerId: true,
         propertyId: true,
+        tenantRequestId: true,
+        agreementReachedAt: true,
         createdAt: true,
         tenant: { select: { fullName: true } },
         owner: { select: { fullName: true } },
@@ -70,6 +80,10 @@ export class MessagesService {
         otherParticipantName:
           m.tenantId === userId ? m.owner.fullName : m.tenant.fullName,
         connectionStatus: 'CONNECTED',
+        agreementReachedAt: m.agreementReachedAt?.toISOString() ?? null,
+        canConfirmAgreement:
+          !m.agreementReachedAt &&
+          (m.tenantRequestId ? m.tenantId === userId : m.ownerId === userId),
         lastMessagePreview: m.messages[0]
           ? decryptText(m.messages[0].body).slice(0, 100)
           : null,
@@ -78,6 +92,132 @@ export class MessagesService {
       .sort((a, b) =>
         (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''),
       );
+  }
+
+  async confirmAgreement(userId: string, id: string) {
+    const connection = await this.prisma.matchConnection.findFirst({
+      where: {
+        id,
+        status: 'CONNECTED',
+        OR: [{ tenantId: userId }, { ownerId: userId }],
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        ownerId: true,
+        propertyId: true,
+        tenantRequestId: true,
+        agreementReachedAt: true,
+      },
+    });
+    if (!connection) throw new NotFoundException('Conversation not found.');
+    const confirmerId = connection.tenantRequestId
+      ? connection.tenantId
+      : connection.ownerId;
+    if (userId !== confirmerId) {
+      throw new ConflictException(
+        'ONLY_DESIGNATED_PARTY_MAY_CONFIRM_AGREEMENT',
+      );
+    }
+    if (connection.agreementReachedAt) {
+      return {
+        matchConnectionId: connection.id,
+        agreementReachedAt: connection.agreementReachedAt.toISOString(),
+      };
+    }
+
+    const agreementReachedAt = new Date();
+    const confirmation = await this.prisma.$transaction(async (tx) => {
+      const confirmed = await tx.matchConnection.updateMany({
+        where: { id, agreementReachedAt: null },
+        data: { agreementReachedAt },
+      });
+      if (confirmed.count !== 1) {
+        const current = await tx.matchConnection.findUnique({
+          where: { id },
+          select: { agreementReachedAt: true },
+        });
+        if (!current?.agreementReachedAt) {
+          throw new ConflictException('AGREEMENT_CONFIRMATION_CONFLICT');
+        }
+        return { reachedAt: current.agreementReachedAt, notify: false };
+      }
+
+      if (connection.tenantRequestId) {
+        const fulfilled = await tx.tenantRequest.updateMany({
+          where: {
+            id: connection.tenantRequestId,
+            tenantId: connection.tenantId,
+            status: 'APPROVED',
+          },
+          data: { status: 'FULFILLED' },
+        });
+        if (fulfilled.count !== 1) {
+          throw new ConflictException('TENANT_REQUEST_ALREADY_SETTLED');
+        }
+        await tx.ownerOffer.updateMany({
+          where: {
+            tenantRequestId: connection.tenantRequestId,
+            status: { in: ['SENT', 'VIEWED'] },
+          },
+          data: { status: 'REJECTED' },
+        });
+      }
+      await tx.ownerOffer.updateMany({
+        where: {
+          propertyId: connection.propertyId,
+          status: { in: ['SENT', 'VIEWED'] },
+        },
+        data: { status: 'REJECTED' },
+      });
+      await tx.tenantOffer.updateMany({
+        where: {
+          propertyId: connection.propertyId,
+          status: { in: ['PENDING', 'COUNTERED'] },
+        },
+        data: { status: 'DECLINED' },
+      });
+      await tx.property.updateMany({
+        where: { id: connection.propertyId, status: { not: 'ARCHIVED' } },
+        data: { status: 'ARCHIVED' },
+      });
+      return { reachedAt: agreementReachedAt, notify: true };
+    });
+
+    if (confirmation.notify) {
+      await this.removeArchivedPropertyVectors(connection.propertyId);
+      const recipientId =
+        userId === connection.ownerId
+          ? connection.tenantId
+          : connection.ownerId;
+      await this.realtime.notifyUser(recipientId, {
+        type: 'NEW_MATCH',
+        title: 'تم تأكيد الاتفاق',
+        message: 'أكد المستأجر الوصول إلى اتفاق. يمكن الآن إعداد عقد الإيجار.',
+        link: `/landlord/messages/${id}`,
+      });
+    }
+    return {
+      matchConnectionId: id,
+      agreementReachedAt: confirmation.reachedAt.toISOString(),
+    };
+  }
+
+  private async removeArchivedPropertyVectors(
+    propertyId: string,
+  ): Promise<void> {
+    const vectorId = `property:${propertyId}`;
+    const cleanup = [this.chromaService.remove('cohere', vectorId)];
+    if (this.embeddingService.isLocalEmbeddingEnabled()) {
+      cleanup.push(this.chromaService.remove('local', vectorId));
+    }
+    try {
+      await Promise.all(cleanup);
+    } catch {
+      this.logger.error(
+        `agreement property vector cleanup failed: propertyId=${propertyId}`,
+      );
+    }
   }
 
   async messages(userId: string, id: string) {

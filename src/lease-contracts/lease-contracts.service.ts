@@ -25,8 +25,6 @@ import {
 } from './lease-contract-template';
 import { PdfRendererService } from './pdf-renderer.service';
 import { buildRentalContractDraftPdfHtml } from './rental-contract-draft-pdf.template';
-import { ChromaPropertyService } from '../properties/chroma-property.service';
-import { PropertyEmbeddingService } from '../properties/property-embedding.service';
 
 const PDF_URL_TTL_SECONDS = 300;
 
@@ -70,8 +68,6 @@ export class LeaseContractsService {
     private readonly realtime: RealtimeService,
     @Inject(PRIVATE_OBJECT_STORAGE)
     private readonly storage: PrivateObjectStorage,
-    private readonly chromaService: ChromaPropertyService,
-    private readonly embeddingService: PropertyEmbeddingService,
   ) {}
 
   /** Every lease-contract notification deep-links to the same entry point —
@@ -251,7 +247,6 @@ export class LeaseContractsService {
     // contract and its PDF was generated. Repair a missing archive/vector
     // cleanup on retries without generating another PDF or changing the deal.
     if (contract.status === 'APPROVED') {
-      await this.archiveCompletedDealProperty(match.propertyId);
       return this.toResponse(contract);
     }
     if (contract.status !== 'PENDING_TENANT_APPROVAL') {
@@ -312,13 +307,8 @@ export class LeaseContractsService {
           status: 'APPROVED',
         },
       });
-      await tx.property.updateMany({
-        where: { id: match.propertyId, status: { not: 'ARCHIVED' } },
-        data: { status: 'ARCHIVED' },
-      });
       return approvedContract;
     });
-    await this.removeArchivedPropertyVectors(match.propertyId);
     await this.realtime.notifyUser(match.ownerId, {
       type: 'CONTRACT_APPROVED',
       title: 'تمت الموافقة على العقد',
@@ -326,34 +316,6 @@ export class LeaseContractsService {
       link: `/contracts/${updated.id}`,
     });
     return this.toResponse(updated);
-  }
-
-  private async archiveCompletedDealProperty(
-    propertyId: string,
-  ): Promise<void> {
-    await this.prisma.property.updateMany({
-      where: { id: propertyId, status: { not: 'ARCHIVED' } },
-      data: { status: 'ARCHIVED' },
-    });
-    await this.removeArchivedPropertyVectors(propertyId);
-  }
-
-  /** Vector cleanup is retriable and must never roll back the completed deal. */
-  private async removeArchivedPropertyVectors(
-    propertyId: string,
-  ): Promise<void> {
-    const vectorId = `property:${propertyId}`;
-    const cleanup = [this.chromaService.remove('cohere', vectorId)];
-    if (this.embeddingService.isLocalEmbeddingEnabled()) {
-      cleanup.push(this.chromaService.remove('local', vectorId));
-    }
-    try {
-      await Promise.all(cleanup);
-    } catch {
-      this.logger.error(
-        `completed-deal vector cleanup failed: propertyId=${propertyId}`,
-      );
-    }
   }
 
   /** Tenant only. Unlocks the draft for the landlord to revise. */
@@ -547,17 +509,16 @@ export class LeaseContractsService {
     ) {
       throw new ConflictException('PDF_DOWNLOAD_REQUIRES_CONFIRMED_REVIEW');
     }
-    const { matchConnection: _matchConnection, ...saved } = contract;
     return this.pdfRenderer.renderHtmlToPdf(
       buildRentalContractDraftPdfHtml({
-        contractId: saved.id,
-        ownerName: saved.ownerName,
-        tenantName: saved.tenantName,
-        propertyAddress: saved.propertyAddress,
-        rentAmount: saved.rentAmount,
-        startDate: saved.startDate,
-        endDate: saved.endDate,
-        customClauses: saved.customClauses,
+        contractId: contract.id,
+        ownerName: contract.ownerName,
+        tenantName: contract.tenantName,
+        propertyAddress: contract.propertyAddress,
+        rentAmount: contract.rentAmount,
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        customClauses: contract.customClauses,
         generatedAt: new Date(),
       }),
     );

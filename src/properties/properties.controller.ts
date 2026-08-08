@@ -30,6 +30,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { VerifiedGuard } from '../common/guards/verified.guard';
 import { UserThrottlerGuard } from '../common/guards/user-throttler.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { TenantRequestBrowseGuard } from '../tenant-requests/guards/tenant-request-browse.guard';
 import {
   MAX_PROPERTY_IMAGES,
   MAX_PROPERTY_IMAGE_SIZE,
@@ -103,9 +105,11 @@ export class PropertiesController {
   /**
    * GET /api/tenant-requests
    *
-   * Public on purpose: anonymous users browse tenant requests without logging in.
+   * Anonymous guests and landlords may browse approved requests. Authenticated
+   * tenants must use /tenant/requests, which returns only their own records.
    */
   @Get('tenant-requests')
+  @UseGuards(OptionalJwtAuthGuard, TenantRequestBrowseGuard)
   async getAllTenantRequests() {
     return this.propertiesService.getAllTenantRequests();
   }
