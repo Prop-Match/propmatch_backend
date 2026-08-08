@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
 import { MailService } from 'src/mail/mail.service';
+import { isSuspensionActive, suspensionMessage } from '../common/suspension';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
@@ -73,14 +74,25 @@ export class AuthService {
     // Valid credentials for a soft-deleted account: reject with a specific
     // code (not the generic 401) so the frontend can distinguish "wrong
     // password" from "this account still exists but was deleted" and offer
-    // reactivation instead of just failing.
+    // reactivation instead of just failing. Renamed from ACCOUNT_SUSPENDED
+    // to ACCOUNT_DELETED now that real suspension exists below — the two
+    // are different account states with different recoveries (self-service
+    // reactivation request vs waiting out/appealing a suspension).
     if (user.deletedAt) {
       throw new ForbiddenException({
         statusCode: 403,
-        code: 'ACCOUNT_SUSPENDED',
+        code: 'ACCOUNT_DELETED',
         message:
-          I18nContext.current()?.t('auth.ACCOUNT_SUSPENDED') ||
+          I18nContext.current()?.t('auth.ACCOUNT_DELETED') ||
           'هذا الحساب مجدول للحذف. يمكنك طلب إعادة التفعيل.',
+      });
+    }
+    // Block a suspended account at the door, with the reason + end date.
+    if (isSuspensionActive(user)) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ACCOUNT_SUSPENDED',
+        message: suspensionMessage(user),
       });
     }
     const payLoad = {
@@ -124,7 +136,7 @@ export class AuthService {
               create: {
                 freeListingsLeft: 0,
                 optimizerUsesLeft: 0,
-                freeOffersLeft: 3,
+                freeOffersLeft: 5,
               },
             },
           }
@@ -242,10 +254,14 @@ export class AuthService {
         );
       }
       // Same revocation guarantee as JwtStrategy, applied to the refresh
-      // path too — otherwise a refresh token minted before a deletion or
-      // reactivation could keep silently minting fresh access tokens
-      // forever, bypassing the access-token check entirely.
-      if (user.deletedAt || payload.tokenVersion !== user.tokenVersion) {
+      // path too — otherwise a refresh token minted before a deletion,
+      // suspension, or reactivation could keep silently minting fresh
+      // access tokens forever, bypassing the access-token check entirely.
+      if (
+        user.deletedAt ||
+        isSuspensionActive(user) ||
+        payload.tokenVersion !== user.tokenVersion
+      ) {
         throw new UnauthorizedException();
       }
 

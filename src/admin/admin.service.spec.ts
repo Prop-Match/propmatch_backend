@@ -611,9 +611,10 @@ describe('AdminService.anonymizeExpiredUsers', () => {
 
 describe('AdminService.listUsers', () => {
   const findMany = jest.fn();
+  const count = jest.fn();
   const service = new AdminService(
     {
-      user: { findMany },
+      user: { findMany, count },
     } as unknown as PrismaService,
     {} as RealtimeService,
     {} as PrivateObjectStorage,
@@ -626,35 +627,61 @@ describe('AdminService.listUsers', () => {
     id: 'user-1',
     fullName: 'Test User',
     email: 'user@example.com',
+    phoneNumber: '01000000000',
     role: 'TENANT',
     isActive: true,
     createdAt: new Date('2026-07-01T00:00:00.000Z'),
     deletedAt: null as Date | null,
+    suspendedAt: null as Date | null,
+    suspendedUntil: null as Date | null,
+    suspensionReason: null as string | null,
+    suspensionNote: null as string | null,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
     findMany.mockResolvedValue([row]);
+    count.mockResolvedValue(1);
   });
 
-  it('defaults to active users only (deletedAt: null)', async () => {
+  it('defaults to active, non-admin users only (deletedAt: null)', async () => {
     await service.listUsers();
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { deletedAt: null } }),
+      expect.objectContaining({
+        where: { role: { not: 'ADMIN' }, deletedAt: null },
+      }),
     );
   });
 
   it('filters to deleted users when status=deleted', async () => {
-    await service.listUsers('deleted');
+    await service.listUsers({ status: 'deleted' });
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { deletedAt: { not: null } } }),
+      expect.objectContaining({
+        where: { role: { not: 'ADMIN' }, deletedAt: { not: null } },
+      }),
     );
   });
 
   it('applies no deletedAt filter when status=all', async () => {
-    await service.listUsers('all');
+    await service.listUsers({ status: 'all' });
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: {} }),
+      expect.objectContaining({ where: { role: { not: 'ADMIN' } } }),
+    );
+  });
+
+  it('searches by name/email/phone when search is provided', async () => {
+    await service.listUsers({ status: 'all', search: 'ali' });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        where: expect.objectContaining({
+          OR: [
+            { fullName: { contains: 'ali', mode: 'insensitive' } },
+            { email: { contains: 'ali', mode: 'insensitive' } },
+            { phoneNumber: { contains: 'ali' } },
+          ],
+        }),
+      }),
     );
   });
 
@@ -662,13 +689,15 @@ describe('AdminService.listUsers', () => {
     findMany.mockResolvedValue([
       { ...row, id: 'user-2', deletedAt: new Date('2026-07-15T00:00:00.000Z') },
     ]);
-    await expect(service.listUsers('deleted')).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          id: 'user-2',
-          deletedAt: '2026-07-15T00:00:00.000Z',
-        }),
-      ],
-    });
+    await expect(service.listUsers({ status: 'deleted' })).resolves.toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            id: 'user-2',
+            deletedAt: '2026-07-15T00:00:00.000Z',
+          }),
+        ],
+      }),
+    );
   });
 });

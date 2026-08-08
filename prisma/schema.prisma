@@ -99,7 +99,9 @@ enum NotificationType {
   CONTRACT_READY_FOR_REVIEW
   CONTRACT_APPROVED
   CONTRACT_REJECTED
-  /** Smart Matchmaker — a landlord's property scored >75 against a new tenant request. */
+  /**
+   * Smart Matchmaker — a landlord's property scored >75 against a new tenant request.
+   */
   HIGH_MATCH_TENANT_REQUEST
   ACCOUNT_REACTIVATED
   ACCOUNT_REACTIVATION_REJECTED
@@ -155,13 +157,13 @@ enum TenantContractReviewStatus {
 }
 
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  fullName     String    @map("full_name")
-  email        String    @unique
-  phoneNumber  String    @map("phone_number")
-  passwordHash String    @map("password_hash")
-  role         UserRole  @default(TENANT)
-  avatarUrl    String?   @map("avatar_url")
+  id           String     @id @default(uuid()) @db.Uuid
+  fullName     String     @map("full_name")
+  email        String     @unique
+  phoneNumber  String     @map("phone_number")
+  passwordHash String     @map("password_hash")
+  role         UserRole   @default(TENANT)
+  avatarUrl    String?    @map("avatar_url")
   adminRole    AdminRole? @map("admin_role")
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at")
@@ -169,7 +171,10 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   /** Soft-delete marker. Non-null means the account is deleted — JwtStrategy
    * rejects any token for a user with this set, revoking sessions immediately
-   * despite JWTs being otherwise stateless. */
+   * despite JWTs being otherwise stateless. Distinct from suspension below:
+   * a deleted user is a "ghost" (self-delete or 30-day-expired anonymized
+   * account) with its own reactivation flow; a suspended user is still a
+   * live account, just temporarily/permanently blocked by an admin. */
   deletedAt    DateTime? @map("deleted_at")
   /** Bumped on reactivation (and available for any future forced-logout use).
    * JwtStrategy rejects a token whose embedded tokenVersion doesn't match
@@ -177,6 +182,14 @@ model User {
   tokenVersion Int       @default(0) @map("token_version")
 
   activationRequests ActivationRequest[]
+
+  // Admin suspension. suspendedAt != null ⇒ suspended; suspendedUntil null ⇒
+  // permanent, a future date ⇒ temporary (auto-expires when it passes).
+  suspendedAt      DateTime? @map("suspended_at")
+  suspendedUntil   DateTime? @map("suspended_until")
+  suspensionReason String?   @map("suspension_reason")
+  suspensionNote   String?   @map("suspension_note") @db.Text
+  suspendedById    String?   @map("suspended_by_id") @db.Uuid
 
   //forget password
   resetToken           String?               @map("reset_token")
@@ -191,8 +204,8 @@ model User {
   properties Property[] @relation("PropertyOwner")
 
   // Offers & Partner Strategic Lead Routing
-  ownerOffers  OwnerOffer[]
-  partnerLeads PartnerLead[]
+  ownerOffers         OwnerOffer[]
+  partnerLeads        PartnerLead[]
   tenantListingOffers TenantOffer[] @relation("TenantListingOffers")
   ownerListingOffers  TenantOffer[] @relation("OwnerListingOffers")
 
@@ -265,7 +278,7 @@ model UserQuota {
   // from active properties; optimizer uses are the paid AI allowance.
   freeListingsLeft         Int       @default(0) @map("free_listings_left")
   optimizerUsesLeft        Int       @default(0) @map("optimizer_uses_left")
-  freeOffersLeft           Int       @default(3) @map("free_offers_left")
+  freeOffersLeft           Int       @default(5) @map("free_offers_left")
   documentationPackCredits Int       @default(0) @map("documentation_pack_credits")
   lastResetDate            DateTime  @default(now()) @map("last_reset_date")
   updatedAt                DateTime  @updatedAt @map("updated_at")
@@ -305,7 +318,7 @@ model Property {
    * the rule-based pre-filter and compute cosine similarity in Node memory
    * instead of a per-candidate ChromaDB round-trip.
    */
-  embedding              Float[]        @default([])
+  embedding Float[] @default([])
 
   // Admin Approval
   approvedBy     String?   @map("approved_by") @db.Uuid
@@ -377,6 +390,7 @@ model TenantRequest {
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
   ownerOffers           OwnerOffer[]
+  matchConnections      MatchConnection[]
 
   /**
    * Cached copy of the request's embedding vector, generated once by
@@ -385,7 +399,7 @@ model TenantRequest {
    * math) — single source of truth so the UI card's matchScore and the
    * proactive notification's finalScore never diverge.
    */
-  embedding             Float[]             @default([])
+  embedding Float[] @default([])
 
   @@map("tenant_request")
 }
@@ -435,7 +449,7 @@ model TenantOffer {
 enum TenantOfferStatus {
   PENDING // tenant submitted, awaiting landlord
   COUNTERED // landlord countered, awaiting tenant
-  ACCEPTED // agreed → MatchConnection created
+  ACCEPTED // accepted for discussion → MatchConnection created
   DECLINED // landlord declined
   WITHDRAWN // tenant withdrew
 }
@@ -453,20 +467,24 @@ model Favorite {
 }
 
 model MatchConnection {
-  id             String           @id @default(uuid()) @db.Uuid
-  tenantId       String           @map("tenant_id") @db.Uuid
-  tenant         User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
-  propertyId     String           @map("property_id") @db.Uuid
-  property       Property         @relation(fields: [propertyId], references: [id])
-  ownerId        String           @map("owner_id") @db.Uuid
-  owner          User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
-  matchScore     Float            @map("match_score")
-  status         ConnectionStatus @default(INTERESTED)
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
-  messages       Message[]
-  leaseContracts LeaseContract[]
+  id                 String           @id @default(uuid()) @db.Uuid
+  tenantId           String           @map("tenant_id") @db.Uuid
+  tenant             User             @relation("TenantMatchConnections", fields: [tenantId], references: [id])
+  propertyId         String           @map("property_id") @db.Uuid
+  property           Property         @relation(fields: [propertyId], references: [id])
+  ownerId            String           @map("owner_id") @db.Uuid
+  owner              User             @relation("OwnerMatchConnections", fields: [ownerId], references: [id])
+  tenantRequestId    String?          @map("tenant_request_id") @db.Uuid
+  tenantRequest      TenantRequest?   @relation(fields: [tenantRequestId], references: [id], onDelete: SetNull)
+  matchScore         Float            @map("match_score")
+  status             ConnectionStatus @default(INTERESTED)
+  agreementReachedAt DateTime?        @map("agreement_reached_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  messages           Message[]
+  leaseContracts     LeaseContract[]
 
+  @@index([tenantRequestId])
   @@map("match_connection")
 }
 
@@ -477,16 +495,16 @@ enum MessageAttachmentType {
 }
 
 model Message {
-  id                String   @id @default(uuid()) @db.Uuid
-  matchConnectionId String   @map("match_connection_id") @db.Uuid
-  senderId          String   @map("sender_id") @db.Uuid
-  body              String   @db.Text
+  id                   String                 @id @default(uuid()) @db.Uuid
+  matchConnectionId    String                 @map("match_connection_id") @db.Uuid
+  senderId             String                 @map("sender_id") @db.Uuid
+  body                 String                 @db.Text
   attachmentUrl        String?                @map("attachment_url")
   attachmentType       MessageAttachmentType? @map("attachment_type")
   attachmentName       String?                @map("attachment_name")
   attachmentDurationMs Int?                   @map("attachment_duration_ms")
-  createdAt         DateTime @default(now()) @map("created_at")
-  editedAt          DateTime? @map("edited_at")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  editedAt             DateTime?              @map("edited_at")
 
   matchConnection MatchConnection @relation(fields: [matchConnectionId], references: [id], onDelete: Cascade)
   sender          User            @relation(fields: [senderId], references: [id], onDelete: Restrict)
@@ -515,35 +533,35 @@ model PaymentTransaction {
 }
 
 model LeaseContract {
-  id                 String              @id @default(uuid()) @db.Uuid
-  matchConnectionId  String              @map("match_connection_id") @db.Uuid
-  matchConnection    MatchConnection     @relation(fields: [matchConnectionId], references: [id])
-  generatedByUserId  String              @map("generated_by_user_id") @db.Uuid
-  generatedBy        User                @relation(fields: [generatedByUserId], references: [id])
-  ownerName          String              @map("owner_name")
-  ownerNationalId    String?             @map("owner_national_id")
-  tenantName         String              @map("tenant_name")
-  tenantNationalId   String?             @map("tenant_national_id")
-  propertyAddress    String              @map("property_address")
-  customClauses      String[]            @map("custom_clauses")
-  witness1Name       String?             @map("witness1_name")
-  witness1NationalId String?             @map("witness1_national_id")
-  witness2Name       String?             @map("witness2_name")
-  witness2NationalId String?             @map("witness2_national_id")
-  pdfUrl             String?             @map("pdf_url")
-  startDate          DateTime            @map("start_date")
-  endDate            DateTime            @map("end_date")
-  rentAmount         Float               @map("rent_amount")
-  status             LeaseContractStatus @default(DRAFTING)
-  tenantReviewStatus TenantContractReviewStatus @default(PENDING_REVIEW) @map("tenant_review_status")
-  tenantChangeRequest String? @map("tenant_change_request") @db.Text
-  tenantChangeRequestedAt DateTime? @map("tenant_change_requested_at")
-  tenantReviewConfirmedAt DateTime? @map("tenant_review_confirmed_at")
-  draftRevision Int @default(1) @map("draft_revision")
-  tenantReviewedRevision Int? @map("tenant_reviewed_revision")
-  changeRequestNote  String?             @map("change_request_note") @db.Text
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
+  id                      String                     @id @default(uuid()) @db.Uuid
+  matchConnectionId       String                     @map("match_connection_id") @db.Uuid
+  matchConnection         MatchConnection            @relation(fields: [matchConnectionId], references: [id])
+  generatedByUserId       String                     @map("generated_by_user_id") @db.Uuid
+  generatedBy             User                       @relation(fields: [generatedByUserId], references: [id])
+  ownerName               String                     @map("owner_name")
+  ownerNationalId         String?                    @map("owner_national_id")
+  tenantName              String                     @map("tenant_name")
+  tenantNationalId        String?                    @map("tenant_national_id")
+  propertyAddress         String                     @map("property_address")
+  customClauses           String[]                   @map("custom_clauses")
+  witness1Name            String?                    @map("witness1_name")
+  witness1NationalId      String?                    @map("witness1_national_id")
+  witness2Name            String?                    @map("witness2_name")
+  witness2NationalId      String?                    @map("witness2_national_id")
+  pdfUrl                  String?                    @map("pdf_url")
+  startDate               DateTime                   @map("start_date")
+  endDate                 DateTime                   @map("end_date")
+  rentAmount              Float                      @map("rent_amount")
+  status                  LeaseContractStatus        @default(DRAFTING)
+  tenantReviewStatus      TenantContractReviewStatus @default(PENDING_REVIEW) @map("tenant_review_status")
+  tenantChangeRequest     String?                    @map("tenant_change_request") @db.Text
+  tenantChangeRequestedAt DateTime?                  @map("tenant_change_requested_at")
+  tenantReviewConfirmedAt DateTime?                  @map("tenant_review_confirmed_at")
+  draftRevision           Int                        @default(1) @map("draft_revision")
+  tenantReviewedRevision  Int?                       @map("tenant_reviewed_revision")
+  changeRequestNote       String?                    @map("change_request_note") @db.Text
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  updatedAt               DateTime                   @updatedAt @map("updated_at")
 
   @@unique([matchConnectionId])
   @@map("lease_contract")
@@ -723,20 +741,20 @@ model SupportTicket {
 }
 
 model SupportMessage {
-  id         String        @id @default(uuid()) @db.Uuid
-  ticketId   String        @map("ticket_id") @db.Uuid
-  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  authorType SupportAuthor
-  authorName String        @map("author_name")
-  authorId   String?       @map("author_id") @db.Uuid
-  author     User?         @relation(fields: [authorId], references: [id])
-  content    String
+  id                   String                 @id @default(uuid()) @db.Uuid
+  ticketId             String                 @map("ticket_id") @db.Uuid
+  ticket               SupportTicket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorType           SupportAuthor
+  authorName           String                 @map("author_name")
+  authorId             String?                @map("author_id") @db.Uuid
+  author               User?                  @relation(fields: [authorId], references: [id])
+  content              String
   attachmentUrl        String?                @map("attachment_url")
   attachmentType       MessageAttachmentType? @map("attachment_type")
   attachmentName       String?                @map("attachment_name")
   attachmentDurationMs Int?                   @map("attachment_duration_ms")
-  internal   Boolean       @default(false)
-  createdAt  DateTime      @default(now()) @map("created_at")
+  internal             Boolean                @default(false)
+  createdAt            DateTime               @default(now()) @map("created_at")
 
   @@index([ticketId, createdAt])
   @@map("support_message")

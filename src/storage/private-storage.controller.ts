@@ -5,18 +5,13 @@ import {
   NotFoundException,
   Param,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { Roles } from 'src/auth/decorators/roles.decorator';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { RolesGuard } from 'src/auth/guards/roles.guard';
 import type { PrivateObjectStorage } from './private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from './private-object-storage.token';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
-@Controller('api/storage/private')
+
+@Controller('storage/private')
 export class PrivateStorageController {
   constructor(
     @Inject(PRIVATE_OBJECT_STORAGE)

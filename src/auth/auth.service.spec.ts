@@ -215,8 +215,27 @@ describe('AuthService — soft-delete edge cases', () => {
     realtimeService.notifyUsers.mockResolvedValue([]);
   });
 
-  it('rejects login for a soft-deleted user with 403 ACCOUNT_SUSPENDED, even with valid credentials', async () => {
+  it('rejects login for a soft-deleted user with 403 ACCOUNT_DELETED, even with valid credentials', async () => {
     userService.findByEmail.mockResolvedValue(deletedUser);
+
+    await expect(
+      service.signIn(deletedUser.email, plainPassword, '127.0.0.1'),
+    ).rejects.toMatchObject({
+      status: 403,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      response: expect.objectContaining({ code: 'ACCOUNT_DELETED' }),
+    });
+    expect(jwtService.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects login for a suspended (not deleted) user with 403 ACCOUNT_SUSPENDED', async () => {
+    userService.findByEmail.mockResolvedValue({
+      ...deletedUser,
+      deletedAt: null,
+      suspendedAt: new Date('2026-07-01T00:00:00.000Z'),
+      suspendedUntil: null,
+      suspensionReason: 'FRAUD',
+    });
 
     await expect(
       service.signIn(deletedUser.email, plainPassword, '127.0.0.1'),

@@ -70,7 +70,7 @@ export class VerificationService {
         await this.prisma.identityVerification.create({
           data: {
             userId,
-            nationalId: dto.nationalId ?? null,
+            nationalId: dto.nationalId,
             nationalIdFrontUrl: uploaded.nationalIdFrontObjectKey,
             nationalIdBackUrl: uploaded.nationalIdBackObjectKey,
             selfieUrl: uploaded.selfieObjectKey,
@@ -93,9 +93,7 @@ export class VerificationService {
             rejectionReason: null,
             reviewedAt: null,
             reviewedBy: null,
-            ...(dto.nationalId !== undefined
-              ? { nationalId: dto.nationalId }
-              : {}),
+            nationalId: dto.nationalId,
           },
         });
         if (update.count !== 1) {

@@ -17,6 +17,7 @@ export type Capability =
   | 'report:export'
   | 'ticket:reply'
   | 'audit:view'
+  | 'user:suspend'
   | 'admin:create'
   | 'admin:manage'
   | 'user:delete'
@@ -34,6 +35,7 @@ const SUPER_ADMIN_CAPS: Capability[] = [
   'report:export',
   'ticket:reply',
   'audit:view',
+  'user:suspend',
   'admin:create',
   'admin:manage',
   'user:delete',
