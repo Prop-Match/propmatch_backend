@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   Request,
   UseGuards,
@@ -228,8 +229,8 @@ export class AdminController {
   @Get('users')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
-  async listUsers() {
-    return this.adminService.listUsers();
+  async listUsers(@Query('status') status?: 'active' | 'deleted' | 'all') {
+    return this.adminService.listUsers(status);
   }
 
   @Delete('users/:id')

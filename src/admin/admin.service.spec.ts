@@ -608,3 +608,67 @@ describe('AdminService.anonymizeExpiredUsers', () => {
     );
   });
 });
+
+describe('AdminService.listUsers', () => {
+  const findMany = jest.fn();
+  const service = new AdminService(
+    {
+      user: { findMany },
+    } as unknown as PrismaService,
+    {} as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+    noopMailService,
+  );
+
+  const row = {
+    id: 'user-1',
+    fullName: 'Test User',
+    email: 'user@example.com',
+    role: 'TENANT',
+    isActive: true,
+    createdAt: new Date('2026-07-01T00:00:00.000Z'),
+    deletedAt: null as Date | null,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    findMany.mockResolvedValue([row]);
+  });
+
+  it('defaults to active users only (deletedAt: null)', async () => {
+    await service.listUsers();
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { deletedAt: null } }),
+    );
+  });
+
+  it('filters to deleted users when status=deleted', async () => {
+    await service.listUsers('deleted');
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { deletedAt: { not: null } } }),
+    );
+  });
+
+  it('applies no deletedAt filter when status=all', async () => {
+    await service.listUsers('all');
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} }),
+    );
+  });
+
+  it('includes deletedAt in the mapped response', async () => {
+    findMany.mockResolvedValue([
+      { ...row, id: 'user-2', deletedAt: new Date('2026-07-15T00:00:00.000Z') },
+    ]);
+    await expect(service.listUsers('deleted')).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'user-2',
+          deletedAt: '2026-07-15T00:00:00.000Z',
+        }),
+      ],
+    });
+  });
+});

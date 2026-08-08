@@ -871,14 +871,26 @@ export class AdminService {
   }
 
   /**
-   * GET /admin/users — every non-deleted platform account (tenants,
+   * GET /admin/users?status=active|deleted|all — platform accounts (tenants,
    * landlords, admins alike). Deliberately minimal: no search/pagination —
    * this is scoped to giving the delete-user UI something real to list, not
    * a full directory feature.
+   *
+   * Defaults to 'active' (deletedAt: null) so the main view stays clean —
+   * ghosted/anonymized accounts (see AdminService.anonymizeExpiredUsers)
+   * don't clutter it by default — while still letting an admin explicitly
+   * switch to the Suspended/Deleted tab via ?status=deleted.
    */
-  async listUsers() {
+  async listUsers(status: 'active' | 'deleted' | 'all' = 'active') {
+    const where =
+      status === 'deleted'
+        ? { deletedAt: { not: null } }
+        : status === 'all'
+          ? {}
+          : { deletedAt: null };
+
     const users = await this.prismaService.user.findMany({
-      where: { deletedAt: null },
+      where,
       orderBy: { createdAt: 'desc' },
     });
     return {
@@ -889,6 +901,7 @@ export class AdminService {
         role: user.role,
         isActive: user.isActive,
         createdAt: user.createdAt.toISOString(),
+        deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
       })),
     };
   }
