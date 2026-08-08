@@ -4,10 +4,11 @@ import { AdminService } from './admin.service';
 import { PrivateStorageModule } from '../storage/private-storage.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { MatchingModule } from '../matching/matching.module';
+import { MailModule } from '../mail/mail.module';
 import { CapabilitiesGuard } from './guards/capabilities.guard';
 
 @Module({
-  imports: [PrivateStorageModule, PropertiesModule, MatchingModule],
+  imports: [PrivateStorageModule, PropertiesModule, MatchingModule, MailModule],
   exports: [AdminService],
   providers: [AdminService, CapabilitiesGuard],
   controllers: [AdminController],

@@ -14,6 +14,11 @@ export const SOCKET_EVENTS = {
   paymentUpdated: 'payment:updated',
   /** Client→server + server→other-party typing relay (match + support chat). */
   typing: 'typing',
+  /** A soft-deleted user's live socket must drop immediately. */
+  forceLogout: 'force_logout',
+  /** A dedicated alert (distinct from the generic admin:queue:item) so the
+   * admin bell can toast + refetch without decoding a queue-item shape. */
+  newReactivationRequest: 'new_reactivation_request',
   /** Admin suspended this account → push a blocking notice to the live session. */
   accountSuspended: 'account:suspended',
 } as const;
@@ -42,7 +47,10 @@ export type NotificationType =
   | 'CONTRACT_READY_FOR_REVIEW'
   | 'CONTRACT_APPROVED'
   | 'CONTRACT_REJECTED'
-  | 'HIGH_MATCH_TENANT_REQUEST';
+  | 'HIGH_MATCH_TENANT_REQUEST'
+  | 'ACCOUNT_REACTIVATED'
+  | 'ACCOUNT_REACTIVATION_REJECTED'
+  | 'REACTIVATION_REQUEST';
 
 export interface NotificationPayload {
   id: string;
@@ -62,9 +70,17 @@ export interface MessagePayload {
   createdAt: string;
 }
 
-/** The four admin moderation queues (frontend `QueueItemType`). */
+/** The admin moderation queues (frontend `QueueItemType`). */
 export type QueueItemType =
-  'kyc' | 'property' | 'request' | 'review' | 'propertyEdit' | 'partner-lead';
+  | 'kyc'
+  | 'property'
+  | 'request'
+  | 'review'
+  | 'propertyEdit'
+  | 'partner-lead'
+  // Not yet rendered by any frontend queue widget — see
+  // RealtimeService.reactivationRequested's doc comment.
+  | 'reactivation';
 
 export interface QueueItem {
   /** Frontend prefixes queue ids with `q_` to keep them distinct from entity ids. */
@@ -90,6 +106,14 @@ export interface SupportMessagePayload {
   content: string;
   internal: boolean;
   at: string;
+}
+
+export interface ReactivationRequestedPayload {
+  requestId: string;
+  userId: string;
+  userFullName: string;
+  userEmail: string;
+  createdAt: string;
 }
 
 export interface PaymentUpdatedPayload {

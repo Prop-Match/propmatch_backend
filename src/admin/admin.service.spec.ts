@@ -13,10 +13,16 @@ import { RealtimeService } from '../realtime/realtime.service';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import type { PropertyApprovalIndexingService } from '../properties/property-approval-indexing.service';
 import type { MatchTenantRequestJobData } from '../matching/matching.constants';
+import type { MailService } from '../mail/mail.service';
 
 const noopQueue = {
   add: jest.fn(),
 } as unknown as Queue<MatchTenantRequestJobData>;
+
+const noopMailService = {
+  sendAccountReactivatedEmail: jest.fn(),
+  sendAccountReactivationRejectedEmail: jest.fn(),
+} as unknown as MailService;
 
 describe('AdminService moderation queues', () => {
   it('separates first submissions from edited properties', async () => {
@@ -49,6 +55,7 @@ describe('AdminService moderation queues', () => {
       {} as PrivateObjectStorage,
       {} as PropertyApprovalIndexingService,
       noopQueue,
+      noopMailService,
     );
 
     await expect(service.getQueues()).resolves.toMatchObject({
@@ -93,6 +100,7 @@ describe('AdminService KYC review', () => {
     {} as PrivateObjectStorage,
     {} as PropertyApprovalIndexingService,
     noopQueue,
+    noopMailService,
   );
 
   beforeEach(() => {
@@ -168,6 +176,7 @@ describe('AdminService property moderation', () => {
       logIndexingFailure,
     } as unknown as PropertyApprovalIndexingService,
     noopQueue,
+    noopMailService,
   );
 
   const property = {
@@ -309,5 +318,386 @@ describe('AdminService property moderation', () => {
     ).rejects.toThrow('database failure');
 
     expect(indexApprovedProperty).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminService.softDeleteUser', () => {
+  const findUnique = jest.fn();
+  const userUpdate = jest.fn();
+  const tenantRequestUpdateMany = jest.fn();
+  const propertyUpdateMany = jest.fn();
+  const $transaction = jest.fn();
+  const create = jest.fn();
+  const forceLogoutUser = jest.fn();
+  const service = new AdminService(
+    {
+      user: { findUnique, update: userUpdate },
+      tenantRequest: { updateMany: tenantRequestUpdateMany },
+      property: { updateMany: propertyUpdateMany },
+      $transaction,
+      adminAuditLogEntry: { create },
+    } as unknown as PrismaService,
+    { forceLogoutUser } as unknown as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+    noopMailService,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    userUpdate.mockResolvedValue({});
+    tenantRequestUpdateMany.mockResolvedValue({ count: 0 });
+    propertyUpdateMany.mockResolvedValue({ count: 0 });
+    $transaction.mockResolvedValue([]);
+    create.mockResolvedValue({});
+  });
+
+  it('soft-deletes a tenant, archives their requests, and force-logs-out their live socket', async () => {
+    findUnique.mockResolvedValue({
+      id: 'user-1',
+      role: 'TENANT',
+      deletedAt: null,
+      adminRole: null,
+    });
+
+    await expect(service.softDeleteUser('admin-1', 'user-1')).resolves.toEqual({
+      success: true,
+      id: 'user-1',
+    });
+
+    expect(forceLogoutUser).toHaveBeenCalledWith('user-1');
+    expect($transaction).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      ]),
+    );
+    expect(create).toHaveBeenCalledWith({
+      data: { actorId: 'admin-1', action: 'user:delete', subjectId: 'user-1' },
+    });
+  });
+
+  it('rejects deleting a user that does not exist', async () => {
+    findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.softDeleteUser('admin-1', 'missing'),
+    ).rejects.toMatchObject({ status: 404 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects deleting an already-deleted user', async () => {
+    findUnique.mockResolvedValue({
+      id: 'user-1',
+      role: 'TENANT',
+      deletedAt: new Date(),
+      adminRole: null,
+    });
+
+    await expect(
+      service.softDeleteUser('admin-1', 'user-1'),
+    ).rejects.toMatchObject({ status: 409 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete an admin account', async () => {
+    findUnique.mockResolvedValue({
+      id: 'admin-2',
+      role: 'ADMIN',
+      deletedAt: null,
+      adminRole: 'READ_ONLY',
+    });
+
+    await expect(
+      service.softDeleteUser('admin-1', 'admin-2'),
+    ).rejects.toMatchObject({ status: 403 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to let an admin delete their own account', async () => {
+    findUnique.mockResolvedValue({
+      id: 'admin-1',
+      role: 'TENANT',
+      deletedAt: null,
+      adminRole: null,
+    });
+
+    await expect(
+      service.softDeleteUser('admin-1', 'admin-1'),
+    ).rejects.toMatchObject({ status: 403 });
+    expect($transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminService.approveReactivation / rejectReactivation', () => {
+  const findUnique = jest.fn();
+  const userUpdate = jest.fn();
+  const activationRequestUpdate = jest.fn();
+  const $transaction = jest.fn();
+  const create = jest.fn();
+  const notifyUser = jest.fn();
+  const sendAccountReactivatedEmail = jest.fn();
+  const sendAccountReactivationRejectedEmail = jest.fn();
+  const service = new AdminService(
+    {
+      activationRequest: { findUnique, update: activationRequestUpdate },
+      user: { update: userUpdate },
+      $transaction,
+      adminAuditLogEntry: { create },
+    } as unknown as PrismaService,
+    { notifyUser } as unknown as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+    {
+      sendAccountReactivatedEmail,
+      sendAccountReactivationRejectedEmail,
+    } as unknown as MailService,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    userUpdate.mockResolvedValue({});
+    activationRequestUpdate.mockResolvedValue({});
+    $transaction.mockResolvedValue([]);
+    create.mockResolvedValue({});
+    notifyUser.mockResolvedValue({});
+    sendAccountReactivatedEmail.mockResolvedValue(undefined);
+    sendAccountReactivationRejectedEmail.mockResolvedValue(undefined);
+  });
+
+  it('approves: bumps tokenVersion, clears deletedAt, marks the request APPROVED, notifies and emails the user', async () => {
+    findUnique.mockResolvedValue({
+      id: 'req-1',
+      userId: 'user-1',
+      status: 'PENDING',
+      user: { fullName: 'Test User', email: 'user@example.com' },
+    });
+
+    await expect(
+      service.approveReactivation('admin-1', 'req-1'),
+    ).resolves.toEqual({ success: true, id: 'req-1' });
+
+    expect($transaction).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.anything(), expect.anything()]),
+    );
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        actorId: 'admin-1',
+        action: 'user:reactivate:approve',
+        subjectId: 'user-1',
+      },
+    });
+    expect(notifyUser).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ type: 'ACCOUNT_REACTIVATED' }),
+    );
+    expect(sendAccountReactivatedEmail).toHaveBeenCalledWith(
+      'user@example.com',
+    );
+  });
+
+  it('does not touch the user or audit log for a request that is not PENDING', async () => {
+    findUnique.mockResolvedValue({
+      id: 'req-1',
+      userId: 'user-1',
+      status: 'APPROVED',
+      user: { fullName: 'Test User', email: 'user@example.com' },
+    });
+
+    await expect(
+      service.approveReactivation('admin-1', 'req-1'),
+    ).rejects.toMatchObject({ status: 409 });
+    expect($transaction).not.toHaveBeenCalled();
+    expect(notifyUser).not.toHaveBeenCalled();
+    expect(sendAccountReactivatedEmail).not.toHaveBeenCalled();
+  });
+
+  it('404s approval of a request that does not exist', async () => {
+    findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.approveReactivation('admin-1', 'missing'),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects: marks the request REJECTED without touching the user, notifies and emails the user', async () => {
+    findUnique.mockResolvedValue({
+      id: 'req-1',
+      userId: 'user-1',
+      status: 'PENDING',
+      user: { fullName: 'Test User', email: 'user@example.com' },
+    });
+    activationRequestUpdate.mockResolvedValue({});
+
+    await expect(
+      service.rejectReactivation('admin-1', 'req-1'),
+    ).resolves.toEqual({ success: true, id: 'req-1' });
+
+    expect(activationRequestUpdate).toHaveBeenCalledWith({
+      where: { id: 'req-1' },
+      data: { status: 'REJECTED' },
+    });
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(notifyUser).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ type: 'ACCOUNT_REACTIVATION_REJECTED' }),
+    );
+    expect(sendAccountReactivationRejectedEmail).toHaveBeenCalledWith(
+      'user@example.com',
+    );
+  });
+});
+
+describe('AdminService.anonymizeExpiredUsers', () => {
+  const findMany = jest.fn();
+  const upd = jest.fn();
+  const service = new AdminService(
+    {
+      user: { findMany, update: upd },
+    } as unknown as PrismaService,
+    {} as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+    noopMailService,
+  );
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('does nothing when there are no expired candidates', async () => {
+    findMany.mockResolvedValue([]);
+    await service.anonymizeExpiredUsers();
+    expect(upd).not.toHaveBeenCalled();
+  });
+
+  it("processes every candidate even when some updates fail (one bad row can't stall the rest)", async () => {
+    const candidates = Array.from({ length: 5 }, (_, i) => ({
+      id: `user-${i}`,
+    }));
+    findMany.mockResolvedValue(candidates);
+    upd.mockImplementation(({ where }: { where: { id: string } }) =>
+      where.id === 'user-2'
+        ? Promise.reject(new Error('database failure'))
+        : Promise.resolve({}),
+    );
+
+    await service.anonymizeExpiredUsers();
+
+    expect(upd).toHaveBeenCalledTimes(5);
+    candidates.forEach(
+      (c) =>
+        /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+        expect(upd).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: c.id },
+            data: expect.objectContaining({
+              fullName: 'Deleted User',
+              email: expect.stringMatching(/^deleted-.+@propmatch\.local$/),
+              passwordHash: expect.any(String),
+              phoneNumber: expect.stringMatching(/^deleted-/),
+              avatarUrl: null,
+              resetToken: null,
+              resetTokenExpiry: null,
+            }),
+          }),
+        ),
+      /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    );
+  });
+});
+
+describe('AdminService.listUsers', () => {
+  const findMany = jest.fn();
+  const count = jest.fn();
+  const service = new AdminService(
+    {
+      user: { findMany, count },
+    } as unknown as PrismaService,
+    {} as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+    noopMailService,
+  );
+
+  const row = {
+    id: 'user-1',
+    fullName: 'Test User',
+    email: 'user@example.com',
+    phoneNumber: '01000000000',
+    role: 'TENANT',
+    isActive: true,
+    createdAt: new Date('2026-07-01T00:00:00.000Z'),
+    deletedAt: null as Date | null,
+    suspendedAt: null as Date | null,
+    suspendedUntil: null as Date | null,
+    suspensionReason: null as string | null,
+    suspensionNote: null as string | null,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    findMany.mockResolvedValue([row]);
+    count.mockResolvedValue(1);
+  });
+
+  it('defaults to active, non-admin users only (deletedAt: null)', async () => {
+    await service.listUsers();
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { role: { not: 'ADMIN' }, deletedAt: null },
+      }),
+    );
+  });
+
+  it('filters to deleted users when status=deleted', async () => {
+    await service.listUsers({ status: 'deleted' });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { role: { not: 'ADMIN' }, deletedAt: { not: null } },
+      }),
+    );
+  });
+
+  it('applies no deletedAt filter when status=all', async () => {
+    await service.listUsers({ status: 'all' });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { role: { not: 'ADMIN' } } }),
+    );
+  });
+
+  it('searches by name/email/phone when search is provided', async () => {
+    await service.listUsers({ status: 'all', search: 'ali' });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        where: expect.objectContaining({
+          OR: [
+            { fullName: { contains: 'ali', mode: 'insensitive' } },
+            { email: { contains: 'ali', mode: 'insensitive' } },
+            { phoneNumber: { contains: 'ali' } },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('includes deletedAt in the mapped response', async () => {
+    findMany.mockResolvedValue([
+      { ...row, id: 'user-2', deletedAt: new Date('2026-07-15T00:00:00.000Z') },
+    ]);
+    await expect(service.listUsers({ status: 'deleted' })).resolves.toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            id: 'user-2',
+            deletedAt: '2026-07-15T00:00:00.000Z',
+          }),
+        ],
+      }),
+    );
   });
 });
