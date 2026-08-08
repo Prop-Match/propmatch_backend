@@ -170,6 +170,16 @@ export class LeaseContractsService {
       const contract = await this.prisma.leaseContract.create({
         data: { matchConnectionId, ...data },
       });
+      // First draft creation: the draft is immediately reviewable
+      // (tenantReviewStatus defaults to PENDING_REVIEW), so let the tenant know
+      // the landlord started a contract for them. Fires once — repeat saves take
+      // the update path below and do not re-notify.
+      await this.realtime.notifyUser(match.tenantId, {
+        type: 'CONTRACT_READY_FOR_REVIEW',
+        title: 'مسودة عقد إيجار جديدة',
+        message: 'أنشأ المالك مسودة عقد الإيجار، ويمكنك مراجعتها الآن.',
+        link: `/contracts/${contract.id}`,
+      });
       return this.toResponse(contract, userId, match);
     }
 

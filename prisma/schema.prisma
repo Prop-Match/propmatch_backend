@@ -161,6 +161,14 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
+  // Admin suspension. suspendedAt != null ⇒ suspended; suspendedUntil null ⇒
+  // permanent, a future date ⇒ temporary (auto-expires when it passes).
+  suspendedAt      DateTime? @map("suspended_at")
+  suspendedUntil   DateTime? @map("suspended_until")
+  suspensionReason String?   @map("suspension_reason")
+  suspensionNote   String?   @map("suspension_note") @db.Text
+  suspendedById    String?   @map("suspended_by_id") @db.Uuid
+
   //forget password
   resetToken           String?               @map("reset_token")
   resetTokenExpiry     DateTime?             @map("reset_token_expiry")

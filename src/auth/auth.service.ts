@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
 import { MailService } from 'src/mail/mail.service';
+import { isSuspensionActive, suspensionMessage } from '../common/suspension';
 import { PrismaService } from '../../prisma/prisma.service';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
@@ -65,6 +67,10 @@ export class AuthService {
       throw new UnauthorizedException(
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
       );
+    }
+    // Block a suspended account at the door, with the reason + end date.
+    if (isSuspensionActive(user)) {
+      throw new ForbiddenException(suspensionMessage(user));
     }
     const payLoad = { sub: user.id, email: user.email, role: user.role };
     const mappedUser = transformUserToFrontend(user);

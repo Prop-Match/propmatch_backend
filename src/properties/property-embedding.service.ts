@@ -30,6 +30,17 @@ export class PropertyEmbeddingService {
     text: string,
     inputType: EmbeddingInputType,
   ): Promise<ProviderEmbedding> {
+    // Honor an explicit local provider: go straight to the local embeddings
+    // service instead of requiring Cohere and only falling back on a transient
+    // Cohere failure (a missing COHERE_API_KEY is non-transient, so without this
+    // EMBEDDING_PROVIDER=local would still fail with COHERE_EMBEDDING_NOT_CONFIGURED).
+    if (
+      this.configService.get<string>('EMBEDDING_PROVIDER')?.toLowerCase() ===
+        'local' &&
+      this.isLocalEmbeddingEnabled()
+    ) {
+      return { provider: 'local', embedding: await this.createLocalEmbedding(text) };
+    }
     try {
       return {
         provider: 'cohere',

@@ -12,7 +12,16 @@ export const SOCKET_EVENTS = {
   supportMessageReceived: 'support:message:received',
   /** Client→server + server→other-party typing relay (match + support chat). */
   typing: 'typing',
+  /** Admin suspended this account → push a blocking notice to the live session. */
+  accountSuspended: 'account:suspended',
 } as const;
+
+export interface AccountSuspendedPayload {
+  message: string;
+  reason: string | null;
+  /** ISO date, or null for a permanent suspension. */
+  suspendedUntil: string | null;
+}
 
 /** Rooms. One per user; admins additionally share the `admins` room. */
 export const ADMIN_ROOM = 'admins';

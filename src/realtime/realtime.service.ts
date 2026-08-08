@@ -261,6 +261,18 @@ export class RealtimeService {
     this.gateway.emitToUser(userId, SOCKET_EVENTS.messageDeleted, payload);
   }
 
+  /** Push a real-time suspension notice to a user's live session. */
+  emitAccountSuspended(
+    userId: string,
+    payload: {
+      message: string;
+      reason: string | null;
+      suspendedUntil: string | null;
+    },
+  ): void {
+    this.gateway.emitToUser(userId, SOCKET_EVENTS.accountSuspended, payload);
+  }
+
   async emitToRole(
     role: UserRole,
     type: NotificationType,

@@ -27,6 +27,13 @@ import {
 } from '../matching/matching.constants';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
+import {
+  SUSPENSION_REASONS,
+  isSuspensionActive,
+  suspensionMessage,
+  type SuspensionReasonCode,
+} from '../common/suspension';
+import { SuspendUserDto } from './dto/suspend-user.dto';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
@@ -62,6 +69,179 @@ export class AdminService {
     await this.prismaService.adminAuditLogEntry.create({
       data: { actorId, action, subjectId },
     });
+  }
+
+  private toUserRow(u: {
+    id: string;
+    fullName: string;
+    email: string;
+    phoneNumber: string;
+    role: string;
+    isActive: boolean;
+    createdAt: Date;
+    suspendedAt: Date | null;
+    suspendedUntil: Date | null;
+    suspensionReason: string | null;
+    suspensionNote?: string | null;
+  }) {
+    const suspended = isSuspensionActive(u);
+    return {
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      phoneNumber: u.phoneNumber,
+      role: u.role,
+      isActive: u.isActive,
+      createdAt: u.createdAt.toISOString(),
+      suspended,
+      suspendedUntil: suspended ? (u.suspendedUntil?.toISOString() ?? null) : null,
+      suspendedAt: suspended ? (u.suspendedAt?.toISOString() ?? null) : null,
+      suspensionReason: suspended ? u.suspensionReason : null,
+      suspensionReasonLabel:
+        suspended && u.suspensionReason
+          ? (SUSPENSION_REASONS[u.suspensionReason as SuspensionReasonCode] ??
+            u.suspensionReason)
+          : null,
+      suspensionNote: suspended ? (u.suspensionNote ?? null) : null,
+    };
+  }
+
+  /** Paginated, searchable list of non-admin users for the suspension console. */
+  async listUsers(query: { search?: string; page?: number; pageSize?: number }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
+    const search = query.search?.trim();
+    const where = {
+      role: { not: 'ADMIN' as const },
+      ...(search
+        ? {
+            OR: [
+              { fullName: { contains: search, mode: 'insensitive' as const } },
+              { email: { contains: search, mode: 'insensitive' as const } },
+              { phoneNumber: { contains: search } },
+            ],
+          }
+        : {}),
+    };
+    const select = {
+      id: true,
+      fullName: true,
+      email: true,
+      phoneNumber: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+      suspendedAt: true,
+      suspendedUntil: true,
+      suspensionReason: true,
+      suspensionNote: true,
+    };
+    const [rows, total] = await Promise.all([
+      this.prismaService.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select,
+      }),
+      this.prismaService.user.count({ where }),
+    ]);
+    return { items: rows.map((u) => this.toUserRow(u)), total, page, pageSize };
+  }
+
+  /** Suspend a non-admin account. `durationDays` null ⇒ permanent. */
+  async suspendUser(actorId: string, targetUserId: string, dto: SuspendUserDto) {
+    if (actorId === targetUserId) {
+      throw new BadRequestException('لا يمكنك إيقاف حسابك الخاص');
+    }
+    const target = await this.prismaService.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, role: true },
+    });
+    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (target.role === 'ADMIN') {
+      throw new BadRequestException('لا يمكن إيقاف حساب مشرف من هنا');
+    }
+    const now = new Date();
+    const suspendedUntil =
+      dto.durationDays == null
+        ? null
+        : new Date(now.getTime() + dto.durationDays * 24 * 60 * 60 * 1000);
+    const updated = await this.prismaService.user.update({
+      where: { id: targetUserId },
+      data: {
+        suspendedAt: now,
+        suspendedUntil,
+        suspensionReason: dto.reason,
+        suspensionNote: dto.note?.trim() || null,
+        suspendedById: actorId,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        suspendedAt: true,
+        suspendedUntil: true,
+        suspensionReason: true,
+        suspensionNote: true,
+      },
+    });
+    await this.audit(
+      actorId,
+      `user:suspend:${dto.reason}:${dto.durationDays ?? 'permanent'}`,
+      targetUserId,
+    );
+    // Push a real-time notice so a currently-logged-in user is told immediately,
+    // not only when they next hit the API. Best-effort — the DB row is the
+    // source of truth for the block.
+    try {
+      this.realtimeService.emitAccountSuspended(targetUserId, {
+        message: suspensionMessage(updated),
+        reason: this.toUserRow(updated).suspensionReasonLabel,
+        suspendedUntil: updated.suspendedUntil?.toISOString() ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(`Suspension realtime push failed: ${String(error)}`);
+    }
+    return this.toUserRow(updated);
+  }
+
+  /** Lift a suspension immediately. */
+  async unsuspendUser(actorId: string, targetUserId: string) {
+    const target = await this.prismaService.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    const updated = await this.prismaService.user.update({
+      where: { id: targetUserId },
+      data: {
+        suspendedAt: null,
+        suspendedUntil: null,
+        suspensionReason: null,
+        suspensionNote: null,
+        suspendedById: null,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        suspendedAt: true,
+        suspendedUntil: true,
+        suspensionReason: true,
+        suspensionNote: true,
+      },
+    });
+    await this.audit(actorId, 'user:unsuspend', targetUserId);
+    return this.toUserRow(updated);
   }
   async getQueues() {
     const [kyc, properties, editedProperties, requests, reviews] =
@@ -648,17 +828,25 @@ export class AdminService {
       where: { role: 'ADMIN' },
     });
 
-    if (adminCount > 0) {
+    const isBootstrap = adminCount === 0;
+    if (!isBootstrap) {
       if (!creatorId) {
         throw new UnauthorizedException(
           I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
-      const superAdmin = await this.prismaService.user.findUnique({
+      const creator = await this.prismaService.user.findUnique({
         where: { id: creatorId },
+        select: { role: true, adminRole: true },
       });
-
-      if (!superAdmin || superAdmin.role !== 'ADMIN') {
+      // Must be an admin who actually holds `admin:create` — i.e. a SUPER_ADMIN.
+      // Previously this only checked role === 'ADMIN', so any sub-role admin
+      // (read-only, support, …) could create admins → privilege escalation.
+      if (
+        !creator ||
+        creator.role !== 'ADMIN' ||
+        !capabilitiesFor(creator.adminRole).includes('admin:create')
+      ) {
         throw new ForbiddenException(
           I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
@@ -673,7 +861,20 @@ export class AdminService {
         I18nContext.current()?.t('auth.EMAIL_EXISTS'),
       );
     }
-    // 3. Hash password and persist new Admin
+    // 3. Resolve the sub-role. Only the very first (bootstrap) admin defaults to
+    // SUPER_ADMIN; every other new admin defaults to least-privilege READ_ONLY.
+    // An explicitly-provided role must be valid — never silently fall back to
+    // SUPER_ADMIN (that was the escalation bug).
+    let adminRole: AdminRole = isBootstrap ? 'SUPER_ADMIN' : 'READ_ONLY';
+    if (createAdminDto.role) {
+      const mapped = adminRoleFromSlug(createAdminDto.role);
+      if (!mapped) {
+        throw new BadRequestException('دور المشرف غير صالح');
+      }
+      adminRole = mapped;
+    }
+
+    // 4. Hash password and persist new Admin
     const salt = 10;
     const hashedPassword = await bcrypt.hash(createAdminDto.password, salt);
     const admin = await this.prismaService.user.create({
@@ -683,10 +884,7 @@ export class AdminService {
         passwordHash: hashedPassword,
         phoneNumber: createAdminDto.phoneNumber,
         role: 'ADMIN',
-        // Persisted sub-role drives capability enforcement. Absent ⇒ SUPER_ADMIN.
-        adminRole: createAdminDto.role
-          ? (adminRoleFromSlug(createAdminDto.role) ?? 'SUPER_ADMIN')
-          : 'SUPER_ADMIN',
+        adminRole,
       },
     });
     return transformUserToFrontend(admin);
@@ -711,18 +909,62 @@ export class AdminService {
     };
   }
 
+  /** A user with SUPER_ADMIN caps: adminRole SUPER_ADMIN, or null (legacy). */
+  private static readonly SUPER_ADMIN_WHERE = {
+    role: 'ADMIN' as const,
+    isActive: true,
+    OR: [{ adminRole: 'SUPER_ADMIN' as const }, { adminRole: null }],
+  };
+
   async updateTeamMember(
+    actorId: string,
     id: string,
     dto: { role?: string; disabled?: boolean },
   ) {
-    const data: { isActive?: boolean; adminRole?: AdminRole } = {};
-    if (dto.disabled !== undefined) {
-      data.isActive = !dto.disabled;
+    const target = await this.prismaService.user.findUnique({
+      where: { id },
+      select: { id: true, role: true, adminRole: true, isActive: true },
+    });
+    if (!target || target.role !== 'ADMIN') {
+      throw new NotFoundException('المشرف غير موجود');
     }
+    // An admin can never change their own role or status here — closes
+    // self-demotion lockouts and self-escalation attempts.
+    if (target.id === actorId) {
+      throw new ForbiddenException('لا يمكنك تعديل دورك أو حالتك بنفسك');
+    }
+
+    const data: { isActive?: boolean; adminRole?: AdminRole } = {};
+    let nextAdminRole = target.adminRole;
+    let nextActive = target.isActive;
     if (dto.role !== undefined) {
       const mapped = adminRoleFromSlug(dto.role);
-      if (mapped) data.adminRole = mapped;
+      if (!mapped) throw new BadRequestException('دور المشرف غير صالح');
+      data.adminRole = mapped;
+      nextAdminRole = mapped;
     }
+    if (dto.disabled !== undefined) {
+      data.isActive = !dto.disabled;
+      nextActive = !dto.disabled;
+    }
+
+    // Guard the last super-admin: if this change would strip the target of
+    // active super-admin status, ensure at least one other remains.
+    const targetIsSuperAdmin =
+      target.isActive && capabilitiesFor(target.adminRole).includes('admin:manage');
+    const targetStaysSuperAdmin =
+      nextActive && capabilitiesFor(nextAdminRole).includes('admin:manage');
+    if (targetIsSuperAdmin && !targetStaysSuperAdmin) {
+      const otherSuperAdmins = await this.prismaService.user.count({
+        where: { ...AdminService.SUPER_ADMIN_WHERE, id: { not: id } },
+      });
+      if (otherSuperAdmins === 0) {
+        throw new ForbiddenException(
+          'لا يمكن إزالة أو تعطيل آخر مشرف عام في النظام',
+        );
+      }
+    }
+
     const admin = await this.prismaService.user.update({
       where: { id },
       data,

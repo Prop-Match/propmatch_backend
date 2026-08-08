@@ -1,9 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  ThrottlerException,
-  ThrottlerGuard,
-  type ThrottlerLimitDetail,
-} from '@nestjs/throttler';
+import { ThrottlerException, ThrottlerGuard } from '@nestjs/throttler';
 
 /**
  * Per-user rate limiting for the LLM/AI endpoints (legal chat, support chat,
@@ -24,10 +20,7 @@ export class UserThrottlerGuard extends ThrottlerGuard {
     return Promise.resolve(`ip:${ip}`);
   }
 
-  protected async throwThrottlingException(
-    _context: unknown,
-    _detail: ThrottlerLimitDetail,
-  ): Promise<void> {
+  protected throwThrottlingException(): Promise<void> {
     // Arabic, matching the platform's user-facing error language.
     throw new ThrottlerException(
       'لقد أرسلت طلبات كثيرة خلال وقت قصير. برجاء الانتظار قليلاً ثم المحاولة مرة أخرى.',

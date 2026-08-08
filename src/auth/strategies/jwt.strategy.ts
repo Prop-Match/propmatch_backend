@@ -1,11 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PrismaService } from 'prisma/prisma.service';
+import { isSuspensionActive, suspensionMessage } from '../../common/suspension';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -13,7 +18,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: { sub: string; email: string; role: string }) {
+  // Runs on every authenticated request. Besides the token being valid, the
+  // account must not be suspended — so a suspension takes effect immediately,
+  // not only after the 1h access token expires. A fast PK lookup of just the
+  // suspension fields.
+  async validate(payload: { sub: string; email: string; role: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        suspendedAt: true,
+        suspendedUntil: true,
+        suspensionReason: true,
+      },
+    });
+    if (user && isSuspensionActive(user)) {
+      throw new ForbiddenException(suspensionMessage(user));
+    }
     // This return value is attached automatically to req.user
     return { userId: payload.sub, email: payload.email, role: payload.role };
   }
