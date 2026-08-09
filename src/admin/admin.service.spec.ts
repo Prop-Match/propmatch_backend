@@ -797,3 +797,65 @@ describe('AdminService.listUsers', () => {
     );
   });
 });
+
+describe('AdminService activity pagination', () => {
+  const loginFindMany = jest.fn();
+  const loginCount = jest.fn();
+  const auditFindMany = jest.fn();
+  const auditCount = jest.fn();
+  const service = new AdminService(
+    {
+      loginAttempt: { findMany: loginFindMany, count: loginCount },
+      adminAuditLogEntry: { findMany: auditFindMany, count: auditCount },
+    } as unknown as PrismaService,
+    {} as RealtimeService,
+    {} as PrivateObjectStorage,
+    {} as PropertyApprovalIndexingService,
+    noopQueue,
+    noopMailService,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    loginFindMany.mockResolvedValue([
+      {
+        id: 'login-1',
+        user: { fullName: 'Admin User' },
+        ip: '127.0.0.1',
+        createdAt: new Date('2026-08-10T12:00:00.000Z'),
+        success: true,
+      },
+    ]);
+    loginCount.mockResolvedValue(31);
+    auditFindMany.mockResolvedValue([
+      {
+        id: 'audit-1',
+        actor: { fullName: 'Admin User' },
+        action: 'user:suspend',
+        subjectId: 'user-1',
+        at: new Date('2026-08-10T11:00:00.000Z'),
+      },
+    ]);
+    auditCount.mockResolvedValue(45);
+  });
+
+  it('paginates login history before mapping the response', async () => {
+    await expect(
+      service.getLoginHistory({ page: 2, pageSize: 10 }),
+    ).resolves.toMatchObject({ total: 31, page: 2, pageSize: 10 });
+    expect(loginFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 10, take: 10 }),
+    );
+    expect(loginCount).toHaveBeenCalledTimes(1);
+  });
+
+  it('paginates audit entries and caps the requested page size', async () => {
+    await expect(
+      service.getAuditLog({ page: 3, pageSize: 100 }),
+    ).resolves.toMatchObject({ total: 45, page: 3, pageSize: 50 });
+    expect(auditFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 100, take: 50 }),
+    );
+    expect(auditCount).toHaveBeenCalledTimes(1);
+  });
+});

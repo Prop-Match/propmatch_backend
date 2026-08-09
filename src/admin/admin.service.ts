@@ -930,13 +930,19 @@ export class AdminService {
     };
   }
 
-  /** GET admin/login-history — admin-panel login attempts (team activity page). */
-  async getLoginHistory() {
-    const attempts = await this.prismaService.loginAttempt.findMany({
-      include: { user: { select: { fullName: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+  /** GET admin/login-history — paginated admin-panel login attempts. */
+  async getLoginHistory(query: { page?: number; pageSize?: number } = {}) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
+    const [attempts, total] = await Promise.all([
+      this.prismaService.loginAttempt.findMany({
+        include: { user: { select: { fullName: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prismaService.loginAttempt.count(),
+    ]);
     return {
       items: attempts.map((a) => ({
         id: a.id,
@@ -945,16 +951,25 @@ export class AdminService {
         at: a.createdAt.toISOString(),
         success: a.success,
       })),
+      total,
+      page,
+      pageSize,
     };
   }
 
-  /** GET admin/audit-log — append-only moderation action history. */
-  async getAuditLog() {
-    const entries = await this.prismaService.adminAuditLogEntry.findMany({
-      include: { actor: { select: { fullName: true } } },
-      orderBy: { at: 'desc' },
-      take: 100,
-    });
+  /** GET admin/audit-log — paginated append-only moderation history. */
+  async getAuditLog(query: { page?: number; pageSize?: number } = {}) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
+    const [entries, total] = await Promise.all([
+      this.prismaService.adminAuditLogEntry.findMany({
+        include: { actor: { select: { fullName: true } } },
+        orderBy: { at: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prismaService.adminAuditLogEntry.count(),
+    ]);
     return {
       items: entries.map((e) => ({
         id: e.id,
@@ -963,6 +978,9 @@ export class AdminService {
         subjectId: e.subjectId,
         at: e.at.toISOString(),
       })),
+      total,
+      page,
+      pageSize,
     };
   }
 

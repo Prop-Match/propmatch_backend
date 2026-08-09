@@ -195,16 +195,28 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
   @RequireCapability('audit:view')
-  async getLoginHistory() {
-    return this.adminService.getLoginHistory();
+  async getLoginHistory(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.getLoginHistory({
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get('audit-log')
   @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
   @RequireCapability('audit:view')
-  async getAuditLog() {
-    return this.adminService.getAuditLog();
+  async getAuditLog(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.getAuditLog({
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   // Bootstrap-friendly: OptionalJwtAuthGuard lets the very first admin be
