@@ -195,7 +195,7 @@ describe('CustomerSupportService', () => {
         expect.objectContaining({
           userId: 'admin-1',
           type: 'SUPPORT_TICKET_ESCALATED',
-          link: '/admin/tickets/ticket-auto-1',
+          link: '/admin/support/ticket-auto-1',
         }),
       ]);
     });

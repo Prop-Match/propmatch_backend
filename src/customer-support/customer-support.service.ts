@@ -263,7 +263,7 @@ export class CustomerSupportService {
           type: NotificationType.SUPPORT_TICKET_ESCALATED,
           title: 'تصعيد جديد لخدمة العملاء',
           message: `${user.fullName}: ${input.reason.slice(0, 160)}`,
-          link: `/admin/tickets/${ticket.id}`,
+          link: `/admin/support/${ticket.id}`,
         })),
       );
     } catch (error) {
@@ -545,7 +545,7 @@ export class CustomerSupportService {
         type: NotificationType.NEW_MESSAGE,
         title: 'رد جديد من المستخدم',
         message: `أضاف ${ticket.user?.fullName ?? 'المستخدم'} رداً جديداً: "${replyPreview(content, attachment.attachmentType)}"`,
-        link: `/admin/tickets/${ticketId}`,
+        link: `/admin/support/${ticketId}`,
       });
     }
 
