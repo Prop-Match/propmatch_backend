@@ -19,18 +19,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   // Runs on every authenticated request. Besides the token being valid, the
-  // account must not be suspended — so a suspension takes effect immediately,
-  // not only after the 1h access token expires. A fast PK lookup of just the
-  // suspension fields.
+  // account must be active and not suspended — so disabling or suspending a
+  // user takes effect immediately, not only after the 1h access token expires.
+  // A fast PK lookup of just those fields.
   async validate(payload: { sub: string; email: string; role: string }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
+        isActive: true,
         suspendedAt: true,
         suspendedUntil: true,
         suspensionReason: true,
       },
     });
+    if (user && !user.isActive) {
+      throw new ForbiddenException(
+        'تم تعطيل هذا الحساب. برجاء التواصل مع الإدارة.',
+      );
+    }
     if (user && isSuspensionActive(user)) {
       throw new ForbiddenException(suspensionMessage(user));
     }

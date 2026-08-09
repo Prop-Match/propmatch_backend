@@ -68,6 +68,12 @@ export class AuthService {
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
       );
     }
+    // A disabled account (admin "تعطيل", or a deactivated user) cannot log in.
+    if (!user.isActive) {
+      throw new ForbiddenException(
+        'تم تعطيل هذا الحساب. برجاء التواصل مع الإدارة.',
+      );
+    }
     // Block a suspended account at the door, with the reason + end date.
     if (isSuspensionActive(user)) {
       throw new ForbiddenException(suspensionMessage(user));
