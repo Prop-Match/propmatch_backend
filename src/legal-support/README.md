@@ -31,7 +31,6 @@ The message is trimmed and must contain 1–2000 characters.
 LEGAL_SUPPORT_API_URL=http://localhost:8001
 LEGAL_SUPPORT_INTERNAL_API_KEY=use-the-same-long-random-value-as-fastapi
 LEGAL_SUPPORT_TIMEOUT_MS=120000
-INTERNAL_SERVICE_API_KEY=use-the-same-long-random-value-as-the-ai-service
 ```
 
 FastAPI must configure the same value as `INTERNAL_SERVICE_API_KEY`. NestJS
@@ -43,9 +42,13 @@ The frontend must not define `LEGAL_SUPPORT_API_URL`; it needs only the normal
 
 ## Support-ticket escalation
 
-The FastAPI support agent is read-only and cannot create support tickets.
-Escalation happens only after the user presses the support button; the browser
-then calls the authenticated NestJS customer-support endpoint directly.
+FastAPI emits a structured escalation intent for explicit human requests,
+payment/security emergencies, and repeated unresolved attempts. NestJS executes
+the handoff using the already-authenticated user, creates or reuses the ticket
+idempotently, and reports success to the browser only after persistence.
+
+The manual support button remains available as a fallback. FastAPI never gets
+database credentials and cannot select an arbitrary user for a ticket.
 
 ## Failure behavior
 
