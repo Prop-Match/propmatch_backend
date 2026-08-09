@@ -15,6 +15,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'prisma/prisma.service';
 import { RealtimeService } from 'src/realtime/realtime.service';
+import { MailService } from 'src/mail/mail.service';
 import {
   NotificationType,
   SupportAuthor,
@@ -55,6 +56,7 @@ export class CustomerSupportService {
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
   ) {}
   private readonly logger = new Logger(CustomerSupportService.name);
 
@@ -181,6 +183,7 @@ export class CustomerSupportService {
     if (!admin) throw new NotFoundException('Admin not found');
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
+      include: { user: { select: { email: true, fullName: true } } },
     });
 
     const attachment = attachmentFields(dto);
@@ -223,6 +226,12 @@ export class CustomerSupportService {
         title: 'رد جديد من الدعم الفني',
         message: `أضاف فريق الدعم الفني رداً جديداً على تذكرتك: "${replyPreview(dto.content, attachment.attachmentType)}"`,
         link: `/support/tickets/${ticketId}`,
+      });
+      await this.mail.sendSupportReplyEmail({
+        to: ticket.user.email,
+        name: ticket.user.fullName,
+        ticketId,
+        preview: replyPreview(dto.content, attachment.attachmentType),
       });
     }
 
