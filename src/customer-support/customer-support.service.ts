@@ -175,7 +175,32 @@ export class CustomerSupportService {
       orderBy: { updatedAt: 'desc' },
       include: this.ticketDetailInclude,
     });
-    if (openTicket) return this.mapToTicketDetail(openTicket, userId);
+    if (openTicket) {
+      // A different agent run must not create a duplicate ticket, but its
+      // customer message is still new information for the assigned support
+      // team. Append it to the open ticket and notify admins in real time.
+      const message = await this.prisma.supportMessage.create({
+        data: {
+          ticketId: openTicket.id,
+          authorType: SupportAuthor.USER,
+          authorName: openTicket.user.fullName,
+          authorId: userId,
+          content: input.message.trim(),
+        },
+      });
+      await this.prisma.supportTicket.update({
+        where: { id: openTicket.id },
+        data: { lastMessageAt: new Date(), status: TicketStatus.IN_PROGRESS },
+      });
+      this.realtime.supportMessageToAdmins({
+        ticketId: openTicket.id,
+        authorName: message.authorName,
+        content: message.content,
+        internal: false,
+        at: message.createdAt.toISOString(),
+      });
+      return this.mapToTicketDetail(openTicket, userId);
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
