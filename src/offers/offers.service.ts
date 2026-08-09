@@ -327,6 +327,12 @@ export class OffersService {
         where: { id: offerId },
         data: { status: 'VIEWED' },
       });
+      await this.realtimeService.notifyUser(offer.ownerId, {
+        type: 'NEW_OFFER_RECEIVED',
+        title: 'تمت مشاهدة عرضك',
+        message: 'اطّلع المستأجر على عرضك.',
+        link: '/landlord/offers',
+      });
     }
     const updated = await this.prisma.ownerOffer.findUniqueOrThrow({
       where: { id: offerId },
@@ -417,6 +423,12 @@ export class OffersService {
       throw new ConflictException(
         'Offer cannot be rejected in its current state.',
       );
+    await this.realtimeService.notifyUser(offer.ownerId, {
+      type: 'NEW_OFFER_RECEIVED',
+      title: 'تم رفض عرضك',
+      message: 'اعتذر المستأجر عن قبول عرضك.',
+      link: '/landlord/offers',
+    });
     return { ok: true };
   }
 }

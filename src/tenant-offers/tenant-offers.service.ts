@@ -229,6 +229,12 @@ export class TenantOffersService {
       where: { id: offerId },
       data: { status: 'WITHDRAWN' },
     });
+    await this.realtime.notifyUser(offer.ownerId, {
+      type: 'NEW_OFFER_RECEIVED',
+      title: 'تم سحب عرض المستأجر',
+      message: 'سحب المستأجر عرضه على عقارك.',
+      link: '/landlord/offers?tab=received',
+    });
     return { id: offerId, status: 'WITHDRAWN' as const };
   }
 

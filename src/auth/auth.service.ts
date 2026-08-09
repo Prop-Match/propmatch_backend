@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -11,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
 import { MailService } from 'src/mail/mail.service';
+import { CustomerSupportService } from 'src/customer-support/customer-support.service';
 import { isSuspensionActive, suspensionMessage } from '../common/suspension';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -21,6 +24,7 @@ import {
   FREE_AI_USES_MONTHLY_ALLOTMENT,
   FREE_OFFERS_MONTHLY_ALLOTMENT,
 } from '../payments/pricing.catalog';
+import { normalizeEmail } from './email';
 
 type TokenPayload = {
   sub: string;
@@ -33,6 +37,9 @@ type RefreshTokenPayload = TokenPayload & {
   tokenType: 'refresh';
 };
 
+const OTP_DIGITS = 6;
+const OTP_MAX_ATTEMPTS = 5;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -42,6 +49,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly realtimeService: RealtimeService,
+    private readonly customerSupportService: CustomerSupportService,
   ) {}
 
   /**
@@ -60,7 +68,7 @@ export class AuthService {
   }
 
   async signIn(email: string, password: string, ip: string) {
-    const user = await this.userService.findByEmail(email);
+    const user = await this.userService.findByEmail(normalizeEmail(email));
     if (!user) {
       throw new UnauthorizedException(
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
@@ -105,6 +113,13 @@ export class AuthService {
         message: suspensionMessage(user),
       });
     }
+    if (!user.emailVerifiedAt) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول.',
+      });
+    }
     const payLoad = {
       sub: user.id,
       email: user.email,
@@ -125,7 +140,8 @@ export class AuthService {
     phoneNumber: string,
     role: 'TENANT' | 'LANDLORD',
   ) {
-    const user = await this.userService.findByEmail(email);
+    const normalizedEmail = normalizeEmail(email);
+    const user = await this.userService.findByEmail(normalizedEmail);
     if (user) {
       throw new ConflictException(
         I18nContext.current()?.t('auth.EMAIL_EXISTS'),
@@ -134,12 +150,18 @@ export class AuthService {
 
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
+    const otp = this.createEmailOtp();
+    const now = new Date();
     const newUser = await this.userService.create({
       fullName,
-      email,
+      email: normalizedEmail,
       passwordHash,
       phoneNumber,
       role,
+      emailOtpHash: this.hashOtp(otp),
+      emailOtpExpiresAt: this.otpExpiry(),
+      emailOtpAttempts: 0,
+      emailOtpSentAt: now,
       ...(role === 'LANDLORD'
         ? {
             userQuota: {
@@ -152,35 +174,120 @@ export class AuthService {
           }
         : {}),
     });
-    const userWithRelations = await this.userService.findById(newUser.id);
-    if (!userWithRelations) {
-      throw new ConflictException(
-        I18nContext.current()?.t('auth.REGISTRATION_FAILED'),
-      );
-    }
-    const mappedUser = transformUserToFrontend(userWithRelations);
-    const payload = {
-      sub: newUser.id,
-      email: newUser.email,
-      role: newUser.role,
-      tokenVersion: newUser.tokenVersion,
-    };
-    const tokens = await this.createPairToken(payload);
+    await this.mailService.sendEmailVerificationOtp(
+      newUser.email,
+      fullName,
+      otp,
+    );
     return {
-      ...tokens,
-      user: mappedUser,
+      verificationRequired: true,
+      email: newUser.email,
+      resendAvailableAt: new Date(
+        now.getTime() + this.otpResendCooldownSeconds() * 1000,
+      ).toISOString(),
     };
   }
+
+  async verifyEmail(email: string, code: string) {
+    const user = await this.userService.findByEmail(normalizeEmail(email));
+    if (!user || user.emailVerifiedAt) {
+      throw new BadRequestException(
+        'This verification code is invalid or expired.',
+      );
+    }
+    if (
+      !user.emailOtpHash ||
+      !user.emailOtpExpiresAt ||
+      user.emailOtpExpiresAt <= new Date()
+    ) {
+      throw new BadRequestException(
+        'This verification code is invalid or expired.',
+      );
+    }
+    if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
+      throw new BadRequestException(
+        'Too many invalid attempts. Please request a new code.',
+      );
+    }
+    if (this.hashOtp(code) !== user.emailOtpHash) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { emailOtpAttempts: { increment: 1 } },
+      });
+      throw new BadRequestException(
+        'This verification code is invalid or expired.',
+      );
+    }
+
+    const verified = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerifiedAt: new Date(),
+        emailOtpHash: null,
+        emailOtpExpiresAt: null,
+        emailOtpAttempts: 0,
+      },
+      include: { identityVerification: true },
+    });
+    const payload: TokenPayload = {
+      sub: verified.id,
+      email: verified.email,
+      role: verified.role,
+      tokenVersion: verified.tokenVersion,
+    };
+    return {
+      ...(await this.createPairToken(payload)),
+      user: transformUserToFrontend(verified),
+    };
+  }
+
+  async resendEmailVerification(email: string): Promise<{ sent: true }> {
+    const user = await this.userService.findByEmail(normalizeEmail(email));
+    if (!user || user.emailVerifiedAt) return { sent: true };
+
+    const cooldown = this.otpResendCooldownSeconds() * 1000;
+    if (
+      user.emailOtpSentAt &&
+      user.emailOtpSentAt.getTime() + cooldown > Date.now()
+    ) {
+      const retryAfterSeconds = Math.ceil(
+        (user.emailOtpSentAt.getTime() + cooldown - Date.now()) / 1000,
+      );
+      throw new HttpException(
+        {
+          statusCode: 429,
+          code: 'EMAIL_VERIFICATION_RESEND_COOLDOWN',
+          message: 'يرجى الانتظار قبل طلب رمز جديد.',
+          retryAfterSeconds,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    const otp = this.createEmailOtp();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailOtpHash: this.hashOtp(otp),
+        emailOtpExpiresAt: this.otpExpiry(),
+        emailOtpAttempts: 0,
+        emailOtpSentAt: new Date(),
+      },
+    });
+    await this.mailService.sendEmailVerificationOtp(
+      user.email,
+      user.fullName,
+      otp,
+    );
+    return { sent: true };
+  }
   /**
-   * POST /auth/request-reactivation — public. Requires the password (not
-   * just the email) so this can't be used to probe whether an arbitrary
-   * email is a deleted account. Creates one PENDING ActivationRequest; a
-   * user who already has a pending request just gets that one back rather
-   * than piling up duplicates for an admin to review.
+   * POST /auth/request-reactivation — public and credential-gated. Deleted
+   * accounts create an ActivationRequest; suspended accounts create one open
+   * support appeal ticket. Neither path restores access or mints tokens.
    */
-  async requestReactivation(email: string, password: string) {
-    const user = await this.userService.findByEmail(email);
-    if (!user || !user.deletedAt) {
+  async requestReactivation(email: string, password: string, message?: string) {
+    const user = await this.userService.findByEmail(normalizeEmail(email));
+    if (!user) {
       // Same opaque failure whether the email doesn't exist, isn't deleted,
       // or the password is wrong — never confirms account state to a caller
       // who hasn't proven they own the credentials.
@@ -190,6 +297,22 @@ export class AuthService {
     }
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
+      throw new UnauthorizedException(
+        I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
+      );
+    }
+
+    // A suspended account has no usable JWT by design, so its verified
+    // credentials authorize only this narrow operation: create a support
+    // appeal ticket. It does not restore access or mint any tokens.
+    if (!user.deletedAt && isSuspensionActive(user)) {
+      return this.customerSupportService.createSuspensionAppeal(
+        { id: user.id, fullName: user.fullName },
+        message,
+      );
+    }
+
+    if (!user.deletedAt) {
       throw new UnauthorizedException(
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
       );
@@ -296,7 +419,7 @@ export class AuthService {
   }
   async forgetPassword(email: string): Promise<{ message: string }> {
     const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: normalizeEmail(email) },
     });
     if (!user) {
       throw new UnauthorizedException(
@@ -369,6 +492,63 @@ export class AuthService {
   async deleteAccount(userId: string) {
     await this.userService.deleteAccount(userId);
     return { message: 'تم حذف الحساب بنجاح' };
+  }
+
+  async createSocketTicket(userId: string): Promise<{ token: string }> {
+    const user = await this.userService.findById(userId);
+    if (!user) throw new UnauthorizedException();
+    const token = await this.jwtService.signAsync(
+      {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        tokenVersion: user.tokenVersion,
+      },
+      {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        expiresIn: '5m',
+      },
+    );
+    return { token };
+  }
+
+  private createEmailOtp(): string {
+    return crypto
+      .randomInt(0, 10 ** OTP_DIGITS)
+      .toString()
+      .padStart(OTP_DIGITS, '0');
+  }
+
+  private hashOtp(code: string): string {
+    return crypto
+      .createHmac(
+        'sha256',
+        this.configService.getOrThrow<string>('EMAIL_OTP_SECRET'),
+      )
+      .update(code)
+      .digest('hex');
+  }
+
+  private otpExpiry(): Date {
+    return new Date(Date.now() + this.otpTtlMinutes() * 60 * 1000);
+  }
+
+  private otpTtlMinutes(): number {
+    return this.positiveIntegerConfig('EMAIL_OTP_TTL_MINUTES', 10);
+  }
+
+  private otpResendCooldownSeconds(): number {
+    return this.positiveIntegerConfig('EMAIL_OTP_RESEND_COOLDOWN_SECONDS', 60);
+  }
+
+  private positiveIntegerConfig(name: string, fallback: number): number {
+    const raw = this.configService.get<string>(name)?.trim();
+    if (!raw) return fallback;
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(`${name} must be a positive integer.`);
+    }
+    return parsed;
   }
 
   private signAccessToken(payload: TokenPayload): Promise<string> {

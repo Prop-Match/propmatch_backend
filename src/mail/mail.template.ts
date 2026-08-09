@@ -49,6 +49,16 @@ export function renderMail(
 ): RenderedMail {
   const baseUrl = resolveFrontendBaseUrl(frontendUrl);
   switch (job.kind) {
+    case 'EMAIL_VERIFICATION_OTP':
+      return {
+        subject: 'رمز تأكيد البريد الإلكتروني - PropMatch',
+        html: layout(
+          'تأكيد البريد الإلكتروني',
+          job.name,
+          `<p>استخدم الرمز التالي لتأكيد بريدك الإلكتروني وإكمال إنشاء حسابك:</p><p style="margin:28px auto;text-align:center;font-size:32px;letter-spacing:8px;font-weight:700;color:#0f766e;direction:ltr">${escapeHtml(job.code)}</p><p style="font-size:13px;color:#64748b;text-align:center">ينتهي الرمز خلال 10 دقائق. لا تشاركه مع أي شخص.</p>`,
+          baseUrl,
+        ),
+      };
     case 'PASSWORD_RESET': {
       const url = `${baseUrl}/reset-password?token=${encodeURIComponent(job.token)}`;
       return {

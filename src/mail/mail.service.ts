@@ -28,6 +28,10 @@ export class MailService {
     return this.enqueue({ kind: 'PASSWORD_RESET', to, token });
   }
 
+  sendEmailVerificationOtp(to: string, name: string, code: string) {
+    return this.enqueue({ kind: 'EMAIL_VERIFICATION_OTP', to, name, code });
+  }
+
   sendKycReviewEmail(
     input: Omit<Extract<MailJobData, { kind: 'KYC_REVIEW' }>, 'kind'>,
   ) {

@@ -293,6 +293,16 @@ export class PaymobService implements IPaymentGateway {
     query: Record<string, string>,
     body: Record<string, unknown>,
   ): WebhookResult {
+    if (!this.HMAC_SECRET?.trim()) {
+      this.logger.error('PAYMOB_HMAC_SECRET is missing; rejecting webhook');
+      return {
+        success: false,
+        isFinal: false,
+        isValid: false,
+        transactionId: '',
+      };
+    }
+
     const obj = body?.obj as PaymobWebhookTransaction | undefined;
     if (!obj) {
       return {
@@ -338,9 +348,6 @@ export class PaymobService implements IPaymentGateway {
 
     if (!isValid) {
       this.logger.error(`HMAC validation failed!`);
-      this.logger.error(`String hashed: "${hmacString}"`);
-      this.logger.error(`Computed HMAC:  ${computed}`);
-      this.logger.error(`Received HMAC:  ${receivedHmac}`);
       return {
         isValid: false,
         success: false,
@@ -357,6 +364,8 @@ export class PaymobService implements IPaymentGateway {
       providerOrderId: String(obj.order?.id),
       paymentType: extras?.paymentType,
       userId: extras?.userId,
+      amountCents: Number(obj.amount_cents),
+      currency: String(obj.currency || ''),
     };
   }
 

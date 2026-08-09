@@ -20,6 +20,8 @@ import { RequestReactivationDto } from './dto/request-reactivation.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SigninDto } from './dto/signin.dto';
 import { SignupDto } from './dto/signup.dto';
+import { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
+import { ResendEmailOtpDto } from './dto/resend-email-otp.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -44,16 +46,18 @@ export class AuthController {
     return { sent: true };
   }
 
-  // Must stay public: a soft-deleted user has no valid session (their token
-  // is revoked the moment deletedAt is set — see JwtStrategy), so this can
-  // only ever authenticate via the email/password in the DTO, never a
-  // bearer token. No global JwtAuthGuard exists today, but @Public() here
-  // is the load-bearing guarantee that stays true if one is ever added.
+  // Must stay public: deleted and suspended users have no usable session, so
+  // this narrow request authenticates with email/password and can only create
+  // an activation request or support appeal. It never restores access.
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('request-reactivation')
   async requestReactivation(@Body() dto: RequestReactivationDto) {
-    return await this.authService.requestReactivation(dto.email, dto.password);
+    return await this.authService.requestReactivation(
+      dto.email,
+      dto.password,
+      dto.message,
+    );
   }
 
   @Post('register')
@@ -66,10 +70,34 @@ export class AuthController {
       signupDto.role,
     );
   }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('verify-email')
+  async verifyEmail(@Body() dto: VerifyEmailOtpDto) {
+    return this.authService.verifyEmail(dto.email, dto.code);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-email-verification')
+  async resendEmailVerification(@Body() dto: ResendEmailOtpDto) {
+    return this.authService.resendEmailVerification(dto.email);
+  }
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getMe(@Request() req: { user: { userId: string } }) {
     return await this.authService.getMe(req.user.userId);
+  }
+
+  /**
+   * The browser cannot read its httpOnly access token to authenticate a socket
+   * on a different origin. The frontend BFF exchanges that cookie-backed HTTP
+   * session for this short-lived handshake token instead.
+   */
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post('socket-ticket')
+  async socketTicket(@Request() req: { user: { userId: string } }) {
+    return this.authService.createSocketTicket(req.user.userId);
   }
 
   @UseGuards(JwtAuthGuard)

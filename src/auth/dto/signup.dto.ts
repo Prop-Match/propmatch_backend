@@ -4,13 +4,18 @@ import {
   IsNotEmpty,
   IsString,
   Matches,
+  MaxLength,
   MinLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { i18nValidationMessage } from 'nestjs-i18n';
+import { MAX_EMAIL_LENGTH, normalizeEmailTransform } from '../email';
 
 export class SignupDto {
   @IsNotEmpty({ message: i18nValidationMessage('validation.REQUIRED') })
   @IsEmail({}, { message: i18nValidationMessage('validation.INVALID_EMAIL') })
+  @MaxLength(MAX_EMAIL_LENGTH)
+  @Transform(normalizeEmailTransform)
   email!: string;
 
   @IsNotEmpty({ message: i18nValidationMessage('validation.REQUIRED') })

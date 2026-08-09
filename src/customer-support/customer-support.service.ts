@@ -61,57 +61,73 @@ export class CustomerSupportService {
   ) {}
   private readonly logger = new Logger(CustomerSupportService.name);
 
-  /**
-   * The AI service calls this only after its model selects the
-   * create-support-ticket tool. `agentRunId` is persisted as a unique key so
-   * HTTP retries cannot create duplicate tickets.
-   */
-  async createAgentEscalation(
-    userId: string,
-    input: {
-      agentRunId: string;
-      message: string;
-      reason: string;
-      priority: SupportPriority;
-    },
-  ) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, fullName: true },
-    });
-    if (!user) throw new NotFoundException('User not found');
+  static readonly SUSPENSION_APPEAL_REASON = 'طلب مراجعة إيقاف الحساب';
 
-    const ticket = await this.prisma.supportTicket.upsert({
-      where: { agentEscalationKey: input.agentRunId },
-      create: {
-        userId,
-        priority: input.priority,
-        escalationReason: input.reason,
-        aiSummary: input.reason,
-        agentEscalationKey: input.agentRunId,
+  /**
+   * Create the support ticket used by a suspended account to appeal the
+   * suspension. Authentication happens in AuthService because suspended JWTs
+   * are deliberately rejected; this method only owns ticket persistence and
+   * admin notification. Reuse an open appeal so repeated login attempts cannot
+   * flood the support queue.
+   */
+  async createSuspensionAppeal(
+    user: { id: string; fullName: string },
+    message?: string,
+  ) {
+    const existing = await this.prisma.supportTicket.findFirst({
+      where: {
+        userId: user.id,
+        escalationReason: CustomerSupportService.SUSPENSION_APPEAL_REASON,
+        status: { not: TicketStatus.CLOSED },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true },
+    });
+    if (existing) {
+      return {
+        id: existing.id,
+        kind: 'SUSPENSION_APPEAL' as const,
+        status: ticketStatusToWire(existing.status),
+      };
+    }
+
+    const content =
+      message?.trim() || 'أطلب مراجعة قرار إيقاف حسابي وإعادة تفعيله إذا أمكن.';
+    const ticket = await this.prisma.supportTicket.create({
+      data: {
+        userId: user.id,
+        status: TicketStatus.NEW,
+        priority: SupportPriority.HIGH,
+        escalationReason: CustomerSupportService.SUSPENSION_APPEAL_REASON,
         messages: {
           create: {
-            authorType: SupportAuthor.AI,
-            authorName: 'AI Support Agent',
-            content: input.message.trim(),
+            authorType: SupportAuthor.USER,
+            authorName: user.fullName,
+            authorId: user.id,
+            content,
           },
         },
       },
-      update: {},
-      include: {
-        user: { select: { fullName: true } },
-        messages: true,
+      select: {
+        id: true,
+        status: true,
+        priority: true,
+        createdAt: true,
       },
     });
 
     this.realtime.supportTicketCreated({
       ticketId: ticket.id,
-      subject: input.reason.slice(0, 200),
+      subject: CustomerSupportService.SUSPENSION_APPEAL_REASON,
       userName: user.fullName,
       priority: ticket.priority,
       createdAt: ticket.createdAt.toISOString(),
     });
-    return this.mapToTicketDetail(ticket);
+    return {
+      id: ticket.id,
+      kind: 'SUSPENSION_APPEAL' as const,
+      status: ticketStatusToWire(ticket.status),
+    };
   }
 
   async createTicket(userId: string, dto: CreateTicketDto) {

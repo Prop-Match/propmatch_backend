@@ -265,7 +265,7 @@ export class AdminController {
   @Roles('ADMIN')
   @RequireCapability('user:suspend', 'user:delete')
   async listUsers(
-    @Query('status') status?: 'active' | 'deleted' | 'all',
+    @Query('status') status?: 'active' | 'suspended' | 'deleted' | 'all',
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,

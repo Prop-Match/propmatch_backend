@@ -6,6 +6,8 @@ export interface WebhookResult {
   paymentType?: string;
   userId?: string;
   providerOrderId?: string;
+  amountCents?: number;
+  currency?: string;
 }
 export interface IPaymentGateway {
   generatePaymentUrl(
