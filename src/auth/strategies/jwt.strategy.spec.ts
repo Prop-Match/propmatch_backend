@@ -23,7 +23,6 @@ describe('JwtStrategy', () => {
     deletedAt: null as Date | null,
     tokenVersion: 0,
     isActive: true,
-    isActive: true,
     suspendedAt: null as Date | null,
     suspendedUntil: null as Date | null,
     suspensionReason: null as string | null,

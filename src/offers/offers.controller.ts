@@ -29,6 +29,20 @@ export class OffersController {
     return this.offersService.browseRequests(req.user.userId);
   }
 
+  // Single source of truth for the per-property "N%" the Send Offer modal's
+  // property picker shows — same computeHybridMatch() browseRequests uses,
+  // never a client-side reimplementation. See getPropertyScoresForRequest's
+  // doc comment for why this endpoint exists.
+  @Get('landlord/requests/:id/property-scores')
+  @Roles('LANDLORD')
+  @UseGuards(VerifiedGuard)
+  getPropertyScoresForRequest(
+    @Request() req: AuthedRequest,
+    @Param('id') id: string,
+  ) {
+    return this.offersService.getPropertyScoresForRequest(req.user.userId, id);
+  }
+
   @Get('landlord/offers')
   @Roles('LANDLORD')
   getSentOffers(@Request() req: AuthedRequest) {
