@@ -316,10 +316,6 @@ export class AuthService {
         resetTokenExpiry: expiry,
       },
     });
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${rawToken}`;
-    console.log(
-      `[AUTH DEBUG] Password reset URL for ${user.email}: ${resetUrl}`,
-    );
     await this.mailService.sendPasswordResetEmail(user.email, rawToken);
 
     return {

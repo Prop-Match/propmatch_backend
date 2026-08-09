@@ -127,12 +127,17 @@ enum BoostCampaignStatus {
 
 enum NotificationType {
   EKYC_APPROVED
+  EKYC_RESUBMISSION_REQUIRED
   PROPERTY_APPROVED
+  PROPERTY_REJECTED
   NEW_MATCH
   PAYMENT_SUCCESS
   NEW_REVIEW_SUBMITTED
   REVIEW_APPROVED
+  REVIEW_REJECTED
   NEW_TENANT_REQUEST
+  TENANT_REQUEST_APPROVED
+  TENANT_REQUEST_REJECTED
   NEW_OFFER_RECEIVED
   NEW_MESSAGE
   CONTRACT_READY_FOR_REVIEW
@@ -918,6 +923,9 @@ model SupportTicket {
   messages         SupportMessage[]
   lastMessageAt    DateTime         @default(now()) @map("last_message_at")
   escalationReason String?          @map("escalation_reason") @db.Text
+  /// Idempotency key supplied by the support agent for an autonomous handoff.
+  /// A model retry must return the existing ticket instead of creating a duplicate.
+  agentEscalationKey String?        @unique @map("agent_escalation_key")
   priority         SupportPriority  @default(NORMAL)
   aiSummary        String?          @map("ai_summary") @db.Text
   createdAt        DateTime         @default(now()) @map("created_at")

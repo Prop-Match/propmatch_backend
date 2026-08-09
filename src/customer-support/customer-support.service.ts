@@ -15,9 +15,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'prisma/prisma.service';
 import { RealtimeService } from 'src/realtime/realtime.service';
+import { MailService } from 'src/mail/mail.service';
 import {
   NotificationType,
   SupportAuthor,
+  SupportPriority,
   TicketStatus,
 } from './../../generated/prisma/enums';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -55,8 +57,62 @@ export class CustomerSupportService {
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
   ) {}
   private readonly logger = new Logger(CustomerSupportService.name);
+
+  /**
+   * The AI service calls this only after its model selects the
+   * create-support-ticket tool. `agentRunId` is persisted as a unique key so
+   * HTTP retries cannot create duplicate tickets.
+   */
+  async createAgentEscalation(
+    userId: string,
+    input: {
+      agentRunId: string;
+      message: string;
+      reason: string;
+      priority: SupportPriority;
+    },
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, fullName: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const ticket = await this.prisma.supportTicket.upsert({
+      where: { agentEscalationKey: input.agentRunId },
+      create: {
+        userId,
+        priority: input.priority,
+        escalationReason: input.reason,
+        aiSummary: input.reason,
+        agentEscalationKey: input.agentRunId,
+        messages: {
+          create: {
+            authorType: SupportAuthor.AI,
+            authorName: 'AI Support Agent',
+            content: input.message.trim(),
+          },
+        },
+      },
+      update: {},
+      include: {
+        user: { select: { fullName: true } },
+        messages: true,
+      },
+    });
+
+    this.realtime.supportTicketCreated({
+      ticketId: ticket.id,
+      subject: input.reason.slice(0, 200),
+      userName: user.fullName,
+      priority: ticket.priority,
+      createdAt: ticket.createdAt.toISOString(),
+    });
+    return this.mapToTicketDetail(ticket);
+  }
 
   async createTicket(userId: string, dto: CreateTicketDto) {
     const user = await this.prisma.user.findUnique({
@@ -181,6 +237,7 @@ export class CustomerSupportService {
     if (!admin) throw new NotFoundException('Admin not found');
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
+      include: { user: { select: { email: true, fullName: true } } },
     });
 
     const attachment = attachmentFields(dto);
@@ -223,6 +280,12 @@ export class CustomerSupportService {
         title: 'رد جديد من الدعم الفني',
         message: `أضاف فريق الدعم الفني رداً جديداً على تذكرتك: "${replyPreview(dto.content, attachment.attachmentType)}"`,
         link: `/support/tickets/${ticketId}`,
+      });
+      await this.mail.sendSupportReplyEmail({
+        to: ticket.user.email,
+        name: ticket.user.fullName,
+        ticketId,
+        preview: replyPreview(dto.content, attachment.attachmentType),
       });
     }
 

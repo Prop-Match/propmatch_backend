@@ -1,7 +1,10 @@
 jest.mock(
   '@generated/prisma/enums',
   () => ({
-    NotificationType: { EKYC_APPROVED: 'EKYC_APPROVED' },
+    NotificationType: {
+      EKYC_APPROVED: 'EKYC_APPROVED',
+      EKYC_RESUBMISSION_REQUIRED: 'EKYC_RESUBMISSION_REQUIRED',
+    },
   }),
   { virtual: true },
 );
@@ -20,8 +23,19 @@ const noopQueue = {
 } as unknown as Queue<MatchTenantRequestJobData>;
 
 const noopMailService = {
+  sendKycReviewEmail: jest.fn(),
+  sendPropertyReviewEmail: jest.fn(),
+  sendTenantRequestReviewEmail: jest.fn(),
+  sendUserReviewDecisionEmail: jest.fn(),
+  sendAccountSuspendedEmail: jest.fn(),
+  sendAccountUnsuspendedEmail: jest.fn(),
+  sendAccountDeletedEmail: jest.fn(),
   sendAccountReactivatedEmail: jest.fn(),
   sendAccountReactivationRejectedEmail: jest.fn(),
+  sendSupportReplyEmail: jest.fn(),
+  sendAdminWelcomeEmail: jest.fn(),
+  sendAdminAccountUpdatedEmail: jest.fn(),
+  sendPasswordResetEmail: jest.fn(),
 } as unknown as MailService;
 
 describe('AdminService moderation queues', () => {
@@ -105,7 +119,10 @@ describe('AdminService KYC review', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    findUnique.mockResolvedValue({ status: 'PENDING' });
+    findUnique.mockResolvedValue({
+      status: 'PENDING',
+      user: { email: 'user@example.com', fullName: 'Test User' },
+    });
     update.mockResolvedValue({});
     notifyUser.mockResolvedValue({});
   });
@@ -127,7 +144,17 @@ describe('AdminService KYC review', () => {
         rejectionReason: 'الصورة غير واضحة',
       }),
     });
-    expect(notifyUser).not.toHaveBeenCalled();
+    expect(notifyUser).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ type: 'EKYC_RESUBMISSION_REQUIRED' }),
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    expect(noopMailService.sendKycReviewEmail).toHaveBeenCalledWith({
+      to: 'user@example.com',
+      name: 'Test User',
+      approved: false,
+      reason: 'الصورة غير واضحة',
+    });
   });
 
   it('preserves the approved KYC behavior', async () => {
@@ -150,6 +177,13 @@ describe('AdminService KYC review', () => {
       'user-1',
       expect.objectContaining({ type: 'EKYC_APPROVED' }),
     );
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    expect(noopMailService.sendKycReviewEmail).toHaveBeenCalledWith({
+      to: 'user@example.com',
+      name: 'Test User',
+      approved: true,
+      reason: undefined,
+    });
   });
 });
 
@@ -201,6 +235,7 @@ describe('AdminService property moderation', () => {
     ownerId: 'owner-1',
     owner: {
       fullName: 'Verified landlord',
+      email: 'owner@example.com',
       identityVerification: { status: 'APPROVED' },
     },
     propertyImages: [
@@ -257,6 +292,14 @@ describe('AdminService property moderation', () => {
       }),
     );
     expect(indexApprovedProperty).toHaveBeenCalledWith('property-1');
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    expect(noopMailService.sendPropertyReviewEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'owner@example.com',
+        approved: true,
+        propertyId: 'property-1',
+      }),
+    );
     expect(update.mock.invocationCallOrder[0]).toBeLessThan(
       indexApprovedProperty.mock.invocationCallOrder[0],
     );
@@ -356,6 +399,8 @@ describe('AdminService.softDeleteUser', () => {
   it('soft-deletes a tenant, archives their requests, and force-logs-out their live socket', async () => {
     findUnique.mockResolvedValue({
       id: 'user-1',
+      fullName: 'Test User',
+      email: 'user@example.com',
       role: 'TENANT',
       deletedAt: null,
       adminRole: null,
@@ -367,6 +412,11 @@ describe('AdminService.softDeleteUser', () => {
     });
 
     expect(forceLogoutUser).toHaveBeenCalledWith('user-1');
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    expect(noopMailService.sendAccountDeletedEmail).toHaveBeenCalledWith({
+      to: 'user@example.com',
+      name: 'Test User',
+    });
     expect($transaction).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.anything(),
@@ -496,6 +546,7 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
     );
     expect(sendAccountReactivatedEmail).toHaveBeenCalledWith(
       'user@example.com',
+      'Test User',
     );
   });
 
@@ -547,6 +598,7 @@ describe('AdminService.approveReactivation / rejectReactivation', () => {
     );
     expect(sendAccountReactivationRejectedEmail).toHaveBeenCalledWith(
       'user@example.com',
+      'Test User',
     );
   });
 });
