@@ -94,4 +94,16 @@ describe('mail templates', () => {
     expect(rendered.html).toContain('PropMatch');
     expect(rendered.html).toContain('dir="rtl"');
   });
+
+  it('uses the canonical frontend origin for links and logo assets', () => {
+    const rendered = renderMail(
+      { kind: 'PASSWORD_RESET', to: 'user@example.com', token: 'secret' },
+      'https://propmatch.example/landlord/',
+    );
+
+    expect(rendered.html).toContain(
+      'https://propmatch.example/reset-password?token=secret',
+    );
+    expect(rendered.html).toContain('src="https://propmatch.example/logo.png"');
+  });
 });
