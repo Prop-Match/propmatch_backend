@@ -1,6 +1,6 @@
 import { CustomerSupportService } from './customer-support.service';
 
-describe('CustomerSupportService suspension appeals', () => {
+describe('CustomerSupportService', () => {
   const prisma = {
     user: {
       findUnique: jest.fn(),
@@ -9,6 +9,7 @@ describe('CustomerSupportService suspension appeals', () => {
     supportTicket: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
     },
   };
@@ -71,6 +72,57 @@ describe('CustomerSupportService suspension appeals', () => {
     });
     expect(prisma.supportTicket.create).not.toHaveBeenCalled();
     expect(realtime.supportTicketCreated).not.toHaveBeenCalled();
+  });
+
+  it('filters the admin queue by status and commercial tier before paginating', async () => {
+    const future = new Date('2099-01-01T00:00:00.000Z');
+    const ticket = (
+      id: string,
+      planType: 'FREE' | 'PREMIUM',
+      priority: string,
+    ) => ({
+      id,
+      escalationReason: null,
+      status: 'CLOSED',
+      priority,
+      assignedAdmin: null,
+      lastMessageAt: new Date('2026-08-09T10:00:00.000Z'),
+      createdAt: new Date('2026-08-08T10:00:00.000Z'),
+      messages: [{ content: `Ticket ${id}` }],
+      user: {
+        fullName: `User ${id}`,
+        userQuota: { planType, planExpiresAt: future },
+      },
+    });
+    prisma.supportTicket.findMany.mockResolvedValue([
+      ticket('premium-high', 'PREMIUM', 'HIGH'),
+      ticket('free', 'FREE', 'CRITICAL'),
+      ticket('premium-normal', 'PREMIUM', 'NORMAL'),
+    ]);
+
+    await expect(
+      service.getAdminTickets({
+        status: 'closed',
+        commercialPriority: 'premium',
+        page: 2,
+        pageSize: 1,
+      }),
+    ).resolves.toMatchObject({
+      items: [{ id: 'premium-normal', commercialPriority: 'PREMIUM' }],
+      total: 2,
+      page: 2,
+      pageSize: 1,
+    });
+    expect(prisma.supportTicket.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: 'CLOSED' } }),
+    );
+  });
+
+  it('rejects unknown admin queue filters', async () => {
+    await expect(
+      service.getAdminTickets({ status: 'missing' }),
+    ).rejects.toThrow('Invalid support ticket status');
+    expect(prisma.supportTicket.findMany).not.toHaveBeenCalled();
   });
 
   describe('automatic escalations', () => {

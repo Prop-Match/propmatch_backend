@@ -2,7 +2,6 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import 'dotenv/config';
 import { LocalPrivateObjectStorageService } from '../src/storage/local-private-object-storage.service';
-import 'dotenv/config';
 import { PrismaService } from './prisma.service';
 
 async function main() {
@@ -10,6 +9,14 @@ async function main() {
   await prisma.onModuleInit();
 
   const passwordHash = await bcrypt.hash('Password123!', 10);
+  const verifiedAt = new Date();
+  const verifiedEmailFields = {
+    emailVerifiedAt: verifiedAt,
+    emailOtpHash: null,
+    emailOtpExpiresAt: null,
+    emailOtpAttempts: 0,
+    emailOtpSentAt: null,
+  };
 
   // Real files on disk so admin/kyc/:id's createTemporaryReadUrl works
   // against this seed data instead of the old fake CDN URLs.
@@ -26,37 +33,40 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@propmatch.local' },
-    update: {},
+    update: verifiedEmailFields,
     create: {
       fullName: 'مشرف تجريبي',
       email: 'admin@propmatch.local',
       phoneNumber: '01000000001',
       passwordHash,
       role: 'ADMIN',
+      ...verifiedEmailFields,
     },
   });
 
   const landlord = await prisma.user.upsert({
     where: { email: 'landlord@propmatch.local' },
-    update: {},
+    update: verifiedEmailFields,
     create: {
       fullName: 'مالك تجريبي',
       email: 'landlord@propmatch.local',
       phoneNumber: '01000000002',
       passwordHash,
       role: 'LANDLORD',
+      ...verifiedEmailFields,
     },
   });
 
   const tenant = await prisma.user.upsert({
     where: { email: 'tenant@propmatch.local' },
-    update: {},
+    update: verifiedEmailFields,
     create: {
       fullName: 'مستأجر تجريبي',
       email: 'tenant@propmatch.local',
       phoneNumber: '01000000003',
       passwordHash,
       role: 'TENANT',
+      ...verifiedEmailFields,
     },
   });
 

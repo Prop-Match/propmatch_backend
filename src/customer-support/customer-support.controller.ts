@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Request,
   Res,
   UseGuards,
@@ -147,8 +148,18 @@ export class CustomerSupportController {
   // --- Admin Endpoints ---
   @Get('admin/tickets')
   @Roles('ADMIN')
-  async getAdminQueue() {
-    return this.customerSupportService.getAdminTickets();
+  async getAdminQueue(
+    @Query('status') status?: string,
+    @Query('commercialPriority') commercialPriority?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.customerSupportService.getAdminTickets({
+      status,
+      commercialPriority,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
   @HttpCode(HttpStatus.OK)
   @Post('admin/tickets/:id/reply')
