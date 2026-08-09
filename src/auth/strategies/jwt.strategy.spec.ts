@@ -23,6 +23,7 @@ describe('JwtStrategy', () => {
     deletedAt: null as Date | null,
     tokenVersion: 0,
     isActive: true,
+    isActive: true,
     suspendedAt: null as Date | null,
     suspendedUntil: null as Date | null,
     suspensionReason: null as string | null,
@@ -49,6 +50,13 @@ describe('JwtStrategy', () => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       response: expect.not.objectContaining({ code: expect.anything() }),
     });
+  });
+
+  it('rejects a deactivated account', async () => {
+    findUnique.mockResolvedValue({ ...baseUser, isActive: false });
+    await expect(strategy.validate(payload)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 
   it('rejects a token for a soft-deleted user with 403 ACCOUNT_DELETED', async () => {
