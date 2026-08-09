@@ -31,6 +31,7 @@ The message is trimmed and must contain 1–2000 characters.
 LEGAL_SUPPORT_API_URL=http://localhost:8001
 LEGAL_SUPPORT_INTERNAL_API_KEY=use-the-same-long-random-value-as-fastapi
 LEGAL_SUPPORT_TIMEOUT_MS=120000
+INTERNAL_SERVICE_API_KEY=use-the-same-long-random-value-as-the-ai-service
 ```
 
 FastAPI must configure the same value as `INTERNAL_SERVICE_API_KEY`. NestJS
@@ -39,6 +40,15 @@ already-authenticated user ID/role in internal headers.
 
 The frontend must not define `LEGAL_SUPPORT_API_URL`; it needs only the normal
 `NESTJS_API_URL`.
+
+## Autonomous support-ticket tool
+
+The FastAPI support agent may call `POST /internal/support-agent/escalations`
+after its model selects `CREATE_SUPPORT_TICKET`. This is a service-to-service
+endpoint, authenticated with `INTERNAL_SERVICE_API_KEY`; it is not exposed to
+the browser. NestJS validates the payload, derives the user only from its
+trusted header, and uses the agent run ID as a database-backed idempotency key
+before creating the ticket and notifying admins.
 
 ## Failure behavior
 
