@@ -125,6 +125,41 @@ export class OffersService {
     return { items };
   }
 
+  /**
+   * GET /landlord/requests/:id/property-scores — per-property score for one
+   * tenant request, over every one of this landlord's APPROVED properties.
+   *
+   * Exists because `browseRequests` only ever surfaces the *best* score per
+   * request (one card, one number) — it has nothing to feed a per-row
+   * percentage in a property picker. Before this endpoint, the Send Offer
+   * modal filled that gap with its own client-side reimplementation of the
+   * rule-based half of the formula, missing the semantic-embedding term
+   * `computeHybridMatch` applies server-side (worth up to 50% of the score)
+   * and the lifestyle-keyword-overlap term (needs `description`/
+   * `propertyAroundServices`, which the modal's property list doesn't carry).
+   * That's the entire reason the same property showed two different
+   * percentages in two different places. Reusing `computeHybridMatch` here —
+   * the exact function `browseRequests` and every other matchScore site in
+   * this service already call — makes this the single source of truth
+   * instead of a third, slightly different implementation.
+   */
+  async getPropertyScoresForRequest(landlordId: string, requestId: string) {
+    const [request, properties] = await Promise.all([
+      this.prisma.tenantRequest.findUnique({ where: { id: requestId } }),
+      this.prisma.property.findMany({
+        where: { ownerId: landlordId, status: 'APPROVED' },
+      }),
+    ]);
+    if (!request) throw new NotFoundException('الطلب غير موجود');
+
+    return {
+      items: properties.map((property) => ({
+        propertyId: property.id,
+        ...this.computeHybridMatch(request, property),
+      })),
+    };
+  }
+
   /** GET /landlord/offers â€” offers this landlord has sent. */
   async getSentOffers(landlordId: string) {
     const offers = await this.prisma.ownerOffer.findMany({

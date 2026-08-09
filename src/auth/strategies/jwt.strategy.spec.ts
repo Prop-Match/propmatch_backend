@@ -39,6 +39,18 @@ describe('JwtStrategy', () => {
     });
   });
 
+  it('rejects a token for a deactivated (isActive: false) account, before checking deletion/suspension', async () => {
+    findUnique.mockResolvedValue({ ...baseUser, isActive: false });
+    await expect(strategy.validate(payload)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(strategy.validate(payload)).rejects.toMatchObject({
+      status: 403,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      response: expect.not.objectContaining({ code: expect.anything() }),
+    });
+  });
+
   it('rejects a deactivated account', async () => {
     findUnique.mockResolvedValue({ ...baseUser, isActive: false });
     await expect(strategy.validate(payload)).rejects.toBeInstanceOf(
