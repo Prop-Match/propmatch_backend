@@ -33,6 +33,33 @@ services:
     networks:
       - internal
 
+  chroma:
+    build:
+      context: ./local_embeddings_service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      CHROMA_PATH: /data/chroma
+      CHROMA_COLLECTION: ${CHROMA_COHERE_COLLECTION:-propmatch_properties_cohere_v1}
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma_data:/data/chroma
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - internal
+
   migrate:
     build:
       context: .
@@ -66,6 +93,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PRIVATE_STORAGE_ROOT: /app/storage/private
       REDIS_URL: redis://redis:6379
+      EMBEDDING_PROVIDER: cohere
+      LOCAL_EMBEDDINGS_ENABLED: "false"
+      LOCAL_EMBEDDINGS_URL: http://chroma:8001
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -75,6 +105,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      chroma:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -97,6 +129,7 @@ volumes:
   postgres_data:
   public_uploads:
   private_uploads:
+  chroma_data:
 
 networks:
   internal:
