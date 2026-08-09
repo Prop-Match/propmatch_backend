@@ -246,6 +246,11 @@ model User {
   //forget password
   resetToken           String?               @map("reset_token")
   resetTokenExpiry     DateTime?             @map("reset_token_expiry")
+  emailVerifiedAt      DateTime?             @map("email_verified_at")
+  emailOtpHash         String?               @map("email_otp_hash")
+  emailOtpExpiresAt    DateTime?             @map("email_otp_expires_at")
+  emailOtpAttempts     Int                   @default(0) @map("email_otp_attempts")
+  emailOtpSentAt       DateTime?             @map("email_otp_sent_at")
   // Profiles & Settings
   identityVerification IdentityVerification?
   userQuota            UserQuota?

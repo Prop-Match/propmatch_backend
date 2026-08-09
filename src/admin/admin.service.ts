@@ -1021,6 +1021,7 @@ export class AdminService {
         phoneNumber: createAdminDto.phoneNumber,
         role: 'ADMIN',
         adminRole,
+        emailVerifiedAt: new Date(),
       },
     });
     await this.mailService.sendAdminWelcomeEmail({
