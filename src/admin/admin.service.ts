@@ -249,6 +249,16 @@ export class AdminService {
     } catch (error) {
       this.logger.warn(`Suspension realtime push failed: ${String(error)}`);
     }
+    await this.mailService.sendAccountSuspendedEmail({
+      to: updated.email,
+      name: updated.fullName,
+      reason:
+        SUSPENSION_REASONS[dto.reason] ??
+        updated.suspensionReason ??
+        dto.reason,
+      note: updated.suspensionNote ?? undefined,
+      suspendedUntil: updated.suspendedUntil?.toISOString(),
+    });
     return this.toUserRow(updated);
   }
 
@@ -283,6 +293,10 @@ export class AdminService {
       },
     });
     await this.audit(actorId, 'user:unsuspend', targetUserId);
+    await this.mailService.sendAccountUnsuspendedEmail({
+      to: updated.email,
+      name: updated.fullName,
+    });
     return this.toUserRow(updated);
   }
 
@@ -469,6 +483,7 @@ export class AdminService {
     }
     const v = await this.prismaService.identityVerification.findUnique({
       where: { userId },
+      include: { user: { select: { email: true, fullName: true } } },
     });
     if (!v) {
       throw new NotFoundException(I18nContext.current()?.t('admin.NOT_FOUND'));
@@ -490,23 +505,31 @@ export class AdminService {
       },
     });
     await this.audit(adminId, `kyc:${reviewDecisionDto.decision}`, userId);
-    // Rejections don't get a push notification: the ERD's NotificationType
-    // enum has no EKYC_REJECTED value, and the bell renders strictly by
-    // `type` (requirements.md §6) — sending EKYC_APPROVED here would show a
-    // rejected user an approval-styled notification. The user still sees
-    // the RESUBMISSION_REQUIRED status on their next profile fetch.
-    if (isApproved) {
-      await this.realtimeService.notifyUser(userId, {
-        type: NotificationType.EKYC_APPROVED,
-        title:
-          I18nContext.current()?.t('admin.TITLE_KYC_APPROVED') ||
-          'تم قبول توثيق الهوية',
-        message:
-          I18nContext.current()?.t('admin.MSG_KYC_APPROVED') ||
-          'تمت الموافقة على توثيق هويتك بنجاح.',
-        link: '/profile',
-      });
-    }
+    await this.realtimeService.notifyUser(userId, {
+      type: isApproved
+        ? NotificationType.EKYC_APPROVED
+        : NotificationType.EKYC_RESUBMISSION_REQUIRED,
+      title:
+        I18nContext.current()?.t(
+          isApproved ? 'admin.TITLE_KYC_APPROVED' : 'admin.TITLE_KYC_REJECTED',
+        ) ||
+        (isApproved ? 'تم قبول توثيق الهوية' : 'مطلوب تصحيح مستندات التوثيق'),
+      message:
+        I18nContext.current()?.t(
+          isApproved ? 'admin.MSG_KYC_APPROVED' : 'admin.MSG_KYC_REJECTED',
+          { args: { reason: reviewDecisionDto.reason } },
+        ) ||
+        (isApproved
+          ? 'تمت الموافقة على توثيق هويتك بنجاح.'
+          : `يرجى تصحيح المستندات وإعادة تقديمها. السبب: ${reviewDecisionDto.reason ?? ''}`),
+      link: '/profile',
+    });
+    await this.mailService.sendKycReviewEmail({
+      to: v.user.email,
+      name: v.user.fullName,
+      approved: isApproved,
+      reason: reviewDecisionDto.reason,
+    });
     return {
       message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
         args: { status },
@@ -527,6 +550,7 @@ export class AdminService {
     }
     const p = await this.prismaService.property.findUnique({
       where: { id: propertyId },
+      include: { owner: { select: { email: true, fullName: true } } },
     });
     if (!p) {
       throw new NotFoundException(
@@ -568,7 +592,7 @@ export class AdminService {
       }
     }
     await this.realtimeService.notifyUser(property.ownerId, {
-      type: 'PROPERTY_APPROVED',
+      type: isApproved ? 'PROPERTY_APPROVED' : 'PROPERTY_REJECTED',
       title:
         I18nContext.current()?.t(
           isApproved
@@ -586,6 +610,14 @@ export class AdminService {
           ? `تمت الموافقة على نشر عقارك "${property.title}" وهو متاح للمستأجرين الآن.`
           : `لم نتمكن من الموافقة على عقارك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: `/landlord/properties/${property.id}`,
+    });
+    await this.mailService.sendPropertyReviewEmail({
+      to: p.owner.email,
+      name: p.owner.fullName,
+      approved: isApproved,
+      propertyId: property.id,
+      propertyTitle: property.title,
+      reason: reviewDecisionDto.reason,
     });
     return {
       message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
@@ -673,6 +705,7 @@ export class AdminService {
     }
     const r = await this.prismaService.tenantRequest.findUnique({
       where: { id: requestId },
+      include: { tenant: { select: { email: true, fullName: true } } },
     });
     if (!r) {
       throw new NotFoundException(
@@ -718,7 +751,7 @@ export class AdminService {
     }
 
     await this.realtimeService.notifyUser(request.tenantId, {
-      type: 'NEW_TENANT_REQUEST',
+      type: isApproved ? 'TENANT_REQUEST_APPROVED' : 'TENANT_REQUEST_REJECTED',
       title:
         I18nContext.current()?.t(
           isApproved
@@ -736,6 +769,12 @@ export class AdminService {
           ? 'تمت الموافقة على طلبك بنجاح.'
           : `تم رفض طلبك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: '/tenant/requests',
+    });
+    await this.mailService.sendTenantRequestReviewEmail({
+      to: r.tenant.email,
+      name: r.tenant.fullName,
+      approved: isApproved,
+      reason: reviewDecisionDto.reason,
     });
     return {
       message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
@@ -797,6 +836,7 @@ export class AdminService {
     }
     const ur = await this.prismaService.propertyReview.findUnique({
       where: { id: reviewId },
+      include: { reviewer: { select: { email: true, fullName: true } } },
     });
     if (!ur) {
       throw new NotFoundException(
@@ -819,7 +859,7 @@ export class AdminService {
     });
     await this.audit(adminId, `review:${reviewDecisionDto.decision}`, reviewId);
     await this.realtimeService.notifyUser(userReview.reviewerId, {
-      type: 'REVIEW_APPROVED',
+      type: isApproved ? 'REVIEW_APPROVED' : 'REVIEW_REJECTED',
       title:
         I18nContext.current()?.t(
           isApproved
@@ -837,6 +877,13 @@ export class AdminService {
           ? 'تمت الموافقة على تقييمك وهو منشور الآن.'
           : `تم رفض تقييمك. السبب: ${reviewDecisionDto.reason ?? ''}`),
       link: `/properties/${userReview.propertyId}`,
+    });
+    await this.mailService.sendUserReviewDecisionEmail({
+      to: ur.reviewer.email,
+      name: ur.reviewer.fullName,
+      approved: isApproved,
+      propertyId: userReview.propertyId,
+      reason: reviewDecisionDto.reason,
     });
     return {
       message: I18nContext.current()?.t('admin.REVIEW_SUCCESS_MESSAGE', {
@@ -976,6 +1023,11 @@ export class AdminService {
         adminRole,
       },
     });
+    await this.mailService.sendAdminWelcomeEmail({
+      to: admin.email,
+      name: admin.fullName,
+      roleLabel: roleLabelFor(admin.adminRole),
+    });
     return transformUserToFrontend(admin);
   }
 
@@ -1012,7 +1064,14 @@ export class AdminService {
   ) {
     const target = await this.prismaService.user.findUnique({
       where: { id },
-      select: { id: true, role: true, adminRole: true, isActive: true },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        adminRole: true,
+        isActive: true,
+      },
     });
     if (!target || target.role !== 'ADMIN') {
       throw new NotFoundException('المشرف غير موجود');
@@ -1059,6 +1118,13 @@ export class AdminService {
       where: { id },
       data,
     });
+    await this.audit(actorId, 'admin:update', id);
+    await this.mailService.sendAdminAccountUpdatedEmail({
+      to: admin.email,
+      name: admin.fullName,
+      roleLabel: roleLabelFor(admin.adminRole),
+      disabled: !admin.isActive,
+    });
     return {
       id: admin.id,
       fullName: admin.fullName,
@@ -1069,6 +1135,31 @@ export class AdminService {
       lastLoginAt: admin.lastLoginAt?.toISOString() || null,
       createdAt: admin.createdAt.toISOString(),
     };
+  }
+
+  async resetAdminPassword(actorId: string, id: string) {
+    const admin = await this.prismaService.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, role: true },
+    });
+    if (!admin || admin.role !== 'ADMIN') {
+      throw new NotFoundException('المشرف غير موجود');
+    }
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const resetToken = crypto
+      .createHash('sha256')
+      .update(rawToken)
+      .digest('hex');
+    await this.prismaService.user.update({
+      where: { id },
+      data: {
+        resetToken,
+        resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+    await this.audit(actorId, 'admin:reset-password', id);
+    await this.mailService.sendPasswordResetEmail(admin.email, rawToken);
+    return { sent: true };
   }
 
   async getStats(): Promise<AdminStats> {
@@ -1213,7 +1304,14 @@ export class AdminService {
   async softDeleteUser(adminId: string, userId: string) {
     const target = await this.prismaService.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, deletedAt: true, adminRole: true },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        deletedAt: true,
+        adminRole: true,
+      },
     });
     if (!target) throw new NotFoundException('المستخدم غير موجود');
     if (target.deletedAt) {
@@ -1253,6 +1351,10 @@ export class AdminService {
     // if they're already connected, kick the live socket now so a currently
     // active session doesn't keep working until it happens to refresh.
     this.realtimeService.forceLogoutUser(userId);
+    await this.mailService.sendAccountDeletedEmail({
+      to: target.email,
+      name: target.fullName,
+    });
 
     return { success: true, id: userId };
   }
@@ -1315,7 +1417,10 @@ export class AdminService {
       message: 'وافق أحد المشرفين على طلبك بإعادة تفعيل حسابك.',
       link: '/login',
     });
-    await this.mailService.sendAccountReactivatedEmail(request.user.email);
+    await this.mailService.sendAccountReactivatedEmail(
+      request.user.email,
+      request.user.fullName,
+    );
 
     return { success: true, id: requestId };
   }
@@ -1346,6 +1451,7 @@ export class AdminService {
     });
     await this.mailService.sendAccountReactivationRejectedEmail(
       request.user.email,
+      request.user.fullName,
     );
 
     return { success: true, id: requestId };

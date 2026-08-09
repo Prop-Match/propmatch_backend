@@ -242,9 +242,11 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
   @RequireCapability('admin:manage')
-  async resetPassword(@Param('id') id: string) {
-    //Todo: create reset password implementation
-    return { sent: true };
+  async resetPassword(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.resetAdminPassword(req.user.userId, id);
   }
 
   @Get('stats')
