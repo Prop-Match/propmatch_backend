@@ -464,6 +464,24 @@ export class AuthService {
     return { message: 'تم حذف الحساب بنجاح' };
   }
 
+  async createSocketTicket(userId: string): Promise<{ token: string }> {
+    const user = await this.userService.findById(userId);
+    if (!user) throw new UnauthorizedException();
+    const token = await this.jwtService.signAsync(
+      {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        tokenVersion: user.tokenVersion,
+      },
+      {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        expiresIn: '5m',
+      },
+    );
+    return { token };
+  }
+
   private createEmailOtp(): string {
     return crypto.randomInt(0, 10 ** OTP_DIGITS).toString().padStart(OTP_DIGITS, '0');
   }
