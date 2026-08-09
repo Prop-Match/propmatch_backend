@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
 import { MailService } from 'src/mail/mail.service';
+import { CustomerSupportService } from 'src/customer-support/customer-support.service';
 import { isSuspensionActive, suspensionMessage } from '../common/suspension';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -42,6 +43,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly realtimeService: RealtimeService,
+    private readonly customerSupportService: CustomerSupportService,
   ) {}
 
   /**
@@ -172,15 +174,13 @@ export class AuthService {
     };
   }
   /**
-   * POST /auth/request-reactivation — public. Requires the password (not
-   * just the email) so this can't be used to probe whether an arbitrary
-   * email is a deleted account. Creates one PENDING ActivationRequest; a
-   * user who already has a pending request just gets that one back rather
-   * than piling up duplicates for an admin to review.
+   * POST /auth/request-reactivation — public and credential-gated. Deleted
+   * accounts create an ActivationRequest; suspended accounts create one open
+   * support appeal ticket. Neither path restores access or mints tokens.
    */
-  async requestReactivation(email: string, password: string) {
+  async requestReactivation(email: string, password: string, message?: string) {
     const user = await this.userService.findByEmail(email);
-    if (!user || !user.deletedAt) {
+    if (!user) {
       // Same opaque failure whether the email doesn't exist, isn't deleted,
       // or the password is wrong — never confirms account state to a caller
       // who hasn't proven they own the credentials.
@@ -190,6 +190,22 @@ export class AuthService {
     }
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
+      throw new UnauthorizedException(
+        I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
+      );
+    }
+
+    // A suspended account has no usable JWT by design, so its verified
+    // credentials authorize only this narrow operation: create a support
+    // appeal ticket. It does not restore access or mint any tokens.
+    if (!user.deletedAt && isSuspensionActive(user)) {
+      return this.customerSupportService.createSuspensionAppeal(
+        { id: user.id, fullName: user.fullName },
+        message,
+      );
+    }
+
+    if (!user.deletedAt) {
       throw new UnauthorizedException(
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
       );
