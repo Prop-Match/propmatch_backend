@@ -24,12 +24,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   /**
    * Runs on every authenticated request. JWTs are otherwise stateless — this
-   * DB lookup is the deliberate tradeoff that makes "delete/suspend a user"
-   * revoke their session immediately instead of waiting for the token to
-   * expire. Selects only what's needed (not the whole row) to keep the added
-   * latency as small as this guarantee can reasonably cost.
+   * DB lookup is the deliberate tradeoff that makes "delete/suspend/disable a
+   * user" revoke their session immediately instead of waiting for the token
+   * to expire. Selects only what's needed (not the whole row) to keep the
+   * added latency as small as this guarantee can reasonably cost.
    *
-   * Three independent checks, in order:
+   * Four independent checks, in order — mirrors AuthService.signIn's order
+   * exactly, so a blocked account is rejected the same way whether it's a
+   * fresh login or an existing session hitting this guard:
    * 1. tokenVersion mismatch (or user gone entirely) → 401. This closes the
    *    reactivation gap: deletion alone already revokes every session
    *    (deletedAt check below), but a token minted *before* a reactivation
@@ -39,11 +41,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    *    before this field existed (undefined !== 0) — a one-time forced
    *    re-login for all active sessions on deploy, which is the intended
    *    tradeoff for a security fix, not a bug.
-   * 2. deletedAt set → 403 ACCOUNT_DELETED. A "ghost" account (self-delete or
+   * 2. isActive: false → 403, generic "account disabled" message (admin
+   *    team-member deactivation, or any other manually deactivated user —
+   *    see AdminService.updateTeamMember). No coded body: there is no
+   *    self-service recovery for this state, unlike the two below.
+   * 3. deletedAt set → 403 ACCOUNT_DELETED. A "ghost" account (self-delete or
    *    30-day-expired anonymized account) with its own reactivation flow.
-   * 3. suspendedAt/suspendedUntil active → 403 ACCOUNT_SUSPENDED, with the
+   * 4. suspendedAt/suspendedUntil active → 403 ACCOUNT_SUSPENDED, with the
    *    reason + end date in the message. A live account an admin temporarily
-   *    or permanently blocked — a distinct recovery path from #2 (wait it
+   *    or permanently blocked — a distinct recovery path from #3 (wait it
    *    out or appeal, not request reactivation).
    */
   async validate(payload: {
@@ -63,13 +69,27 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         suspensionReason: true,
       },
     });
-    if (user && !user.isActive) {
+    if (!user || payload.tokenVersion !== user.tokenVersion) {
+      throw new UnauthorizedException();
+    }
+    if (!user.isActive) {
       throw new ForbiddenException(
         'تم تعطيل هذا الحساب. برجاء التواصل مع الإدارة.',
       );
     }
-    if (user && isSuspensionActive(user)) {
-      throw new ForbiddenException(suspensionMessage(user));
+    if (user.deletedAt) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ACCOUNT_DELETED',
+        message: 'هذا الحساب مجدول للحذف. يمكنك طلب إعادة التفعيل.',
+      });
+    }
+    if (isSuspensionActive(user)) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ACCOUNT_SUSPENDED',
+        message: suspensionMessage(user),
+      });
     }
     // This return value is attached automatically to req.user
     return { userId: payload.sub, email: payload.email, role: payload.role };

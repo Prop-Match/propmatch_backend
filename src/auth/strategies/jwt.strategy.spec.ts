@@ -22,6 +22,7 @@ describe('JwtStrategy', () => {
   const baseUser = {
     deletedAt: null as Date | null,
     tokenVersion: 0,
+    isActive: true,
     suspendedAt: null as Date | null,
     suspendedUntil: null as Date | null,
     suspensionReason: null as string | null,
@@ -35,6 +36,18 @@ describe('JwtStrategy', () => {
       userId: 'user-1',
       email: 'a@test.local',
       role: 'TENANT',
+    });
+  });
+
+  it('rejects a token for a deactivated (isActive: false) account, before checking deletion/suspension', async () => {
+    findUnique.mockResolvedValue({ ...baseUser, isActive: false });
+    await expect(strategy.validate(payload)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(strategy.validate(payload)).rejects.toMatchObject({
+      status: 403,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      response: expect.not.objectContaining({ code: expect.anything() }),
     });
   });
 
