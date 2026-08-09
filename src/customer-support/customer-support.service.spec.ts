@@ -4,15 +4,22 @@ describe('CustomerSupportService', () => {
   const prisma = {
     user: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     supportTicket: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
+    supportMessage: { create: jest.fn() },
   };
-  const realtime = { supportTicketCreated: jest.fn() };
+  const realtime = {
+    supportTicketCreated: jest.fn(),
+    notifyUsers: jest.fn().mockResolvedValue([]),
+    supportMessageToAdmins: jest.fn(),
+  };
   const service = new CustomerSupportService(
     prisma as never,
     realtime as never,
@@ -161,6 +168,7 @@ describe('CustomerSupportService', () => {
         id: 'user-1',
         fullName: 'Support User',
       });
+      prisma.user.findMany.mockResolvedValue([{ id: 'admin-1' }]);
       prisma.supportTicket.create.mockResolvedValue(ticket);
     });
 
@@ -183,6 +191,13 @@ describe('CustomerSupportService', () => {
         }),
       );
       expect(realtime.supportTicketCreated).toHaveBeenCalledTimes(1);
+      expect(realtime.notifyUsers).toHaveBeenCalledWith([
+        expect.objectContaining({
+          userId: 'admin-1',
+          type: 'SUPPORT_TICKET_ESCALATED',
+          link: '/admin/support/ticket-auto-1',
+        }),
+      ]);
     });
 
     it('returns the idempotent ticket without creating or broadcasting again', async () => {
@@ -197,12 +212,25 @@ describe('CustomerSupportService', () => {
 
     it('reuses an existing open ticket instead of flooding the queue', async () => {
       prisma.supportTicket.findFirst.mockResolvedValue(ticket);
+      prisma.supportMessage.create.mockResolvedValue({
+        authorName: 'Support User',
+        content: input.message,
+        createdAt: new Date('2026-08-09T10:01:00.000Z'),
+      });
 
       const result = await service.createAgentEscalation('user-1', input);
 
       expect(result.id).toBe('ticket-auto-1');
       expect(prisma.supportTicket.create).not.toHaveBeenCalled();
       expect(realtime.supportTicketCreated).not.toHaveBeenCalled();
+      expect(prisma.supportMessage.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ ticketId: 'ticket-auto-1' }),
+        }),
+      );
+      expect(realtime.supportMessageToAdmins).toHaveBeenCalledWith(
+        expect.objectContaining({ ticketId: 'ticket-auto-1', content: input.message }),
+      );
     });
   });
 });

@@ -39,6 +39,7 @@ type RefreshTokenPayload = TokenPayload & {
 
 const OTP_DIGITS = 6;
 const OTP_MAX_ATTEMPTS = 5;
+const DEVELOPMENT_EMAIL_OTP = '123456';
 
 @Injectable()
 export class AuthService {
@@ -195,28 +196,30 @@ export class AuthService {
         'This verification code is invalid or expired.',
       );
     }
-    if (
-      !user.emailOtpHash ||
-      !user.emailOtpExpiresAt ||
-      user.emailOtpExpiresAt <= new Date()
-    ) {
-      throw new BadRequestException(
-        'This verification code is invalid or expired.',
-      );
-    }
-    if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
-      throw new BadRequestException(
-        'Too many invalid attempts. Please request a new code.',
-      );
-    }
-    if (this.hashOtp(code) !== user.emailOtpHash) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { emailOtpAttempts: { increment: 1 } },
-      });
-      throw new BadRequestException(
-        'This verification code is invalid or expired.',
-      );
+    if (!this.isDevelopmentEmailOtp(code)) {
+      if (
+        !user.emailOtpHash ||
+        !user.emailOtpExpiresAt ||
+        user.emailOtpExpiresAt <= new Date()
+      ) {
+        throw new BadRequestException(
+          'This verification code is invalid or expired.',
+        );
+      }
+      if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
+        throw new BadRequestException(
+          'Too many invalid attempts. Please request a new code.',
+        );
+      }
+      if (this.hashOtp(code) !== user.emailOtpHash) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { emailOtpAttempts: { increment: 1 } },
+        });
+        throw new BadRequestException(
+          'This verification code is invalid or expired.',
+        );
+      }
     }
 
     const verified = await this.prisma.user.update({
@@ -517,6 +520,23 @@ export class AuthService {
       .randomInt(0, 10 ** OTP_DIGITS)
       .toString()
       .padStart(OTP_DIGITS, '0');
+  }
+
+  private isDevelopmentEmailOtp(code: string): boolean {
+    const enabled =
+      this.configService
+        .get<string>('EMAIL_OTP_DEV_BYPASS_ENABLED', 'false')
+        ?.trim()
+        .toLowerCase() === 'true';
+    const environment = (
+      this.configService.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      ''
+    ).toLowerCase();
+
+    return (
+      enabled && environment !== 'production' && code === DEVELOPMENT_EMAIL_OTP
+    );
   }
 
   private hashOtp(code: string): string {

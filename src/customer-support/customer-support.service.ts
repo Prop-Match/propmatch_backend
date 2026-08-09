@@ -175,7 +175,32 @@ export class CustomerSupportService {
       orderBy: { updatedAt: 'desc' },
       include: this.ticketDetailInclude,
     });
-    if (openTicket) return this.mapToTicketDetail(openTicket, userId);
+    if (openTicket) {
+      // A different agent run must not create a duplicate ticket, but its
+      // customer message is still new information for the assigned support
+      // team. Append it to the open ticket and notify admins in real time.
+      const message = await this.prisma.supportMessage.create({
+        data: {
+          ticketId: openTicket.id,
+          authorType: SupportAuthor.USER,
+          authorName: openTicket.user.fullName,
+          authorId: userId,
+          content: input.message.trim(),
+        },
+      });
+      await this.prisma.supportTicket.update({
+        where: { id: openTicket.id },
+        data: { lastMessageAt: new Date(), status: TicketStatus.IN_PROGRESS },
+      });
+      this.realtime.supportMessageToAdmins({
+        ticketId: openTicket.id,
+        authorName: message.authorName,
+        content: message.content,
+        internal: false,
+        at: message.createdAt.toISOString(),
+      });
+      return this.mapToTicketDetail(openTicket, userId);
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -224,6 +249,31 @@ export class CustomerSupportService {
       priority: ticket.priority,
       createdAt: ticket.createdAt.toISOString(),
     });
+    // The ticket record is the queue's source of truth. Persist a separate
+    // notification for every active admin too, so an offline admin sees it in
+    // the bell on their next visit and a connected admin is notified at once.
+    try {
+      const admins = await this.prisma.user.findMany({
+        where: { role: 'ADMIN', isActive: true, deletedAt: null },
+        select: { id: true },
+      });
+      await this.realtime.notifyUsers(
+        admins.map((admin) => ({
+          userId: admin.id,
+          type: NotificationType.SUPPORT_TICKET_ESCALATED,
+          title: 'تصعيد جديد لخدمة العملاء',
+          message: `${user.fullName}: ${input.reason.slice(0, 160)}`,
+          link: `/admin/support/${ticket.id}`,
+        })),
+      );
+    } catch (error) {
+      // The ticket has already been safely persisted and announced to the
+      // admin queue; a bell-notification failure must not undo the handoff.
+      this.logger.error(
+        `Could not notify admins about automatic SupportTicket ${ticket.id}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
     return this.mapToTicketDetail(ticket, userId);
   }
 
@@ -495,7 +545,7 @@ export class CustomerSupportService {
         type: NotificationType.NEW_MESSAGE,
         title: 'رد جديد من المستخدم',
         message: `أضاف ${ticket.user?.fullName ?? 'المستخدم'} رداً جديداً: "${replyPreview(content, attachment.attachmentType)}"`,
-        link: `/admin/tickets/${ticketId}`,
+        link: `/admin/support/${ticketId}`,
       });
     }
 
