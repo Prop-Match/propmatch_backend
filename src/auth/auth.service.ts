@@ -71,13 +71,12 @@ export class AuthService {
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
       );
     }
-<<<<<<< HEAD
     // A disabled account (admin "تعطيل", or a deactivated user) cannot log in.
     if (!user.isActive) {
       throw new ForbiddenException(
         'تم تعطيل هذا الحساب. برجاء التواصل مع الإدارة.',
       );
-=======
+    }
     // Valid credentials for a soft-deleted account: reject with a specific
     // code (not the generic 401) so the frontend can distinguish "wrong
     // password" from "this account still exists but was deleted" and offer
@@ -93,7 +92,6 @@ export class AuthService {
           I18nContext.current()?.t('auth.ACCOUNT_DELETED') ||
           'هذا الحساب مجدول للحذف. يمكنك طلب إعادة التفعيل.',
       });
->>>>>>> 4c433c055d66a498a734520272ab36a5a2ae5888
     }
     // Block a suspended account at the door, with the reason + end date.
     if (isSuspensionActive(user)) {
