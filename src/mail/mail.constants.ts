@@ -3,6 +3,7 @@ export const SEND_MAIL_JOB = 'send-mail';
 
 export type MailJobData =
   | { kind: 'PASSWORD_RESET'; to: string; token: string }
+  | { kind: 'EMAIL_VERIFICATION_OTP'; to: string; name: string; code: string }
   | {
       kind: 'KYC_REVIEW';
       to: string;

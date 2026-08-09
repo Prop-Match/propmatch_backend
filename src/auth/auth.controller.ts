@@ -20,6 +20,8 @@ import { RequestReactivationDto } from './dto/request-reactivation.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SigninDto } from './dto/signin.dto';
 import { SignupDto } from './dto/signup.dto';
+import { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
+import { ResendEmailOtpDto } from './dto/resend-email-otp.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -67,6 +69,18 @@ export class AuthController {
       signupDto.phoneNumber,
       signupDto.role,
     );
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('verify-email')
+  async verifyEmail(@Body() dto: VerifyEmailOtpDto) {
+    return this.authService.verifyEmail(dto.email, dto.code);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-email-verification')
+  async resendEmailVerification(@Body() dto: ResendEmailOtpDto) {
+    return this.authService.resendEmailVerification(dto.email);
   }
   @UseGuards(JwtAuthGuard)
   @Get('me')

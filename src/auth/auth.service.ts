@@ -34,6 +34,9 @@ type RefreshTokenPayload = TokenPayload & {
   tokenType: 'refresh';
 };
 
+const OTP_DIGITS = 6;
+const OTP_MAX_ATTEMPTS = 5;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -107,6 +110,13 @@ export class AuthService {
         message: suspensionMessage(user),
       });
     }
+    if (!user.emailVerifiedAt) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Please verify your email address before signing in.',
+      });
+    }
     const payLoad = {
       sub: user.id,
       email: user.email,
@@ -127,7 +137,8 @@ export class AuthService {
     phoneNumber: string,
     role: 'TENANT' | 'LANDLORD',
   ) {
-    const user = await this.userService.findByEmail(email);
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.userService.findByEmail(normalizedEmail);
     if (user) {
       throw new ConflictException(
         I18nContext.current()?.t('auth.EMAIL_EXISTS'),
@@ -136,12 +147,18 @@ export class AuthService {
 
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
+    const otp = this.createEmailOtp();
+    const now = new Date();
     const newUser = await this.userService.create({
       fullName,
-      email,
+      email: normalizedEmail,
       passwordHash,
       phoneNumber,
       role,
+      emailOtpHash: this.hashOtp(otp),
+      emailOtpExpiresAt: this.otpExpiry(),
+      emailOtpAttempts: 0,
+      emailOtpSentAt: now,
       ...(role === 'LANDLORD'
         ? {
             userQuota: {
@@ -154,24 +171,74 @@ export class AuthService {
           }
         : {}),
     });
-    const userWithRelations = await this.userService.findById(newUser.id);
-    if (!userWithRelations) {
-      throw new ConflictException(
-        I18nContext.current()?.t('auth.REGISTRATION_FAILED'),
-      );
-    }
-    const mappedUser = transformUserToFrontend(userWithRelations);
-    const payload = {
-      sub: newUser.id,
-      email: newUser.email,
-      role: newUser.role,
-      tokenVersion: newUser.tokenVersion,
-    };
-    const tokens = await this.createPairToken(payload);
+    await this.mailService.sendEmailVerificationOtp(newUser.email, fullName, otp);
     return {
-      ...tokens,
-      user: mappedUser,
+      verificationRequired: true,
+      email: newUser.email,
+      resendAvailableAt: new Date(
+        now.getTime() + this.otpResendCooldownSeconds() * 1000,
+      ).toISOString(),
     };
+  }
+
+  async verifyEmail(email: string, code: string) {
+    const user = await this.userService.findByEmail(email.trim().toLowerCase());
+    if (!user || user.emailVerifiedAt) {
+      throw new BadRequestException('This verification code is invalid or expired.');
+    }
+    if (!user.emailOtpHash || !user.emailOtpExpiresAt || user.emailOtpExpiresAt <= new Date()) {
+      throw new BadRequestException('This verification code is invalid or expired.');
+    }
+    if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
+      throw new BadRequestException('Too many invalid attempts. Please request a new code.');
+    }
+    if (this.hashOtp(code) !== user.emailOtpHash) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { emailOtpAttempts: { increment: 1 } },
+      });
+      throw new BadRequestException('This verification code is invalid or expired.');
+    }
+
+    const verified = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerifiedAt: new Date(),
+        emailOtpHash: null,
+        emailOtpExpiresAt: null,
+        emailOtpAttempts: 0,
+      },
+      include: { identityVerification: true },
+    });
+    const payload: TokenPayload = {
+      sub: verified.id,
+      email: verified.email,
+      role: verified.role,
+      tokenVersion: verified.tokenVersion,
+    };
+    return { ...(await this.createPairToken(payload)), user: transformUserToFrontend(verified) };
+  }
+
+  async resendEmailVerification(email: string): Promise<{ sent: true }> {
+    const user = await this.userService.findByEmail(email.trim().toLowerCase());
+    if (!user || user.emailVerifiedAt) return { sent: true };
+
+    const cooldown = this.otpResendCooldownSeconds() * 1000;
+    if (user.emailOtpSentAt && user.emailOtpSentAt.getTime() + cooldown > Date.now()) {
+      throw new BadRequestException('Please wait before requesting another code.');
+    }
+    const otp = this.createEmailOtp();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailOtpHash: this.hashOtp(otp),
+        emailOtpExpiresAt: this.otpExpiry(),
+        emailOtpAttempts: 0,
+        emailOtpSentAt: new Date(),
+      },
+    });
+    await this.mailService.sendEmailVerificationOtp(user.email, user.fullName, otp);
+    return { sent: true };
   }
   /**
    * POST /auth/request-reactivation — public and credential-gated. Deleted
@@ -385,6 +452,42 @@ export class AuthService {
   async deleteAccount(userId: string) {
     await this.userService.deleteAccount(userId);
     return { message: 'تم حذف الحساب بنجاح' };
+  }
+
+  private createEmailOtp(): string {
+    return crypto.randomInt(0, 10 ** OTP_DIGITS).toString().padStart(OTP_DIGITS, '0');
+  }
+
+  private hashOtp(code: string): string {
+    return crypto
+      .createHmac(
+        'sha256',
+        this.configService.getOrThrow<string>('EMAIL_OTP_SECRET'),
+      )
+      .update(code)
+      .digest('hex');
+  }
+
+  private otpExpiry(): Date {
+    return new Date(Date.now() + this.otpTtlMinutes() * 60 * 1000);
+  }
+
+  private otpTtlMinutes(): number {
+    return this.positiveIntegerConfig('EMAIL_OTP_TTL_MINUTES', 10);
+  }
+
+  private otpResendCooldownSeconds(): number {
+    return this.positiveIntegerConfig('EMAIL_OTP_RESEND_COOLDOWN_SECONDS', 60);
+  }
+
+  private positiveIntegerConfig(name: string, fallback: number): number {
+    const raw = this.configService.get<string>(name)?.trim();
+    if (!raw) return fallback;
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(`${name} must be a positive integer.`);
+    }
+    return parsed;
   }
 
   private signAccessToken(payload: TokenPayload): Promise<string> {
