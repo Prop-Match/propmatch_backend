@@ -143,6 +143,7 @@ enum NotificationType {
   CONTRACT_READY_FOR_REVIEW
   CONTRACT_APPROVED
   CONTRACT_REJECTED
+  USER_REVIEW_RECEIVED
   /**
    * Smart Matchmaker — a landlord's property scored >75 against a new tenant request.
    */
@@ -202,6 +203,11 @@ enum TenantContractReviewStatus {
   PENDING_REVIEW
   CHANGES_REQUESTED
   REVIEW_CONFIRMED
+}
+
+enum UserReviewDirection {
+  TENANT_TO_LANDLORD
+  LANDLORD_TO_TENANT
 }
 
 model User {
@@ -267,7 +273,9 @@ model User {
   ownerListingOffers  TenantOffer[] @relation("OwnerListingOffers")
 
   // Reviews
-  propertyReviews PropertyReview[] @relation("ReviewWriter")
+  propertyReviews      PropertyReview[] @relation("ReviewWriter")
+  submittedUserReviews UserReview[]     @relation("UserReviewAuthor")
+  receivedUserReviews  UserReview[]     @relation("UserReviewSubject")
 
   // Matchmaker Connections
   ownerMatchConnections  MatchConnection[] @relation("OwnerMatchConnections")
@@ -759,9 +767,33 @@ model LeaseContract {
   changeRequestNote       String?                    @map("change_request_note") @db.Text
   createdAt               DateTime                   @default(now()) @map("created_at")
   updatedAt               DateTime                   @updatedAt @map("updated_at")
+  userReviews             UserReview[]
 
   @@unique([matchConnectionId])
   @@map("lease_contract")
+}
+
+model UserReview {
+  id                     String              @id @default(uuid()) @db.Uuid
+  leaseContractId        String              @map("lease_contract_id") @db.Uuid
+  leaseContract          LeaseContract       @relation(fields: [leaseContractId], references: [id], onDelete: Cascade)
+  reviewerId             String              @map("reviewer_id") @db.Uuid
+  reviewer               User                @relation("UserReviewAuthor", fields: [reviewerId], references: [id], onDelete: Restrict)
+  revieweeId             String              @map("reviewee_id") @db.Uuid
+  reviewee               User                @relation("UserReviewSubject", fields: [revieweeId], references: [id], onDelete: Restrict)
+  direction              UserReviewDirection
+  overallRating          Int                 @map("overall_rating")
+  communicationRating    Int                 @map("communication_rating")
+  responsivenessRating   Int                 @map("responsiveness_rating")
+  propertyAccuracyRating Int?                @map("property_accuracy_rating")
+  commitmentRating       Int?                @map("commitment_rating")
+  createdAt              DateTime            @default(now()) @map("created_at")
+  updatedAt              DateTime            @updatedAt @map("updated_at")
+
+  @@unique([leaseContractId, reviewerId])
+  @@index([revieweeId, createdAt])
+  @@index([reviewerId])
+  @@map("user_review")
 }
 
 model PartnerLead {
@@ -919,22 +951,22 @@ enum SupportPriority {
 }
 
 model SupportTicket {
-  id               String           @id @default(uuid()) @db.Uuid
-  userId           String           @map("user_id") @db.Uuid
-  user             User             @relation("UserTickets", fields: [userId], references: [id])
-  status           TicketStatus     @default(NEW)
-  assignedAdminId  String?          @map("assigned_admin_id") @db.Uuid
-  assignedAdmin    User?            @relation("AdminAssignedTickets", fields: [assignedAdminId], references: [id])
-  messages         SupportMessage[]
-  lastMessageAt    DateTime         @default(now()) @map("last_message_at")
-  escalationReason String?          @map("escalation_reason") @db.Text
+  id                 String           @id @default(uuid()) @db.Uuid
+  userId             String           @map("user_id") @db.Uuid
+  user               User             @relation("UserTickets", fields: [userId], references: [id])
+  status             TicketStatus     @default(NEW)
+  assignedAdminId    String?          @map("assigned_admin_id") @db.Uuid
+  assignedAdmin      User?            @relation("AdminAssignedTickets", fields: [assignedAdminId], references: [id])
+  messages           SupportMessage[]
+  lastMessageAt      DateTime         @default(now()) @map("last_message_at")
+  escalationReason   String?          @map("escalation_reason") @db.Text
   /// Idempotency key supplied by the support agent for an autonomous handoff.
   /// A model retry must return the existing ticket instead of creating a duplicate.
-  agentEscalationKey String?        @unique @map("agent_escalation_key")
-  priority         SupportPriority  @default(NORMAL)
-  aiSummary        String?          @map("ai_summary") @db.Text
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
+  agentEscalationKey String?          @unique @map("agent_escalation_key")
+  priority           SupportPriority  @default(NORMAL)
+  aiSummary          String?          @map("ai_summary") @db.Text
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
 
   @@index([userId, updatedAt])
   @@index([assignedAdminId, status])

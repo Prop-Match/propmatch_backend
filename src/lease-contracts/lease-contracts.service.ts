@@ -645,7 +645,9 @@ export class LeaseContractsService {
         parties.tenantId === userId &&
         contract.tenantReviewStatus === 'PENDING_REVIEW',
       ),
-      canDownloadPdf: contract.tenantReviewStatus === 'REVIEW_CONFIRMED',
+      canDownloadPdf: Boolean(
+        contract.pdfUrl && contract.tenantReviewStatus === 'REVIEW_CONFIRMED',
+      ),
     };
   }
 

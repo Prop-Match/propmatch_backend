@@ -43,6 +43,7 @@ import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
 import { AdminStats } from './interfaces/admin-stats.interface';
+import { normalizeEmail } from '../auth/email';
 
 const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
 const ANONYMIZATION_GRACE_PERIOD_DAYS = 30;
@@ -989,8 +990,9 @@ export class AdminService {
       }
     }
     // 2. Prevent duplicate emails
+    const normalizedEmail = normalizeEmail(createAdminDto.email);
     const existingUser = await this.prismaService.user.findUnique({
-      where: { email: createAdminDto.email },
+      where: { email: normalizedEmail },
     });
     if (existingUser) {
       throw new ConflictException(
@@ -1016,7 +1018,7 @@ export class AdminService {
     const admin = await this.prismaService.user.create({
       data: {
         fullName: createAdminDto.fullName,
-        email: createAdminDto.email,
+        email: normalizedEmail,
         passwordHash: hashedPassword,
         phoneNumber: createAdminDto.phoneNumber,
         role: 'ADMIN',

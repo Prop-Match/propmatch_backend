@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, User } from 'generated/prisma/client';
 import { PrismaService } from './../../prisma/prisma.service';
+import { normalizeEmail } from '../auth/email';
 
 @Injectable()
 export class UsersService {
@@ -19,7 +20,7 @@ export class UsersService {
   }
   findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizeEmail(email) },
       include: { identityVerification: true },
     });
   }

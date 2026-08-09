@@ -161,6 +161,8 @@ export class PaymentsService {
         paymentType,
         result.transactionId,
         result.providerOrderId,
+        result.amountCents,
+        result.currency,
       );
     } else if (result.isFinal && result.providerOrderId) {
       const updated = await this.prismaService.paymentTransaction.updateMany({
@@ -197,6 +199,8 @@ export class PaymentsService {
     paymentType: string,
     transactionId: string,
     providerOrderId?: string,
+    paidAmountCents?: number,
+    paidCurrency?: string,
   ): Promise<void> {
     if (!providerOrderId) {
       this.logger.error('Successful Paymob callback has no provider order ID');
@@ -205,6 +209,33 @@ export class PaymentsService {
 
     const paidAt = new Date();
     const applied = await this.prismaService.$transaction(async (tx) => {
+      const transaction = await tx.paymentTransaction.findUnique({
+        where: { providerOrderId },
+      });
+      if (!transaction || transaction.status !== 'PENDING') return false;
+
+      const expectedAmountCents = Math.round(transaction.amount * 100);
+      const normalizedCurrency = paidCurrency?.trim().toUpperCase();
+      if (
+        (paidAmountCents !== undefined || paidCurrency !== undefined) &&
+        (typeof paidAmountCents !== 'number' ||
+          !Number.isFinite(paidAmountCents) ||
+          paidAmountCents !== expectedAmountCents ||
+          normalizedCurrency !== transaction.currency)
+      ) {
+        this.logger.error(
+          `Payment amount mismatch for provider order ${providerOrderId}`,
+        );
+        await tx.paymentTransaction.updateMany({
+          where: { providerOrderId, status: 'PENDING' },
+          data: {
+            status: 'FAILED',
+            providerTransactionId: transactionId,
+          },
+        });
+        return false;
+      }
+
       const claimed = await tx.paymentTransaction.updateMany({
         where: { providerOrderId, status: 'PENDING' },
         data: {
@@ -215,9 +246,6 @@ export class PaymentsService {
       });
       if (claimed.count === 0) return false;
 
-      const transaction = await tx.paymentTransaction.findUniqueOrThrow({
-        where: { providerOrderId },
-      });
       const targetPropertyId = transaction.targetPropertyId;
 
       const catalogPaymentType = isBillablePaymentType(paymentType)

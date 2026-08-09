@@ -24,6 +24,7 @@ import {
   FREE_AI_USES_MONTHLY_ALLOTMENT,
   FREE_OFFERS_MONTHLY_ALLOTMENT,
 } from '../payments/pricing.catalog';
+import { normalizeEmail } from './email';
 
 type TokenPayload = {
   sub: string;
@@ -67,7 +68,7 @@ export class AuthService {
   }
 
   async signIn(email: string, password: string, ip: string) {
-    const user = await this.userService.findByEmail(email);
+    const user = await this.userService.findByEmail(normalizeEmail(email));
     if (!user) {
       throw new UnauthorizedException(
         I18nContext.current()?.t('auth.INVALID_CREDENTIALS'),
@@ -139,7 +140,7 @@ export class AuthService {
     phoneNumber: string,
     role: 'TENANT' | 'LANDLORD',
   ) {
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const user = await this.userService.findByEmail(normalizedEmail);
     if (user) {
       throw new ConflictException(
@@ -173,7 +174,11 @@ export class AuthService {
           }
         : {}),
     });
-    await this.mailService.sendEmailVerificationOtp(newUser.email, fullName, otp);
+    await this.mailService.sendEmailVerificationOtp(
+      newUser.email,
+      fullName,
+      otp,
+    );
     return {
       verificationRequired: true,
       email: newUser.email,
@@ -184,22 +189,34 @@ export class AuthService {
   }
 
   async verifyEmail(email: string, code: string) {
-    const user = await this.userService.findByEmail(email.trim().toLowerCase());
+    const user = await this.userService.findByEmail(normalizeEmail(email));
     if (!user || user.emailVerifiedAt) {
-      throw new BadRequestException('This verification code is invalid or expired.');
+      throw new BadRequestException(
+        'This verification code is invalid or expired.',
+      );
     }
-    if (!user.emailOtpHash || !user.emailOtpExpiresAt || user.emailOtpExpiresAt <= new Date()) {
-      throw new BadRequestException('This verification code is invalid or expired.');
+    if (
+      !user.emailOtpHash ||
+      !user.emailOtpExpiresAt ||
+      user.emailOtpExpiresAt <= new Date()
+    ) {
+      throw new BadRequestException(
+        'This verification code is invalid or expired.',
+      );
     }
     if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
-      throw new BadRequestException('Too many invalid attempts. Please request a new code.');
+      throw new BadRequestException(
+        'Too many invalid attempts. Please request a new code.',
+      );
     }
     if (this.hashOtp(code) !== user.emailOtpHash) {
       await this.prisma.user.update({
         where: { id: user.id },
         data: { emailOtpAttempts: { increment: 1 } },
       });
-      throw new BadRequestException('This verification code is invalid or expired.');
+      throw new BadRequestException(
+        'This verification code is invalid or expired.',
+      );
     }
 
     const verified = await this.prisma.user.update({
@@ -218,24 +235,33 @@ export class AuthService {
       role: verified.role,
       tokenVersion: verified.tokenVersion,
     };
-    return { ...(await this.createPairToken(payload)), user: transformUserToFrontend(verified) };
+    return {
+      ...(await this.createPairToken(payload)),
+      user: transformUserToFrontend(verified),
+    };
   }
 
   async resendEmailVerification(email: string): Promise<{ sent: true }> {
-    const user = await this.userService.findByEmail(email.trim().toLowerCase());
+    const user = await this.userService.findByEmail(normalizeEmail(email));
     if (!user || user.emailVerifiedAt) return { sent: true };
 
     const cooldown = this.otpResendCooldownSeconds() * 1000;
-    if (user.emailOtpSentAt && user.emailOtpSentAt.getTime() + cooldown > Date.now()) {
+    if (
+      user.emailOtpSentAt &&
+      user.emailOtpSentAt.getTime() + cooldown > Date.now()
+    ) {
       const retryAfterSeconds = Math.ceil(
         (user.emailOtpSentAt.getTime() + cooldown - Date.now()) / 1000,
       );
-      throw new HttpException({
-        statusCode: 429,
-        code: 'EMAIL_VERIFICATION_RESEND_COOLDOWN',
-        message: 'يرجى الانتظار قبل طلب رمز جديد.',
-        retryAfterSeconds,
-      }, HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        {
+          statusCode: 429,
+          code: 'EMAIL_VERIFICATION_RESEND_COOLDOWN',
+          message: 'يرجى الانتظار قبل طلب رمز جديد.',
+          retryAfterSeconds,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
     const otp = this.createEmailOtp();
     await this.prisma.user.update({
@@ -247,7 +273,11 @@ export class AuthService {
         emailOtpSentAt: new Date(),
       },
     });
-    await this.mailService.sendEmailVerificationOtp(user.email, user.fullName, otp);
+    await this.mailService.sendEmailVerificationOtp(
+      user.email,
+      user.fullName,
+      otp,
+    );
     return { sent: true };
   }
   /**
@@ -256,7 +286,7 @@ export class AuthService {
    * support appeal ticket. Neither path restores access or mints tokens.
    */
   async requestReactivation(email: string, password: string, message?: string) {
-    const user = await this.userService.findByEmail(email);
+    const user = await this.userService.findByEmail(normalizeEmail(email));
     if (!user) {
       // Same opaque failure whether the email doesn't exist, isn't deleted,
       // or the password is wrong — never confirms account state to a caller
@@ -389,7 +419,7 @@ export class AuthService {
   }
   async forgetPassword(email: string): Promise<{ message: string }> {
     const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: normalizeEmail(email) },
     });
     if (!user) {
       throw new UnauthorizedException(
@@ -483,7 +513,10 @@ export class AuthService {
   }
 
   private createEmailOtp(): string {
-    return crypto.randomInt(0, 10 ** OTP_DIGITS).toString().padStart(OTP_DIGITS, '0');
+    return crypto
+      .randomInt(0, 10 ** OTP_DIGITS)
+      .toString()
+      .padStart(OTP_DIGITS, '0');
   }
 
   private hashOtp(code: string): string {

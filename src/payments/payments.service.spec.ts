@@ -14,6 +14,9 @@ describe('PaymentsService settlement', () => {
       providerTransactionId: null,
       paymentType: 'AI_USES_10_90D',
       targetPropertyId: null,
+      amount: 39,
+      currency: 'EGP',
+      catalogSnapshot: null,
       status: 'PENDING',
     };
     const createGrant = jest.fn().mockResolvedValue({});
@@ -23,7 +26,7 @@ describe('PaymentsService settlement', () => {
           .fn()
           .mockResolvedValueOnce({ count: 1 })
           .mockResolvedValueOnce({ count: 0 }),
-        findUniqueOrThrow: jest.fn().mockResolvedValue(payment),
+        findUnique: jest.fn().mockResolvedValue(payment),
       },
       entitlementGrant: {
         create: createGrant,
@@ -44,6 +47,8 @@ describe('PaymentsService settlement', () => {
         isFinal: true,
         transactionId: 'transaction-1',
         providerOrderId: payment.providerOrderId,
+        amountCents: 3900,
+        currency: 'EGP',
       }),
     } as unknown as PaymobService;
     let emittedUserId: string | undefined;
@@ -98,5 +103,76 @@ describe('PaymentsService settlement', () => {
       providerTransactionId: 'transaction-1',
     });
     expect(typeof emittedPayment?.paidAt).toBe('string');
+  });
+
+  it('does not grant entitlements when the paid amount differs from the stored transaction', async () => {
+    const payment = {
+      id: 'payment-id',
+      userId: 'user-id',
+      providerOrderId: '12345',
+      providerTransactionId: null,
+      paymentType: 'AI_USES_10_90D',
+      targetPropertyId: null,
+      amount: 39,
+      currency: 'EGP',
+      catalogSnapshot: null,
+      status: 'PENDING',
+    };
+    const createGrant = jest.fn();
+    const transactionClient = {
+      paymentTransaction: {
+        findUnique: jest.fn().mockResolvedValue(payment),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      entitlementGrant: {
+        create: createGrant,
+      },
+    };
+    const prisma = {
+      paymentTransaction: {
+        findUnique: jest.fn().mockResolvedValue(payment),
+      },
+      $transaction: jest.fn((callback: (tx: unknown) => unknown) =>
+        Promise.resolve(callback(transactionClient)),
+      ),
+    } as unknown as PrismaService;
+    const gateway = {
+      processWebhook: jest.fn().mockReturnValue({
+        isValid: true,
+        success: true,
+        isFinal: true,
+        transactionId: 'transaction-1',
+        providerOrderId: payment.providerOrderId,
+        amountCents: 100,
+        currency: 'EGP',
+      }),
+    } as unknown as PaymobService;
+    const realtime = {
+      paymentUpdated: jest.fn(),
+    } as unknown as RealtimeService;
+    const commercialConfig = {
+      parseSnapshot: jest.fn(),
+      getProduct: jest.fn(),
+    } as unknown as CommercialConfigService;
+    const service = new PaymentsService(
+      prisma,
+      gateway,
+      realtime,
+      commercialConfig,
+    );
+
+    await service.handleWebhook({}, {});
+
+    expect(createGrant).not.toHaveBeenCalled();
+    expect(realtime.paymentUpdated).not.toHaveBeenCalled();
+    expect(transactionClient.paymentTransaction.updateMany).toHaveBeenCalledWith(
+      {
+        where: { providerOrderId: '12345', status: 'PENDING' },
+        data: {
+          status: 'FAILED',
+          providerTransactionId: 'transaction-1',
+        },
+      },
+    );
   });
 });
