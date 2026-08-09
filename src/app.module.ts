@@ -30,6 +30,8 @@ import { MatchingModule } from './matching/matching.module';
 import { PartnerLeadsModule } from './partner-leads/partner-leads.module';
 import { TenantOffersModule } from './tenant-offers/tenant-offers.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { PropertyAnalyticsModule } from './property-analytics/property-analytics.module';
+import { CommercialConfigModule } from './commercial-config/commercial-config.module';
 
 /**
  * Nest copies `src/i18n` to `dist/i18n`, while compiled modules live under
@@ -49,6 +51,7 @@ const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
       envFilePath: ['.env.development', '.env.production', '.env'],
     }),
     ScheduleModule.forRoot(),
+    CommercialConfigModule,
     // Registered globally so `UserThrottlerGuard` can be applied surgically to
     // the LLM/AI endpoints (legal chat, support chat, optimizer) via
     // `@UseGuards`/`@Throttle`. Routes without `@Throttle` are unaffected.
@@ -84,6 +87,7 @@ const i18nPath = existsSync(sourceI18nPath) ? sourceI18nPath : builtI18nPath;
     TenantOffersModule,
     UploadsModule,
     MatchingModule,
+    PropertyAnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

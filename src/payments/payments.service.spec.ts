@@ -3,6 +3,7 @@ import type { PaymentUpdatedPayload } from '../realtime/realtime.contract';
 import { RealtimeService } from '../realtime/realtime.service';
 import { PaymentsService } from './payments.service';
 import { PaymobService } from './providers/paymob.service';
+import { CommercialConfigService } from '../commercial-config/commercial-config.service';
 
 describe('PaymentsService settlement', () => {
   it('applies entitlement and emits once for duplicate successful callbacks', async () => {
@@ -11,11 +12,11 @@ describe('PaymentsService settlement', () => {
       userId: 'user-id',
       providerOrderId: '12345',
       providerTransactionId: null,
-      paymentType: 'AI_ADDON',
+      paymentType: 'AI_USES_10_90D',
       targetPropertyId: null,
       status: 'PENDING',
     };
-    const upsertQuota = jest.fn().mockResolvedValue({});
+    const createGrant = jest.fn().mockResolvedValue({});
     const transactionClient = {
       paymentTransaction: {
         updateMany: jest
@@ -24,8 +25,8 @@ describe('PaymentsService settlement', () => {
           .mockResolvedValueOnce({ count: 0 }),
         findUniqueOrThrow: jest.fn().mockResolvedValue(payment),
       },
-      userQuota: {
-        upsert: upsertQuota,
+      entitlementGrant: {
+        create: createGrant,
       },
     };
     const prisma = {
@@ -56,12 +57,39 @@ describe('PaymentsService settlement', () => {
     const realtime = {
       paymentUpdated,
     } as unknown as RealtimeService;
-    const service = new PaymentsService(prisma, gateway, realtime);
+    const commercialConfig = {
+      parseSnapshot: jest.fn().mockReturnValue(null),
+      getProduct: jest.fn().mockResolvedValue({
+        paymentType: 'AI_USES_10_90D',
+        priceEgp: 39,
+        enabled: true,
+        billing: 'ONE_TIME',
+        kind: 'ENTITLEMENT',
+        entitlementType: 'AI_OPTIMIZER_USE',
+        quantity: 10,
+        validityDays: 90,
+      }),
+    } as unknown as CommercialConfigService;
+    const service = new PaymentsService(
+      prisma,
+      gateway,
+      realtime,
+      commercialConfig,
+    );
 
     await service.handleWebhook({}, {});
     await service.handleWebhook({}, {});
 
-    expect(upsertQuota).toHaveBeenCalledTimes(1);
+    expect(createGrant).toHaveBeenCalledTimes(1);
+    expect(createGrant).toHaveBeenCalledWith({
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      data: expect.objectContaining({
+        paymentTransactionId: 'payment-id',
+        type: 'AI_OPTIMIZER_USE',
+        grantedQuantity: 10,
+        remainingQuantity: 10,
+      }),
+    });
     expect(paymentUpdated).toHaveBeenCalledTimes(1);
     expect(emittedUserId).toBe('user-id');
     expect(emittedPayment).toMatchObject({

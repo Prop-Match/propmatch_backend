@@ -13,6 +13,7 @@ export type Capability =
   | 'request:reject'
   | 'review:moderate'
   | 'payment:view'
+  | 'commercial:manage'
   | 'partner_lead:view'
   | 'report:export'
   | 'ticket:reply'
@@ -31,6 +32,7 @@ const SUPER_ADMIN_CAPS: Capability[] = [
   'request:reject',
   'review:moderate',
   'payment:view',
+  'commercial:manage',
   'partner_lead:view',
   'report:export',
   'ticket:reply',
@@ -46,7 +48,12 @@ export const ROLE_CAPABILITIES: Record<AdminRole, Capability[]> = {
   SUPER_ADMIN: SUPER_ADMIN_CAPS,
   LISTINGS_MANAGER: ['property:approve', 'property:reject'],
   KYC_REVIEWER: ['kyc:review'],
-  FINANCE_ADMIN: ['payment:view', 'partner_lead:view', 'report:export'],
+  FINANCE_ADMIN: [
+    'payment:view',
+    'commercial:manage',
+    'partner_lead:view',
+    'report:export',
+  ],
   REVIEWS_MANAGER: ['review:moderate', 'request:approve', 'request:reject'],
   CUSTOMER_SUPPORT: ['ticket:reply'],
   READ_ONLY: [],

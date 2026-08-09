@@ -9,18 +9,28 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from './../../prisma/prisma.service';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import {
-  BOOST_DURATION_DAYS,
   type BillablePaymentType,
   isBillablePaymentType,
-  PREMIUM_ACTIVE_LISTING_LIMIT,
-  OWNER_PLUS_ACTIVE_LISTING_LIMIT,
-  PREMIUM_INCLUDED_AI_USES,
-  OWNER_PLUS_INCLUDED_AI_USES,
-  AI_ADDON_USES,
+  type OwnerPlanName,
   PRICING_CATALOG,
 } from './pricing.catalog';
 import { PaymobService } from './providers/paymob.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { CommercialConfigService } from '../commercial-config/commercial-config.service';
+import type { CatalogSnapshot } from '../commercial-config/commercial-config.types';
+import { Prisma } from 'generated/prisma/client';
+
+// Payments created before this catalog revision can still settle after the
+// deployment. They must receive a compatible entitlement instead of becoming
+// successful transactions with no value granted.
+const SETTLEMENT_COMPATIBILITY: Partial<Record<string, BillablePaymentType>> = {
+  PREMIUM_OWNER: 'PREMIUM_MONTHLY',
+  OWNER_PLUS: 'OWNER_PLUS_MONTHLY',
+  SINGLE_LISTING: 'EXTRA_LISTING_60D',
+  SINGLE_OFFER: 'OFFERS_10_60D',
+  BOOST_LISTING: 'BOOST_30D',
+  AI_ADDON: 'AI_USES_10_90D',
+};
 
 @Injectable()
 export class PaymentsService {
@@ -30,6 +40,7 @@ export class PaymentsService {
     private readonly prismaService: PrismaService,
     private readonly gateway: PaymobService,
     private readonly realtime: RealtimeService,
+    private readonly commercialConfig: CommercialConfigService,
   ) {}
 
   async checkout(
@@ -46,18 +57,25 @@ export class PaymentsService {
       throw new BadRequestException('Unsupported payment type');
     }
 
-    const product = PRICING_CATALOG[dto.paymentType];
+    const productSemantics = PRICING_CATALOG[dto.paymentType];
+    const snapshot = await this.commercialConfig.checkoutSnapshot(
+      dto.paymentType,
+    );
+    const product = snapshot.product;
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
       select: { role: true },
     });
-    if (!user || !product.allowedRoles.some((role) => role === user.role)) {
+    if (
+      !user ||
+      !productSemantics.allowedRoles.some((role) => role === user.role)
+    ) {
       throw new ForbiddenException(
         'This product is not available to this role',
       );
     }
 
-    if (dto.paymentType === 'BOOST_LISTING') {
+    if (product.kind === 'BOOST') {
       if (!dto.propertyId) {
         throw new BadRequestException('propertyId is required for a boost');
       }
@@ -89,7 +107,13 @@ export class PaymentsService {
         providerOrderId,
         amount: product.priceEgp,
         paymentType: dto.paymentType,
+        productSku: dto.paymentType,
+        billingInterval:
+          product.billing === 'MONTHLY' || product.billing === 'YEARLY'
+            ? product.billing
+            : null,
         targetPropertyId: dto.propertyId,
+        catalogSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         status: 'PENDING',
       },
     });
@@ -196,96 +220,159 @@ export class PaymentsService {
       });
       const targetPropertyId = transaction.targetPropertyId;
 
-      if (!isBillablePaymentType(paymentType)) {
+      const catalogPaymentType = isBillablePaymentType(paymentType)
+        ? paymentType
+        : SETTLEMENT_COMPATIBILITY[paymentType];
+      if (!catalogPaymentType) {
         this.logger.warn(
           `No entitlement granted for legacy payment: ${paymentType}`,
         );
         return;
       }
 
-      if (paymentType === 'PREMIUM_OWNER') {
-        const current = await tx.userQuota.findUnique({ where: { userId } });
-        const startsAt =
-          current?.planExpiresAt && current.planExpiresAt.getTime() > Date.now()
-            ? current.planExpiresAt
-            : new Date();
-        const planExpiresAt = new Date(startsAt);
-        planExpiresAt.setMonth(planExpiresAt.getMonth() + 1);
-        const optimizerUsesLeft = Math.max(
-          current?.optimizerUsesLeft ?? 0,
-          PREMIUM_INCLUDED_AI_USES,
-        );
+      let snapshot = this.commercialConfig.parseSnapshot(
+        transaction.catalogSnapshot,
+      );
+      if (!snapshot) {
+        const product =
+          await this.commercialConfig.getProduct(catalogPaymentType);
+        snapshot = {
+          product,
+          planAllowances: product.planType
+            ? await this.commercialConfig.getPlanAllowances(product.planType)
+            : undefined,
+        } satisfies CatalogSnapshot;
+      }
+      const product = snapshot.product;
 
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: {
-            userId,
-            planType: 'PREMIUM',
-            planExpiresAt,
-            maxActiveListings: PREMIUM_ACTIVE_LISTING_LIMIT,
-            optimizerUsesLeft,
-            freeOffersLeft: 5,
-          },
-          update: {
-            planType: 'PREMIUM',
-            planExpiresAt,
-            maxActiveListings: PREMIUM_ACTIVE_LISTING_LIMIT,
-            optimizerUsesLeft,
-          },
-        });
-      } else if (paymentType === 'OWNER_PLUS') {
+      if (product.kind === 'SUBSCRIPTION') {
+        if (product.billing === 'ONE_TIME' || !product.planType) {
+          throw new BadRequestException('Invalid subscription configuration');
+        }
+        const billingInterval = product.billing;
         const current = await tx.userQuota.findUnique({ where: { userId } });
-        const startsAt =
-          current?.planExpiresAt && current.planExpiresAt.getTime() > Date.now()
-            ? current.planExpiresAt
-            : new Date();
-        const planExpiresAt = new Date(startsAt);
-        planExpiresAt.setMonth(planExpiresAt.getMonth() + 1);
-        const optimizerUsesLeft = Math.max(
-          current?.optimizerUsesLeft ?? 0,
-          OWNER_PLUS_INCLUDED_AI_USES,
-        );
+        const targetPlan = product.planType as OwnerPlanName;
+        const targetRank = targetPlan === 'PREMIUM' ? 2 : 1;
+        const currentPlan = current?.planType ?? 'FREE';
+        const currentRank =
+          currentPlan === 'PREMIUM' ? 2 : currentPlan === 'OWNER_PLUS' ? 1 : 0;
+        const currentIsActive =
+          current?.planExpiresAt !== null &&
+          current?.planExpiresAt !== undefined &&
+          current.planExpiresAt > paidAt;
+        const durationEnd = (start: Date) => {
+          const end = new Date(start);
+          if (billingInterval === 'YEARLY') {
+            end.setUTCFullYear(end.getUTCFullYear() + 1);
+          } else {
+            end.setUTCMonth(end.getUTCMonth() + 1);
+          }
+          return end;
+        };
 
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: {
+        if (currentIsActive && targetRank < currentRank) {
+          const pendingPlanStartsAt = current.planExpiresAt!;
+          await tx.userQuota.update({
+            where: { userId },
+            data: {
+              pendingPlanType: targetPlan,
+              pendingBillingInterval: billingInterval,
+              pendingPlanStartsAt,
+              pendingPlanExpiresAt: durationEnd(pendingPlanStartsAt),
+            },
+          });
+        } else if (currentIsActive && targetRank === currentRank) {
+          const startsAt = current.planExpiresAt!;
+          await tx.userQuota.update({
+            where: { userId },
+            data: {
+              planExpiresAt: durationEnd(startsAt),
+              billingInterval,
+            },
+          });
+        } else {
+          const allowances =
+            snapshot.planAllowances ??
+            (await this.commercialConfig.getPlanAllowances(targetPlan));
+          const planExpiresAt = durationEnd(paidAt);
+          const currentPeriodEndsAt = new Date(paidAt);
+          currentPeriodEndsAt.setUTCMonth(
+            currentPeriodEndsAt.getUTCMonth() + 1,
+          );
+          await tx.userQuota.upsert({
+            where: { userId },
+            create: {
+              userId,
+              planType: targetPlan,
+              billingInterval,
+              planExpiresAt,
+              currentPeriodStartsAt: paidAt,
+              currentPeriodEndsAt,
+              lastResetDate: paidAt,
+              maxActiveListings: allowances.activeListings,
+              optimizerUsesLeft: allowances.aiUses,
+              freeOffersLeft: allowances.offers,
+              boostCreditsLeft: allowances.boostCredits,
+            },
+            update: {
+              planType: targetPlan,
+              billingInterval,
+              planExpiresAt,
+              currentPeriodStartsAt: paidAt,
+              currentPeriodEndsAt,
+              lastResetDate: paidAt,
+              maxActiveListings: allowances.activeListings,
+              optimizerUsesLeft: allowances.aiUses,
+              freeOffersLeft: allowances.offers,
+              boostCreditsLeft: allowances.boostCredits,
+              pendingPlanType: null,
+              pendingBillingInterval: null,
+              pendingPlanStartsAt: null,
+              pendingPlanExpiresAt: null,
+            },
+          });
+        }
+      } else if (product.kind === 'ENTITLEMENT') {
+        if (
+          !product.entitlementType ||
+          !product.validityDays ||
+          !product.quantity
+        ) {
+          throw new BadRequestException('Invalid entitlement configuration');
+        }
+        const expiresAt = new Date(
+          paidAt.getTime() + product.validityDays! * 24 * 60 * 60 * 1_000,
+        );
+        const quantity = paymentType === 'SINGLE_OFFER' ? 1 : product.quantity!;
+        await tx.entitlementGrant.create({
+          data: {
             userId,
-            planType: 'OWNER_PLUS',
-            planExpiresAt,
-            maxActiveListings: OWNER_PLUS_ACTIVE_LISTING_LIMIT,
-            optimizerUsesLeft,
-            freeOffersLeft: 5,
-          },
-          update: {
-            planType: 'OWNER_PLUS',
-            planExpiresAt,
-            maxActiveListings: OWNER_PLUS_ACTIVE_LISTING_LIMIT,
-            optimizerUsesLeft,
+            paymentTransactionId: transaction.id,
+            type: product.entitlementType,
+            source: 'ADDON',
+            productSku: paymentType,
+            grantedQuantity: quantity,
+            remainingQuantity: quantity,
+            startsAt: paidAt,
+            expiresAt,
           },
         });
-      } else if (paymentType === 'SINGLE_LISTING') {
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: { userId, freeListingsLeft: 1, maxActiveListings: 2 },
-          update: {
-            freeListingsLeft: { increment: 1 },
-            maxActiveListings: { increment: 1 },
-          },
-        });
-      } else if (paymentType === 'SINGLE_OFFER') {
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: { userId, freeOffersLeft: 1 },
-          update: {
-            freeOffersLeft: { increment: 1 },
-          },
-        });
-      } else if (paymentType === 'BOOST_LISTING') {
+      } else if (product.kind === 'BOOST') {
         if (!targetPropertyId) {
           throw new BadRequestException('Boost payment has no target property');
         }
-        const boostedUntil = new Date();
-        boostedUntil.setDate(boostedUntil.getDate() + BOOST_DURATION_DAYS);
+        const latestCampaign = await tx.boostCampaign.findFirst({
+          where: {
+            propertyId: targetPropertyId,
+            status: { in: ['ACTIVE', 'SCHEDULED'] },
+            endsAt: { gt: paidAt },
+          },
+          orderBy: { endsAt: 'desc' },
+        });
+        const startsAt = latestCampaign?.endsAt ?? paidAt;
+        const boostedUntil = new Date(
+          startsAt.getTime() + product.durationDays! * 24 * 60 * 60 * 1_000,
+        );
         const updated = await tx.property.updateMany({
           where: { id: targetPropertyId, ownerId: userId },
           data: { isBoosted: true, boostedUntil },
@@ -293,11 +380,17 @@ export class PaymentsService {
         if (updated.count !== 1) {
           throw new NotFoundException('Boost target property not found');
         }
-      } else if (paymentType === 'AI_ADDON') {
-        await tx.userQuota.upsert({
-          where: { userId },
-          create: { userId, optimizerUsesLeft: AI_ADDON_USES },
-          update: { optimizerUsesLeft: { increment: AI_ADDON_USES } },
+        await tx.boostCampaign.create({
+          data: {
+            propertyId: targetPropertyId,
+            userId,
+            paymentTransactionId: transaction.id,
+            productSku: paymentType,
+            durationDays: product.durationDays!,
+            startsAt,
+            endsAt: boostedUntil,
+            status: startsAt <= paidAt ? 'ACTIVE' : 'SCHEDULED',
+          },
         });
       }
       return true;
@@ -321,6 +414,20 @@ export class PaymentsService {
         boostedUntil: { lte: new Date() },
       },
       data: { isBoosted: false, boostedUntil: null },
+    });
+
+    const now = new Date();
+    await this.prismaService.boostCampaign.updateMany({
+      where: { status: { in: ['ACTIVE', 'SCHEDULED'] }, endsAt: { lte: now } },
+      data: { status: 'EXPIRED' },
+    });
+    await this.prismaService.boostCampaign.updateMany({
+      where: {
+        status: 'SCHEDULED',
+        startsAt: { lte: now },
+        endsAt: { gt: now },
+      },
+      data: { status: 'ACTIVE' },
     });
 
     const pendingTransactions =

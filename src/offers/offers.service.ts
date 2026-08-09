@@ -1,8 +1,9 @@
-﻿import {
+import {
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Property, TenantRequest } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,6 +14,8 @@ import { buildHybridMatchReasons } from '../matching/hybrid-match-reasons.util';
 import { cosineSimilarity } from '../matching/matching.math.util';
 import { MatchReason } from './dto/match-reason.dto';
 import { CreateOfferDto } from './dto/create-offer.dto';
+import { QuotaService } from '../quota/quota.service';
+import { PropertyAnalyticsService } from '../property-analytics/property-analytics.service';
 import {
   combineHybridScore,
   scoreRequestAgainstProperty,
@@ -36,6 +39,8 @@ export class OffersService {
     private readonly prisma: PrismaService,
     private readonly realtimeService: RealtimeService,
     private readonly semanticMatchingConfig: SemanticMatchingConfig,
+    @Optional() private readonly quotaService?: QuotaService,
+    @Optional() private readonly analytics?: PropertyAnalyticsService,
   ) {}
 
   /**
@@ -174,25 +179,6 @@ export class OffersService {
 
   /** POST /landlord/offers â€” send an offer against an approved tenant request. */
   async createOffer(landlordId: string, dto: CreateOfferDto) {
-    const quota = await this.prisma.userQuota.findUnique({
-      where: { userId: landlordId },
-    });
-    const premiumActive =
-      quota?.planType === 'PREMIUM' &&
-      quota.planExpiresAt !== null &&
-      quota.planExpiresAt.getTime() > Date.now();
-
-    if (!premiumActive && (!quota || quota.freeOffersLeft <= 0)) {
-      throw new ForbiddenException({
-        statusCode: 403,
-        code: 'QUOTA_EXHAUSTED',
-        message: 'انتهت عروضك المباشرة المجانية',
-        trigger: 'payment',
-        paymentType: 'PREMIUM_OWNER',
-        priceEgp: 999,
-      });
-    }
-
     const request = await this.prisma.tenantRequest.findFirst({
       where: { id: dto.tenantRequestId, status: 'APPROVED' },
     });
@@ -217,35 +203,26 @@ export class OffersService {
         'Ù‚Ø¯Ù‘Ù…Øª Ø¹Ø±Ø¶Ù‹Ø§ Ø¹Ù„Ù‰ Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ Ø¨Ø§Ù„ÙØ¹Ù„',
       );
 
-    const offer = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.ownerOffer.create({
-        data: {
-          ownerId: landlordId,
-          tenantRequestId: dto.tenantRequestId,
-          propertyId: dto.propertyId,
-          pitchMessage: dto.pitchMessage,
-          proposedPrice: dto.proposedPrice,
-          status: 'SENT',
-        },
-      });
-      if (!premiumActive) {
-        const spent = await tx.userQuota.updateMany({
-          where: { userId: landlordId, freeOffersLeft: { gt: 0 } },
-          data: { freeOffersLeft: { decrement: 1 } },
-        });
-        if (spent.count !== 1) {
-          throw new ForbiddenException({
-            statusCode: 403,
-            code: 'QUOTA_EXHAUSTED',
-            message: 'انتهت عروضك المباشرة المجانية',
-            trigger: 'payment',
-            paymentType: 'PREMIUM_OWNER',
-            priceEgp: 999,
-          });
-        }
-      }
-      return created;
-    });
+    // All plans have a finite monthly allowance. Add-ons are consumed by
+    // nearest expiry, so Premium is no longer treated as unlimited.
+    const offerData = {
+      ownerId: landlordId,
+      tenantRequestId: dto.tenantRequestId,
+      propertyId: dto.propertyId,
+      pitchMessage: dto.pitchMessage,
+      proposedPrice: dto.proposedPrice,
+      status: 'SENT' as const,
+    };
+    const consumed = this.quotaService
+      ? await this.quotaService.withConsumedOffer(landlordId, (tx) =>
+          tx.ownerOffer.create({ data: offerData }),
+        )
+      : null;
+    const offer =
+      consumed?.value ??
+      (await this.prisma.ownerOffer.create({ data: offerData }));
+
+    await this.analytics?.recordCounter(dto.propertyId, 'ownerOffers');
 
     await this.realtimeService.notifyUser(request.tenantId, {
       type: 'NEW_OFFER_RECEIVED',
@@ -254,14 +231,16 @@ export class OffersService {
       link: '/tenant/offers',
     });
 
-    const updatedQuota = await this.prisma.userQuota.findUniqueOrThrow({
-      where: { userId: landlordId },
-    });
-
     return {
       id: offer.id,
       status: offer.status,
-      freeOffersLeft: updatedQuota.freeOffersLeft,
+      freeOffersLeft:
+        consumed?.remaining ??
+        (
+          await this.prisma.userQuota.findUniqueOrThrow({
+            where: { userId: landlordId },
+          })
+        ).freeOffersLeft,
     };
   }
 
@@ -406,10 +385,11 @@ export class OffersService {
         },
       });
     });
+    await this.analytics?.recordCounter(property.id, 'matches');
     await this.realtimeService.notifyUser(offer.ownerId, {
       type: 'NEW_MATCH',
-      title: 'Offer accepted',
-      message: 'The tenant accepted your offer.',
+      title: 'تم قبول العرض',
+      message: 'قام المستأجر بقبول عرضك.',
       link: '/landlord/offers',
     });
     return {
