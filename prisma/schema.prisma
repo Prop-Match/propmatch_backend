@@ -103,6 +103,10 @@ enum NotificationType {
    * Smart Matchmaker — a landlord's property scored >75 against a new tenant request.
    */
   HIGH_MATCH_TENANT_REQUEST
+  ACCOUNT_REACTIVATED
+  ACCOUNT_REACTIVATION_REJECTED
+  /** A soft-deleted user requested reactivation — persisted to admins' bells. */
+  REACTIVATION_REQUEST
 }
 
 enum TenantRequestStatus {
@@ -111,6 +115,9 @@ enum TenantRequestStatus {
   REJECTED
   FULFILLED
   CLOSED
+  /** The tenant's account was soft-deleted — distinct from CLOSED (which the
+   * tenant chooses themselves) so an admin audit can tell the two apart. */
+  ARCHIVED
 }
 
 enum OwnerOfferStatus {
@@ -158,10 +165,31 @@ model User {
   role         UserRole   @default(TENANT)
   avatarUrl    String?    @map("avatar_url")
   adminRole    AdminRole? @map("admin_role")
-  isActive     Boolean    @default(true) @map("is_active")
-  lastLoginAt  DateTime?  @map("last_login_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  /** Soft-delete marker. Non-null means the account is deleted — JwtStrategy
+   * rejects any token for a user with this set, revoking sessions immediately
+   * despite JWTs being otherwise stateless. Distinct from suspension below:
+   * a deleted user is a "ghost" (self-delete or 30-day-expired anonymized
+   * account) with its own reactivation flow; a suspended user is still a
+   * live account, just temporarily/permanently blocked by an admin. */
+  deletedAt    DateTime? @map("deleted_at")
+  /** Bumped on reactivation (and available for any future forced-logout use).
+   * JwtStrategy rejects a token whose embedded tokenVersion doesn't match
+   * this, so tokens minted before a reactivation can't outlive it. */
+  tokenVersion Int       @default(0) @map("token_version")
+
+  activationRequests ActivationRequest[]
+
+  // Admin suspension. suspendedAt != null ⇒ suspended; suspendedUntil null ⇒
+  // permanent, a future date ⇒ temporary (auto-expires when it passes).
+  suspendedAt      DateTime? @map("suspended_at")
+  suspendedUntil   DateTime? @map("suspended_until")
+  suspensionReason String?   @map("suspension_reason")
+  suspensionNote   String?   @map("suspension_note") @db.Text
+  suspendedById    String?   @map("suspended_by_id") @db.Uuid
 
   //forget password
   resetToken           String?               @map("reset_token")
@@ -597,6 +625,26 @@ model AdminAuditLogEntry {
 
   @@index([at])
   @@map("admin_audit_log_entry")
+}
+
+enum ActivationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/** A soft-deleted user's self-service request to have an admin restore their
+ * account (POST /auth/request-reactivation). One row per attempt — a user
+ * can be rejected and request again later. */
+model ActivationRequest {
+  id        String                  @id @default(uuid()) @db.Uuid
+  userId    String                  @map("user_id") @db.Uuid
+  user      User                    @relation(fields: [userId], references: [id])
+  status    ActivationRequestStatus @default(PENDING)
+  createdAt DateTime                @default(now()) @map("created_at")
+
+  @@index([userId, status])
+  @@map("activation_request")
 }
 
 model Country {

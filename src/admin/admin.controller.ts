@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -8,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   Request,
   UseGuards,
@@ -20,6 +22,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminService } from './admin.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ReviewDecisionDto } from './dto/review-decision.dto';
+import { SuspendUserDto } from './dto/suspend-user.dto';
 import { CapabilitiesGuard } from './guards/capabilities.guard';
 import { RequireCapability } from './decorators/require-capability.decorator';
 
@@ -112,6 +115,32 @@ export class AdminController {
     return this.adminService.reviewProperty(req.user.userId, propertyId, dto);
   }
 
+  // --- Account suspension (violation enforcement) ---
+  @HttpCode(HttpStatus.OK)
+  @Post('users/:id/suspend')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:suspend')
+  async suspendUser(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: SuspendUserDto,
+  ) {
+    return this.adminService.suspendUser(req.user.userId, id, dto);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('users/:id/unsuspend')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:suspend')
+  async unsuspendUser(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.unsuspendUser(req.user.userId, id);
+  }
+
   @Get('properties/:propertyId')
   @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
   @Roles('ADMIN')
@@ -201,10 +230,11 @@ export class AdminController {
   @Roles('ADMIN')
   @RequireCapability('admin:manage')
   async updateTeamMember(
+    @Request() req: { user: { userId: string } },
     @Param('id') id: string,
     @Body() dto: { role?: string; disabled?: boolean },
   ) {
-    return this.adminService.updateTeamMember(id, dto);
+    return this.adminService.updateTeamMember(req.user.userId, id, dto);
   }
 
   @HttpCode(HttpStatus.OK)
@@ -222,5 +252,70 @@ export class AdminController {
   @Roles('ADMIN')
   async getStats() {
     return this.adminService.getStats();
+  }
+
+  // Shared by the suspension console (search + pagination) and the
+  // Active/Suspended-Deleted tabs (status filter) — either capability is
+  // enough to view the list; the mutating routes below stay separately
+  // capability-gated to their own action.
+  @Get('users')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:suspend', 'user:delete')
+  async listUsers(
+    @Query('status') status?: 'active' | 'deleted' | 'all',
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.listUsers({
+      status,
+      search,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @Delete('users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:delete')
+  async deleteUser(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.softDeleteUser(req.user.userId, id);
+  }
+
+  @Get('reactivations')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async listReactivations() {
+    return this.adminService.listReactivationRequests();
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('reactivations/:id/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async approveReactivation(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.approveReactivation(req.user.userId, id);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('reactivations/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async rejectReactivation(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.rejectReactivation(req.user.userId, id);
   }
 }

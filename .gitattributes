@@ -1,3 +1,0 @@
-# Shell scripts must stay LF — CRLF breaks the shebang inside Linux containers
-# (exec would look for `/bin/sh\r`). Keep entrypoints/scripts newline-normalized.
-*.sh text eol=lf

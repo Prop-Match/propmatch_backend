@@ -23,6 +23,7 @@ interface JwtPayload {
   sub: string;
   email: string;
   role: string;
+  tokenVersion?: number;
 }
 
 /**
@@ -81,6 +82,21 @@ export class RealtimeGateway
         const payload = await this.jwt.verifyAsync<JwtPayload>(token, {
           secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
         });
+        // Same revocation check as JwtStrategy (HTTP) — a deleted or
+        // tokenVersion-stale socket must be rejected too, or a soft-deleted
+        // user keeps a live realtime connection despite every HTTP request
+        // being locked out.
+        const user = await this.prisma.user.findUnique({
+          where: { id: payload.sub },
+          select: { deletedAt: true, tokenVersion: true },
+        });
+        if (
+          !user ||
+          user.deletedAt ||
+          payload.tokenVersion !== user.tokenVersion
+        ) {
+          throw new Error('revoked');
+        }
         socket.data.userId = payload.sub;
         socket.data.role = payload.role;
         next();

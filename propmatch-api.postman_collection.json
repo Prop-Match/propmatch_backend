@@ -1,1069 +1,251 @@
 {
-  "info": {
-    "_postman_id": "c6a218d6-3e91-4475-b82b-df55f309a632",
-    "name": "PropMatch AI API",
-    "description": "Postman Collection for PropMatch AI backend endpoints, featuring localized error validation headers and automatic token injection.",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "Auth",
-      "id": "27573463-7dd1a7b8-eaf5-41a3-9fdf-df344414f679",
-      "item": [
-        {
-          "name": "Sign Up (Tenant)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const response = pm.response.json();",
-                  "if (response.accessToken) {",
-                  "    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
-                  "    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
-                  "    console.log(\"Access and Refresh tokens successfully saved!\");",
-                  "}"
-                ],
-                "type": "text/javascript",
-                "packages": {}
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "description": "Preferred language for responses (ar/en)",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"fullName\": \"محمد المستأجر\",\n    \"email\": \"tenant.test@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01092219864\",\n    \"role\": \"TENANT\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "register"]
-            },
-            "description": "Registers a new tenant user account."
-          },
-          "response": []
-        },
-        {
-          "name": "Sign Up (Landlord)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const response = pm.response.json();",
-                  "if (response.accessToken) {",
-                  "    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
-                  "    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
-                  "    console.log(\"Access and Refresh tokens successfully saved!\");",
-                  "}"
-                ],
-                "type": "text/javascript",
-                "packages": {}
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "description": "Preferred language for responses (ar/en)",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"fullName\": \"أحمد المالك\",\n    \"email\": \"landlord.test@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01234567890\",\n    \"role\": \"LANDLORD\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "register"]
-            },
-            "description": "Registers a new landlord user account."
-          },
-          "response": []
-        },
-        {
-          "name": "Log In (Tenant)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const response = pm.response.json();",
-                  "if (response.accessToken) {",
-                  "    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
-                  "    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
-                  "    console.log(\"Access and Refresh tokens successfully saved!\");",
-                  "}"
-                ],
-                "type": "text/javascript",
-                "packages": {}
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"email\": \"tenant.test@example.com\",\n    \"password\": \"P@ssword123\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "login"]
-            },
-            "description": "Authenticates tenant user."
-          },
-          "response": []
-        },
-        {
-          "name": "Log In (Landlord)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const response = pm.response.json();",
-                  "if (response.accessToken) {",
-                  "    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
-                  "    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
-                  "    console.log(\"Access and Refresh tokens successfully saved!\");",
-                  "}"
-                ],
-                "type": "text/javascript",
-                "packages": {}
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"email\": \"landlord.test@example.com\",\n    \"password\": \"P@ssword123\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "login"]
-            },
-            "description": "Authenticates landlord user."
-          },
-          "response": []
-        },
-        {
-          "name": "Log In (Admin)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const response = pm.response.json();",
-                  "if (response.accessToken) {",
-                  "    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
-                  "    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
-                  "    console.log(\"Access and Refresh tokens successfully saved!\");",
-                  "}"
-                ],
-                "type": "text/javascript",
-                "packages": {}
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"email\": \"admin@example.com\",\n    \"password\": \"P@ssword123\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "login"]
-            },
-            "description": "Authenticates admin user."
-          },
-          "response": []
-        },
-        {
-          "name": "Get Me / Session Profile",
-          "id": "27573463-6eb2435e-34e9-4219-9fea-b3d50601418d",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/auth/me",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "me"]
-            },
-            "description": "Retrieves the authenticated user's unified profile data mapped to the frontend contract format."
-          },
-          "response": []
-        },
-        {
-          "name": "Refresh Token",
-          "id": "27573463-46ec96b4-9144-41aa-af41-7413544e197f",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const response = pm.response.json();",
-                  "if (response.accessToken) {",
-                  "    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
-                  "    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
-                  "    console.log(\"Tokens successfully refreshed and saved!\");",
-                  "}"
-                ],
-                "type": "text/javascript",
-                "packages": {}
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"refreshToken\": \"{{refresh_token}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/refresh",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "refresh"]
-            },
-            "description": "Exchanges a valid refresh token for a brand new access and refresh token pair."
-          },
-          "response": []
-        },
-        {
-          "name": "Semantic Property Search",
-          "id": "27573463-prop-semantic-search-uuid",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/properties/search/semantic?query=near%20university&limit=10",
-              "host": ["{{baseUrl}}"],
-              "path": ["properties", "search", "semantic"],
-              "query": [
-                { "key": "query", "value": "near university" },
-                { "key": "limit", "value": "10" }
-              ]
-            },
-            "description": "Public semantic property search. Returned items include normalized cosine semanticSimilarity; raw vector distances are not exposed."
-          },
-          "response": [
-            {
-              "name": "Successful semantic results",
-              "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/properties/search/semantic?query=near%20university&limit=10" } },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
-              "body": "{\n  \"items\": [{\n    \"id\": \"property-1\",\n    \"title\": \"Apartment near university\",\n    \"governorate\": \"Dakahlia\",\n    \"city\": \"Mansoura\",\n    \"district\": \"University District\",\n    \"propertyType\": \"APARTMENT\",\n    \"rentAmount\": 5000,\n    \"areaM2\": 100,\n    \"bedrooms\": 2,\n    \"bathrooms\": 1,\n    \"isFurnished\": false,\n    \"isBoosted\": false,\n    \"status\": \"APPROVED\",\n    \"coverImage\": null,\n    \"ownerVerified\": true,\n    \"semanticSimilarity\": 0.8,\n    \"matchReasons\": [{ \"code\": \"MATCHES_SEARCH_INTENT\", \"text\": \"يتوافق مع تفاصيل البحث والتفضيلات المكتوبة\" }]\n  }],\n  \"total\": 1,\n  \"resultCount\": 1,\n  \"page\": 1,\n  \"pageSize\": 10\n}"
-            },
-            {
-              "name": "No relevant semantic match",
-              "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/properties/search/semantic?query=unmatched%20query&limit=10" } },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [{ "key": "Content-Type", "value": "application/json" }],
-              "body": "{\n  \"items\": [],\n  \"total\": 0,\n  \"resultCount\": 0,\n  \"page\": 1,\n  \"pageSize\": 10,\n  \"reason\": \"NO_RELEVANT_SEMANTIC_MATCH\"\n}"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Admin",
-      "item": [
-        {
-          "name": "Register Admin",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"fullName\": \"مشرف جديد\",\n    \"email\": \"admin.new@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01012345678\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "register"]
-            },
-            "description": "Registers a new admin user. Only accessible by super-admins (if admins exist), or anyone (if no admins exist in system)."
-          },
-          "response": []
-        },
-        {
-          "name": "Get Queues",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/queues",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "queues"]
-            },
-            "description": "Retrieves the pending admin queues."
-          },
-          "response": []
-        },
-        {
-          "name": "Get KYC Detail",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/kyc/{{userId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "kyc", "{{userId}}"]
-            },
-            "description": "Retrieves national ID and selfie URLs for admin KYC review."
-          },
-          "response": []
-        },
-        {
-          "name": "Review KYC",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"decision\": \"approve\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/kyc/{{userId}}/review",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "kyc", "{{userId}}", "review"]
-            },
-            "description": "Approves or rejects identity verification."
-          },
-          "response": []
-        },
-        {
-          "name": "Review Property",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"decision\": \"approve\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/properties/{{propertyId}}/review",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "properties", "{{propertyId}}", "review"]
-            },
-            "description": "Approves or rejects a property listing."
-          },
-          "response": []
-        },
-        {
-          "name": "Review Request",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"decision\": \"approve\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/requests/{{requestId}}/review",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "requests", "{{requestId}}", "review"]
-            },
-            "description": "Approves or rejects a tenant request."
-          },
-          "response": []
-        },
-        {
-          "name": "Review Property Review",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"decision\": \"approve\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/admin/reviews/{{reviewId}}/review",
-              "host": ["{{baseUrl}}"],
-              "path": ["admin", "reviews", "{{reviewId}}", "review"]
-            },
-            "description": "Approves or rejects a property review."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Verification",
-      "id": "27573463-verification-folder-uuid",
-      "item": [
-        {
-          "name": "Get My Verification",
-          "id": "27573463-ver-get-me-uuid",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/verification/me",
-              "host": ["{{baseUrl}}"],
-              "path": ["verification", "me"]
-            },
-            "description": "Retrieves the authenticated user's verification status."
-          },
-          "response": []
-        },
-        {
-          "name": "Submit Verification",
-          "id": "27573463-ver-submit-uuid",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"nationalId\": \"30102030405067\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/verification/submit",
-              "host": ["{{baseUrl}}"],
-              "path": ["verification", "submit"]
-            },
-            "description": "Submits identity verification details."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Properties",
-      "id": "27573463-properties-folder-uuid",
-      "item": [
-        {
-          "name": "Create Property",
-          "id": "27573463-prop-create-uuid",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "ar",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"title\": \"شقة مفروشة رائعة في الدقي\",\n    \"description\": \"شقة سكنية ممتازة ومفروشة بالكامل تقع في حي الدقي الراقي، قريبة من المترو وجميع الخدمات والمحلات التجارية.\",\n    \"governorate\": \"الجيزة\",\n    \"city\": \"الجيزة\",\n    \"district\": \"الدقي\",\n    \"manualAddress\": \"شارع مصدق، بجوار مكتبة سمير وعلي\",\n    \"propertyType\": \"APARTMENT\",\n    \"propertyAroundServices\": \"مترو، صيدليات، سوبرماركت، مطاعم\",\n    \"rentAmount\": 15000,\n    \"areaM2\": 120,\n    \"bedrooms\": 3,\n    \"bathrooms\": 2,\n    \"isFurnished\": true,\n    \"hasElevator\": true,\n    \"hasParking\": false,\n    \"images\": [\n        \"https://example.com/image1.jpg\"\n    ]\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/landlord/properties",
-              "host": ["{{baseUrl}}"],
-              "path": ["landlord", "properties"]
-            },
-            "description": "Creates a new property listing for the authenticated landlord."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Payments",
-      "id": "27573463-payments-folder-uuid",
-      "item": [
-        {
-          "name": "Checkout (Payment Intention)",
-          "id": "27573463-payment-checkout-uuid",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}",
-                "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"paymentType\": \"NEW_LISTING\",\n    \"amount\": 500\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/payments/checkout",
-              "host": ["{{baseUrl}}"],
-              "path": ["payments", "checkout"]
-            },
-            "description": "Initiates a payment intention for the authenticated user (e.g. premium listing checkout)."
-          },
-          "response": []
-        },
-        {
-          "name": "Paymob Webhook",
-          "id": "27573463-paymob-webhook-uuid",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"obj\": {\n        \"id\": 1234567,\n        \"pending\": false,\n        \"success\": true,\n        \"amount_cents\": 50000,\n        \"currency\": \"EGP\",\n        \"integration_id\": 11,\n        \"order\": {\n            \"id\": 987654,\n            \"data\": {\n                \"userId\": \"user-uuid-placeholder\",\n                \"paymentType\": \"NEW_LISTING\"\n            }\n        }\n    }\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/payments/webhook/paymob?hmac=your_computed_hmac_here",
-              "host": ["{{baseUrl}}"],
-              "path": ["payments", "webhook", "paymob"],
-              "query": [
-                {
-                  "key": "hmac",
-                  "value": "your_computed_hmac_here"
-                }
-              ]
-            },
-            "description": "Simulates Paymob's payment notification webhook callback to our backend."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Tenant Request Extraction",
-      "id": "27573463-tenant-request-extraction-folder",
-      "item": [
-        {
-          "name": "Extract Tenant Request - Detailed Arabic",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"عايز شقة مفروشة غرفتين في حي الجامعة وميزانيتي من 7000 لـ 9000 جنيه وتكون في مكان هادي\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
-            "description": "Verified TENANT only. Expected suggestions include 7000–9000, APARTMENT, 2 bedrooms, furnished, and quiet-area lifestyle text; flexibilityScore remains null unless explicitly numeric."
-          },
-          "response": []
-        },
-        {
-          "name": "Extract Tenant Request - Incomplete Arabic",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"محتاج شقة هادية قريبة من المواصلات\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
-            "description": "Expected: APARTMENT may be suggested from شقة; unstated budget, bedrooms, location, furnishing, and flexibility remain null and appear in missingFields."
-          },
-          "response": []
-        },
-        {
-          "name": "Extract Tenant Request - Empty Text Validation",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"   \"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
-            "description": "Expected HTTP 400 validation response."
-          },
-          "response": []
-        },
-        {
-          "name": "Extract Tenant Request - Provider Unavailable",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"أبحث عن شقة هادئة\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": { "raw": "{{baseUrl}}/tenant/requests/extract", "host": ["{{baseUrl}}"], "path": ["tenant", "requests", "extract"] },
-            "description": "Use only when SBG is intentionally unavailable. Expected sanitized 503 code TENANT_REQUEST_EXTRACTION_UNAVAILABLE."
-          },
-          "response": []
-        },
-        {
-          "name": "Download Draft PDF - Authorized Party",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }],
-            "url": { "raw": "{{baseUrl}}/contracts/{{contractId}}/pdf", "host": ["{{baseUrl}}"], "path": ["contracts", "{{contractId}}", "pdf"] },
-            "description": "Connected landlord or tenant only; downloads the saved DRAFTING contract without storing it publicly."
-          },
-          "event": [{ "listen": "test", "script": { "type": "text", "exec": ["pm.test('returns a non-empty PDF', function () {", "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/pdf');", "  pm.expect(pm.response.responseSize).to.be.above(0);", "});"] } }],
-          "response": []
-        },
-        {
-          "name": "Download Draft PDF - Unauthorized User (403)",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{other_user_jwt_token}}", "type": "text" }],
-            "url": { "raw": "{{baseUrl}}/contracts/{{contractId}}/pdf", "host": ["{{baseUrl}}"], "path": ["contracts", "{{contractId}}", "pdf"] },
-            "description": "Expected 403 for an unrelated user. Use a nonexistent ID for the controlled 404 example."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Rental Contract Drafts",
-      "item": [
-        {
-          "name": "Create Draft - Success",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"rentAmount\": 12500,\n  \"startDate\": \"2026-08-01\",\n  \"endDate\": \"2027-07-31\",\n  \"customClauses\": [\"No pets without written consent.\"]\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/matches/{{matchConnectionId}}/contract/draft",
-              "host": ["{{baseUrl}}"],
-              "path": ["matches", "{{matchConnectionId}}", "contract", "draft"]
-            },
-            "description": "Verified connected landlord only. Creates or updates a DRAFTING contract; the names and address are derived from the match."
-          },
-          "response": []
-        },
-        {
-          "name": "Read Draft - Authorized Party",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }],
-            "url": {
-              "raw": "{{baseUrl}}/contracts/{{contractId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["contracts", "{{contractId}}"]
-            },
-            "description": "Only the connected landlord or tenant may read the safe draft view."
-          },
-          "response": []
-        },
-        {
-          "name": "Create Draft - Invalid Date Range (400)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": { "mode": "raw", "raw": "{\n  \"rentAmount\": 12500,\n  \"startDate\": \"2026-08-02\",\n  \"endDate\": \"2026-08-01\"\n}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/matches/{{matchConnectionId}}/contract/draft", "host": ["{{baseUrl}}"], "path": ["matches", "{{matchConnectionId}}", "contract", "draft"] },
-            "description": "Expected 400: end date must be after start date."
-          },
-          "response": []
-        },
-        {
-          "name": "Create Draft - Negative Rent (400)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": { "mode": "raw", "raw": "{\n  \"rentAmount\": -1,\n  \"startDate\": \"2026-08-01\",\n  \"endDate\": \"2027-07-31\"\n}", "options": { "raw": { "language": "json" } } },
-            "url": { "raw": "{{baseUrl}}/matches/{{matchConnectionId}}/contract/draft", "host": ["{{baseUrl}}"], "path": ["matches", "{{matchConnectionId}}", "contract", "draft"] },
-            "description": "Expected 400 validation response."
-          },
-          "response": []
-        },
-        {
-          "name": "Read Draft - Another User Forbidden (403)",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{other_user_jwt_token}}", "type": "text" }],
-            "url": { "raw": "{{baseUrl}}/contracts/{{contractId}}", "host": ["{{baseUrl}}"], "path": ["contracts", "{{contractId}}"] },
-            "description": "Expected 403 because this JWT is neither party to the contract."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Partner Leads",
-      "item": [
-        {
-          "name": "Create MOVING Lead with Consent",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const body = pm.response.json();", "pm.expect(body.serviceType).to.eql('MOVING');", "pm.expect(body.status).to.eql('PENDING');", "pm.expect(body.consentedAt).to.exist;", "pm.expect(body).not.to.have.any.keys('email', 'phoneNumber', 'nationalId', 'identityVerification');"] } }],
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\",\n  \"consent\": true\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
-          "response": []
-        },
-        {
-          "name": "Create INSURANCE Lead with Consent",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const body = pm.response.json();", "pm.expect(body.serviceType).to.eql('INSURANCE');", "pm.expect(body.status).to.eql('PENDING');", "pm.expect(body.consentedAt).to.exist;"] } }],
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"INSURANCE\",\n  \"consent\": true\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
-          "response": []
-        },
-        {
-          "name": "Missing Consent Rejected",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(400);"] } }],
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\"\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
-          "response": []
-        },
-        {
-          "name": "False Consent Rejected",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(400);"] } }],
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\",\n  \"consent\": false\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
-          "response": []
-        },
-        {
-          "name": "Duplicate Pending Lead Rejected",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(409);", "pm.expect(pm.response.json().code).to.eql('PARTNER_LEAD_ALREADY_PENDING');"] } }],
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }], "body": { "mode": "raw", "raw": "{\n  \"serviceType\": \"MOVING\",\n  \"consent\": true\n}", "options": { "raw": { "language": "json" } } }, "url": { "raw": "{{baseUrl}}/partner-leads", "host": ["{{baseUrl}}"], "path": ["partner-leads"] } },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Hello World",
-      "id": "27573463-hello-world-uuid",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/",
-          "host": ["{{baseUrl}}"],
-          "path": [""]
-        },
-        "description": "Hello World endpoint check."
-      },
-      "response": []
-    }
-  ],
-  "event": [
-    {
-      "listen": "prerequest",
-      "script": {
-        "type": "text/javascript",
-        "exec": [""]
-      }
-    },
-    {
-      "listen": "test",
-      "script": {
-        "type": "text/javascript",
-        "exec": [""]
-      }
-    }
-  ],
-  "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://localhost:3001/api",
-      "type": "string"
-    },
-    {
-      "key": "jwt_token",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "other_user_jwt_token",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "matchConnectionId",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "contractId",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "refresh_token",
-      "value": "",
-      "type": "string"
-    }
-  ]
+	"info": {
+		"_postman_id": "c6a218d6-3e91-4475-b82b-df55f309a632",
+		"name": "PropMatch AI API",
+		"description": "Postman Collection for PropMatch AI backend endpoints, featuring localized error validation headers and automatic token injection.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Sign Up / Register",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.accessToken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Access and Refresh tokens successfully saved!\");",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"description": "Preferred language for responses (ar/en)",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fullName\": \"محمد أحمد\",\n    \"email\": \"mohamed.test@example.com\",\n    \"password\": \"P@ssword123\",\n    \"phoneNumber\": \"01092219864\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"register"
+							]
+						},
+						"description": "Registers a new unified user account in the system and automatically configures their default profile quotas."
+					},
+					"response": []
+				},
+				{
+					"name": "Log In",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.accessToken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Access and Refresh tokens successfully saved!\");",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"mohamed.test@example.com\",\n    \"password\": \"P@ssword123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticates user credentials and returns a Bearer JWT access token and refresh token."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Me / Session Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"me"
+							]
+						},
+						"description": "Retrieves the authenticated user's unified profile data mapped to the frontend contract format."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const response = pm.response.json();",
+									"if (response.accessToken) {",
+									"    pm.collectionVariables.set(\"jwt_token\", response.accessToken);",
+									"    pm.collectionVariables.set(\"refresh_token\", response.refreshToken);",
+									"    console.log(\"Tokens successfully refreshed and saved!\");",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept-Language",
+								"value": "ar",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"auth",
+								"refresh"
+							]
+						},
+						"description": "Exchanges a valid refresh token for a brand new access and refresh token pair."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3001",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		}
+	]
 }

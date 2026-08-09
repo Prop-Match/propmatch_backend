@@ -12,7 +12,9 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Queue } from 'bullmq';
+import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   adminRoleFromSlug,
   capabilitiesFor,
@@ -27,7 +29,15 @@ import {
 } from '../matching/matching.constants';
 import type { PrivateObjectStorage } from '../storage/private-object-storage.interface';
 import { PRIVATE_OBJECT_STORAGE } from '../storage/private-object-storage.token';
+import {
+  SUSPENSION_REASONS,
+  isSuspensionActive,
+  suspensionMessage,
+  type SuspensionReasonCode,
+} from '../common/suspension';
+import { SuspendUserDto } from './dto/suspend-user.dto';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
+import { MailService } from '../mail/mail.service';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
@@ -35,6 +45,9 @@ import { ReviewDecisionDto } from './dto/review-decision.dto';
 import { AdminStats } from './interfaces/admin-stats.interface';
 
 const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
+const ANONYMIZATION_GRACE_PERIOD_DAYS = 30;
+const ANONYMIZATION_BATCH_SIZE = 20;
+const ANONYMIZATION_BATCH_DELAY_MS = 1000;
 
 @Injectable()
 export class AdminService {
@@ -48,6 +61,7 @@ export class AdminService {
     private readonly propertyApprovalIndexingService: PropertyApprovalIndexingService,
     @InjectQueue(MATCHING_QUEUE)
     private readonly matchingQueue: Queue<MatchTenantRequestJobData>,
+    private readonly mailService: MailService,
   ) {}
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
@@ -62,6 +76,214 @@ export class AdminService {
     await this.prismaService.adminAuditLogEntry.create({
       data: { actorId, action, subjectId },
     });
+  }
+
+  private toUserRow(u: {
+    id: string;
+    fullName: string;
+    email: string;
+    phoneNumber: string;
+    role: string;
+    isActive: boolean;
+    createdAt: Date;
+    deletedAt?: Date | null;
+    suspendedAt: Date | null;
+    suspendedUntil: Date | null;
+    suspensionReason: string | null;
+    suspensionNote?: string | null;
+  }) {
+    const suspended = isSuspensionActive(u);
+    return {
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      phoneNumber: u.phoneNumber,
+      role: u.role,
+      isActive: u.isActive,
+      createdAt: u.createdAt.toISOString(),
+      // Soft-delete/anonymization state — orthogonal to suspension below (see
+      // the User.deletedAt schema comment): a deleted account is a "ghost"
+      // with its own reactivation flow, a suspended one is still live.
+      deletedAt: u.deletedAt ? u.deletedAt.toISOString() : null,
+      suspended,
+      suspendedUntil: suspended
+        ? (u.suspendedUntil?.toISOString() ?? null)
+        : null,
+      suspendedAt: suspended ? (u.suspendedAt?.toISOString() ?? null) : null,
+      suspensionReason: suspended ? u.suspensionReason : null,
+      suspensionReasonLabel:
+        suspended && u.suspensionReason
+          ? (SUSPENSION_REASONS[u.suspensionReason as SuspensionReasonCode] ??
+            u.suspensionReason)
+          : null,
+      suspensionNote: suspended ? (u.suspensionNote ?? null) : null,
+    };
+  }
+
+  /**
+   * GET /admin/users — paginated, searchable list of non-admin users, shared
+   * by both the suspension console (search + suspend/unsuspend) and the
+   * Active/Suspended-Deleted tabs (status filter). `status` defaults to
+   * 'active' (deletedAt: null) so the main view stays clean — ghosted/
+   * anonymized accounts (see AdminService.anonymizeExpiredUsers) don't
+   * clutter it by default — while still letting an admin explicitly switch
+   * to the deleted tab via ?status=deleted. Every row carries both the
+   * deletion and suspension state (toUserRow), since the two are orthogonal
+   * account states an admin may need to see together.
+   */
+  async listUsers(
+    query: {
+      status?: 'active' | 'deleted' | 'all';
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    } = {},
+  ) {
+    const status = query.status ?? 'active';
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
+    const search = query.search?.trim();
+    const where = {
+      role: { not: 'ADMIN' as const },
+      ...(status === 'deleted'
+        ? { deletedAt: { not: null } }
+        : status === 'all'
+          ? {}
+          : { deletedAt: null }),
+      ...(search
+        ? {
+            OR: [
+              { fullName: { contains: search, mode: 'insensitive' as const } },
+              { email: { contains: search, mode: 'insensitive' as const } },
+              { phoneNumber: { contains: search } },
+            ],
+          }
+        : {}),
+    };
+    const select = {
+      id: true,
+      fullName: true,
+      email: true,
+      phoneNumber: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+      deletedAt: true,
+      suspendedAt: true,
+      suspendedUntil: true,
+      suspensionReason: true,
+      suspensionNote: true,
+    };
+    const [rows, total] = await Promise.all([
+      this.prismaService.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select,
+      }),
+      this.prismaService.user.count({ where }),
+    ]);
+    return { items: rows.map((u) => this.toUserRow(u)), total, page, pageSize };
+  }
+
+  /** Suspend a non-admin account. `durationDays` null ⇒ permanent. */
+  async suspendUser(
+    actorId: string,
+    targetUserId: string,
+    dto: SuspendUserDto,
+  ) {
+    if (actorId === targetUserId) {
+      throw new BadRequestException('لا يمكنك إيقاف حسابك الخاص');
+    }
+    const target = await this.prismaService.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, role: true },
+    });
+    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (target.role === 'ADMIN') {
+      throw new BadRequestException('لا يمكن إيقاف حساب مشرف من هنا');
+    }
+    const now = new Date();
+    const suspendedUntil =
+      dto.durationDays == null
+        ? null
+        : new Date(now.getTime() + dto.durationDays * 24 * 60 * 60 * 1000);
+    const updated = await this.prismaService.user.update({
+      where: { id: targetUserId },
+      data: {
+        suspendedAt: now,
+        suspendedUntil,
+        suspensionReason: dto.reason,
+        suspensionNote: dto.note?.trim() || null,
+        suspendedById: actorId,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        suspendedAt: true,
+        suspendedUntil: true,
+        suspensionReason: true,
+        suspensionNote: true,
+      },
+    });
+    await this.audit(
+      actorId,
+      `user:suspend:${dto.reason}:${dto.durationDays ?? 'permanent'}`,
+      targetUserId,
+    );
+    // Push a real-time notice so a currently-logged-in user is told immediately,
+    // not only when they next hit the API. Best-effort — the DB row is the
+    // source of truth for the block.
+    try {
+      this.realtimeService.emitAccountSuspended(targetUserId, {
+        message: suspensionMessage(updated),
+        reason: this.toUserRow(updated).suspensionReasonLabel,
+        suspendedUntil: updated.suspendedUntil?.toISOString() ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(`Suspension realtime push failed: ${String(error)}`);
+    }
+    return this.toUserRow(updated);
+  }
+
+  /** Lift a suspension immediately. */
+  async unsuspendUser(actorId: string, targetUserId: string) {
+    const target = await this.prismaService.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    const updated = await this.prismaService.user.update({
+      where: { id: targetUserId },
+      data: {
+        suspendedAt: null,
+        suspendedUntil: null,
+        suspensionReason: null,
+        suspensionNote: null,
+        suspendedById: null,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        suspendedAt: true,
+        suspendedUntil: true,
+        suspensionReason: true,
+        suspensionNote: true,
+      },
+    });
+    await this.audit(actorId, 'user:unsuspend', targetUserId);
+    return this.toUserRow(updated);
   }
   async getQueues() {
     const [kyc, properties, editedProperties, requests, reviews] =
@@ -648,17 +870,25 @@ export class AdminService {
       where: { role: 'ADMIN' },
     });
 
-    if (adminCount > 0) {
+    const isBootstrap = adminCount === 0;
+    if (!isBootstrap) {
       if (!creatorId) {
         throw new UnauthorizedException(
           I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
       }
-      const superAdmin = await this.prismaService.user.findUnique({
+      const creator = await this.prismaService.user.findUnique({
         where: { id: creatorId },
+        select: { role: true, adminRole: true },
       });
-
-      if (!superAdmin || superAdmin.role !== 'ADMIN') {
+      // Must be an admin who actually holds `admin:create` — i.e. a SUPER_ADMIN.
+      // Previously this only checked role === 'ADMIN', so any sub-role admin
+      // (read-only, support, …) could create admins → privilege escalation.
+      if (
+        !creator ||
+        creator.role !== 'ADMIN' ||
+        !capabilitiesFor(creator.adminRole).includes('admin:create')
+      ) {
         throw new ForbiddenException(
           I18nContext.current()?.t('admin.ONLY_SUPER_ADMIN_CAN_CREATE_ADMIN'),
         );
@@ -673,7 +903,20 @@ export class AdminService {
         I18nContext.current()?.t('auth.EMAIL_EXISTS'),
       );
     }
-    // 3. Hash password and persist new Admin
+    // 3. Resolve the sub-role. Only the very first (bootstrap) admin defaults to
+    // SUPER_ADMIN; every other new admin defaults to least-privilege READ_ONLY.
+    // An explicitly-provided role must be valid — never silently fall back to
+    // SUPER_ADMIN (that was the escalation bug).
+    let adminRole: AdminRole = isBootstrap ? 'SUPER_ADMIN' : 'READ_ONLY';
+    if (createAdminDto.role) {
+      const mapped = adminRoleFromSlug(createAdminDto.role);
+      if (!mapped) {
+        throw new BadRequestException('دور المشرف غير صالح');
+      }
+      adminRole = mapped;
+    }
+
+    // 4. Hash password and persist new Admin
     const salt = 10;
     const hashedPassword = await bcrypt.hash(createAdminDto.password, salt);
     const admin = await this.prismaService.user.create({
@@ -683,10 +926,7 @@ export class AdminService {
         passwordHash: hashedPassword,
         phoneNumber: createAdminDto.phoneNumber,
         role: 'ADMIN',
-        // Persisted sub-role drives capability enforcement. Absent ⇒ SUPER_ADMIN.
-        adminRole: createAdminDto.role
-          ? (adminRoleFromSlug(createAdminDto.role) ?? 'SUPER_ADMIN')
-          : 'SUPER_ADMIN',
+        adminRole,
       },
     });
     return transformUserToFrontend(admin);
@@ -711,18 +951,63 @@ export class AdminService {
     };
   }
 
+  /** A user with SUPER_ADMIN caps: adminRole SUPER_ADMIN, or null (legacy). */
+  private static readonly SUPER_ADMIN_WHERE = {
+    role: 'ADMIN' as const,
+    isActive: true,
+    OR: [{ adminRole: 'SUPER_ADMIN' as const }, { adminRole: null }],
+  };
+
   async updateTeamMember(
+    actorId: string,
     id: string,
     dto: { role?: string; disabled?: boolean },
   ) {
-    const data: { isActive?: boolean; adminRole?: AdminRole } = {};
-    if (dto.disabled !== undefined) {
-      data.isActive = !dto.disabled;
+    const target = await this.prismaService.user.findUnique({
+      where: { id },
+      select: { id: true, role: true, adminRole: true, isActive: true },
+    });
+    if (!target || target.role !== 'ADMIN') {
+      throw new NotFoundException('المشرف غير موجود');
     }
+    // An admin can never change their own role or status here — closes
+    // self-demotion lockouts and self-escalation attempts.
+    if (target.id === actorId) {
+      throw new ForbiddenException('لا يمكنك تعديل دورك أو حالتك بنفسك');
+    }
+
+    const data: { isActive?: boolean; adminRole?: AdminRole } = {};
+    let nextAdminRole = target.adminRole;
+    let nextActive = target.isActive;
     if (dto.role !== undefined) {
       const mapped = adminRoleFromSlug(dto.role);
-      if (mapped) data.adminRole = mapped;
+      if (!mapped) throw new BadRequestException('دور المشرف غير صالح');
+      data.adminRole = mapped;
+      nextAdminRole = mapped;
     }
+    if (dto.disabled !== undefined) {
+      data.isActive = !dto.disabled;
+      nextActive = !dto.disabled;
+    }
+
+    // Guard the last super-admin: if this change would strip the target of
+    // active super-admin status, ensure at least one other remains.
+    const targetIsSuperAdmin =
+      target.isActive &&
+      capabilitiesFor(target.adminRole).includes('admin:manage');
+    const targetStaysSuperAdmin =
+      nextActive && capabilitiesFor(nextAdminRole).includes('admin:manage');
+    if (targetIsSuperAdmin && !targetStaysSuperAdmin) {
+      const otherSuperAdmins = await this.prismaService.user.count({
+        where: { ...AdminService.SUPER_ADMIN_WHERE, id: { not: id } },
+      });
+      if (otherSuperAdmins === 0) {
+        throw new ForbiddenException(
+          'لا يمكن إزالة أو تعطيل آخر مشرف عام في النظام',
+        );
+      }
+    }
+
     const admin = await this.prismaService.user.update({
       where: { id },
       data,
@@ -861,5 +1146,247 @@ export class AdminService {
         { label: 'تم الرفض', value: totalRejected },
       ],
     };
+  }
+
+  /**
+   * Soft-deletes a platform account (DELETE /admin/users/:id). Sets
+   * `deletedAt` and archives everything that would otherwise keep surfacing
+   * this user's activity to others — their own TenantRequests (so the
+   * matching pool stops considering them) and, if they're a landlord, their
+   * Properties (so their listings stop appearing in browse/search). All
+   * three writes are one transaction: a landlord with 40 properties must
+   * never end up half-deleted if the process dies partway through.
+   *
+   * This does not touch existing MatchConnections, Messages, or
+   * PaymentTransactions — deleting those would corrupt the other party's
+   * conversation history and the platform's financial audit trail. The user
+   * becomes inert (can't log in, stops appearing as an active landlord/
+   * tenant); their historical footprint stays intact by design.
+   */
+  async softDeleteUser(adminId: string, userId: string) {
+    const target = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, deletedAt: true, adminRole: true },
+    });
+    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (target.deletedAt) {
+      throw new ConflictException('تم حذف هذا المستخدم بالفعل');
+    }
+    if (target.role === 'ADMIN') {
+      // Deleting admin accounts is a distinct, higher-stakes action (it
+      // should go through team-offboarding, not the generic user-delete
+      // button) — out of scope here, refuse rather than silently allow it.
+      throw new ForbiddenException(
+        'لا يمكن حذف حسابات المشرفين من هنا — استخدم إدارة الفريق',
+      );
+    }
+    if (target.id === adminId) {
+      throw new ForbiddenException('لا يمكنك حذف حسابك الخاص');
+    }
+
+    await this.prismaService.$transaction([
+      this.prismaService.user.update({
+        where: { id: userId },
+        data: { deletedAt: new Date() },
+      }),
+      this.prismaService.tenantRequest.updateMany({
+        where: { tenantId: userId, status: { notIn: ['ARCHIVED'] } },
+        data: { status: 'ARCHIVED' },
+      }),
+      this.prismaService.property.updateMany({
+        where: { ownerId: userId, status: { not: 'ARCHIVED' } },
+        data: { status: 'ARCHIVED' },
+      }),
+    ]);
+
+    await this.audit(adminId, 'user:delete', userId);
+
+    // Passive invalidation (JwtStrategy/gateway middleware checking
+    // deletedAt) only blocks the user on their *next* request/reconnect —
+    // if they're already connected, kick the live socket now so a currently
+    // active session doesn't keep working until it happens to refresh.
+    this.realtimeService.forceLogoutUser(userId);
+
+    return { success: true, id: userId };
+  }
+
+  /** GET /admin/reactivations — pending self-service reactivation requests. */
+  async listReactivationRequests() {
+    const requests = await this.prismaService.activationRequest.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        user: { select: { fullName: true, email: true, deletedAt: true } },
+      },
+    });
+    return {
+      items: requests.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        userFullName: r.user.fullName,
+        userEmail: r.user.email,
+        deletedAt: r.user.deletedAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * POST /admin/reactivations/:id/approve. Restores the account and bumps
+   * tokenVersion (revokes any lingering pre-deletion token — see
+   * JwtStrategy). Deliberately does NOT touch the user's ARCHIVED
+   * TenantRequests/Properties or enqueue the matching worker: reactivation
+   * restores the account, not its listings — the user re-publishes each one
+   * manually, on their own schedule, exactly as the business rule specifies.
+   */
+  async approveReactivation(adminId: string, requestId: string) {
+    const request = await this.prismaService.activationRequest.findUnique({
+      where: { id: requestId },
+      include: { user: { select: { fullName: true, email: true } } },
+    });
+    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
+    }
+
+    await this.prismaService.$transaction([
+      this.prismaService.user.update({
+        where: { id: request.userId },
+        data: { deletedAt: null, tokenVersion: { increment: 1 } },
+      }),
+      this.prismaService.activationRequest.update({
+        where: { id: requestId },
+        data: { status: 'APPROVED' },
+      }),
+    ]);
+
+    await this.audit(adminId, 'user:reactivate:approve', request.userId);
+
+    await this.realtimeService.notifyUser(request.userId, {
+      type: 'ACCOUNT_REACTIVATED',
+      title: 'تمت إعادة تفعيل حسابك',
+      message: 'وافق أحد المشرفين على طلبك بإعادة تفعيل حسابك.',
+      link: '/login',
+    });
+    await this.mailService.sendAccountReactivatedEmail(request.user.email);
+
+    return { success: true, id: requestId };
+  }
+
+  /** POST /admin/reactivations/:id/reject. */
+  async rejectReactivation(adminId: string, requestId: string) {
+    const request = await this.prismaService.activationRequest.findUnique({
+      where: { id: requestId },
+      include: { user: { select: { fullName: true, email: true } } },
+    });
+    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
+    }
+
+    await this.prismaService.activationRequest.update({
+      where: { id: requestId },
+      data: { status: 'REJECTED' },
+    });
+
+    await this.audit(adminId, 'user:reactivate:reject', request.userId);
+
+    await this.realtimeService.notifyUser(request.userId, {
+      type: 'ACCOUNT_REACTIVATION_REJECTED',
+      title: 'طلب إعادة التفعيل',
+      message: 'راجع أحد المشرفين طلبك ولم تتم الموافقة عليه في الوقت الحالي.',
+      link: null,
+    });
+    await this.mailService.sendAccountReactivationRejectedEmail(
+      request.user.email,
+    );
+
+    return { success: true, id: requestId };
+  }
+
+  /**
+   * Daily at midnight — anonymizes accounts that have sat soft-deleted past
+   * the 30-day grace period. This replaced a literal hard `user.delete()`:
+   * most of this schema's relations to User use Prisma's default
+   * onDelete: Restrict, not Cascade, so a real delete would foreign-key-fail
+   * for any user who ever sent a message, made an offer, left a review, etc.
+   * — effectively every real account — and even where cascading could be
+   * forced, it would destroy other parties' history (e.g. cascading through
+   * MatchConnection would wipe the *other* tenant/landlord's chat).
+   *
+   * Anonymization sidesteps all of that: the row and its id stay intact, so
+   * every relation (Messages, Offers, Properties, Requests) stays unbroken,
+   * and the user becomes an unreachable "ghost". PII fields are scrubbed:
+   * name becomes a placeholder, email is scrambled to a random, permanently
+   * unique address (freeing the original email for a fresh signup),
+   * password/phone are scrambled to unusable values (both columns are
+   * non-nullable, so "nullify" isn't an option for them), and the reset-token
+   * pair is cleared so a stale token can't be replayed against the ghost row.
+   *
+   * Batched deliberately, same as the previous implementation: fetching every
+   * candidate up front and chunking it in memory (rather than repeatedly
+   * re-querying `deletedAt < cutoff`) means a user whose update fails can
+   * never cause an infinite loop. Promise.allSettled per batch means one
+   * failure doesn't abort the rest of that batch, and the delay between
+   * batches spreads the load instead of firing everything at Postgres at
+   * once.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async anonymizeExpiredUsers(): Promise<void> {
+    const cutoff = new Date(
+      Date.now() - ANONYMIZATION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const candidates = await this.prismaService.user.findMany({
+      where: { deletedAt: { lt: cutoff } },
+      select: { id: true },
+    });
+    if (candidates.length === 0) return;
+
+    let anonymizedCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < candidates.length; i += ANONYMIZATION_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + ANONYMIZATION_BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((u) =>
+          this.prismaService.user.update({
+            where: { id: u.id },
+            data: {
+              fullName: 'Deleted User',
+              email: `deleted-${crypto.randomUUID()}@propmatch.local`,
+              passwordHash: bcrypt.hashSync(crypto.randomUUID(), 10),
+              phoneNumber: `deleted-${crypto.randomUUID()}`,
+              avatarUrl: null,
+              resetToken: null,
+              resetTokenExpiry: null,
+            },
+          }),
+        ),
+      );
+      for (const [index, result] of results.entries()) {
+        if (result.status === 'fulfilled') {
+          anonymizedCount++;
+        } else {
+          failedCount++;
+          this.logger.error(
+            `Anonymization failed for user ${batch[index].id}: ${
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason)
+            }`,
+          );
+        }
+      }
+      const isLastBatch = i + ANONYMIZATION_BATCH_SIZE >= candidates.length;
+      if (!isLastBatch) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, ANONYMIZATION_BATCH_DELAY_MS),
+        );
+      }
+    }
+
+    this.logger.log(
+      `Anonymization cron: ${anonymizedCount} anonymized, ${failedCount} failed (of ${candidates.length} candidates past the ${ANONYMIZATION_GRACE_PERIOD_DAYS}-day grace period).`,
+    );
   }
 }
