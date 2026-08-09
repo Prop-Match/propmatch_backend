@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -115,22 +116,6 @@ export class AdminController {
   }
 
   // --- Account suspension (violation enforcement) ---
-  @Get('users')
-  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
-  @Roles('ADMIN')
-  @RequireCapability('user:suspend')
-  async listUsers(
-    @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-  ) {
-    return this.adminService.listUsers({
-      search,
-      page: page ? Number(page) : undefined,
-      pageSize: pageSize ? Number(pageSize) : undefined,
-    });
-  }
-
   @HttpCode(HttpStatus.OK)
   @Post('users/:id/suspend')
   @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
@@ -267,5 +252,70 @@ export class AdminController {
   @Roles('ADMIN')
   async getStats() {
     return this.adminService.getStats();
+  }
+
+  // Shared by the suspension console (search + pagination) and the
+  // Active/Suspended-Deleted tabs (status filter) — either capability is
+  // enough to view the list; the mutating routes below stay separately
+  // capability-gated to their own action.
+  @Get('users')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:suspend', 'user:delete')
+  async listUsers(
+    @Query('status') status?: 'active' | 'deleted' | 'all',
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.listUsers({
+      status,
+      search,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @Delete('users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:delete')
+  async deleteUser(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.softDeleteUser(req.user.userId, id);
+  }
+
+  @Get('reactivations')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async listReactivations() {
+    return this.adminService.listReactivationRequests();
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('reactivations/:id/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async approveReactivation(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.approveReactivation(req.user.userId, id);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('reactivations/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard, CapabilitiesGuard)
+  @Roles('ADMIN')
+  @RequireCapability('user:reactivate')
+  async rejectReactivation(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.rejectReactivation(req.user.userId, id);
   }
 }

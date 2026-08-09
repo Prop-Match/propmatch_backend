@@ -12,7 +12,9 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Queue } from 'bullmq';
+import * as crypto from 'crypto';
 import { I18nContext } from 'nestjs-i18n';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   adminRoleFromSlug,
   capabilitiesFor,
@@ -35,6 +37,7 @@ import {
 } from '../common/suspension';
 import { SuspendUserDto } from './dto/suspend-user.dto';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
+import { MailService } from '../mail/mail.service';
 import { PrismaService } from './../../prisma/prisma.service';
 import { RealtimeService } from './../realtime/realtime.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
@@ -42,6 +45,9 @@ import { ReviewDecisionDto } from './dto/review-decision.dto';
 import { AdminStats } from './interfaces/admin-stats.interface';
 
 const KYC_DOCUMENT_READ_TTL_SECONDS = 300;
+const ANONYMIZATION_GRACE_PERIOD_DAYS = 30;
+const ANONYMIZATION_BATCH_SIZE = 20;
+const ANONYMIZATION_BATCH_DELAY_MS = 1000;
 
 @Injectable()
 export class AdminService {
@@ -55,6 +61,7 @@ export class AdminService {
     private readonly propertyApprovalIndexingService: PropertyApprovalIndexingService,
     @InjectQueue(MATCHING_QUEUE)
     private readonly matchingQueue: Queue<MatchTenantRequestJobData>,
+    private readonly mailService: MailService,
   ) {}
   private getTranslation(key: string, fallback: string): string {
     return I18nContext.current()?.t(key) ?? fallback;
@@ -79,6 +86,7 @@ export class AdminService {
     role: string;
     isActive: boolean;
     createdAt: Date;
+    deletedAt?: Date | null;
     suspendedAt: Date | null;
     suspendedUntil: Date | null;
     suspensionReason: string | null;
@@ -93,8 +101,14 @@ export class AdminService {
       role: u.role,
       isActive: u.isActive,
       createdAt: u.createdAt.toISOString(),
+      // Soft-delete/anonymization state — orthogonal to suspension below (see
+      // the User.deletedAt schema comment): a deleted account is a "ghost"
+      // with its own reactivation flow, a suspended one is still live.
+      deletedAt: u.deletedAt ? u.deletedAt.toISOString() : null,
       suspended,
-      suspendedUntil: suspended ? (u.suspendedUntil?.toISOString() ?? null) : null,
+      suspendedUntil: suspended
+        ? (u.suspendedUntil?.toISOString() ?? null)
+        : null,
       suspendedAt: suspended ? (u.suspendedAt?.toISOString() ?? null) : null,
       suspensionReason: suspended ? u.suspensionReason : null,
       suspensionReasonLabel:
@@ -106,13 +120,36 @@ export class AdminService {
     };
   }
 
-  /** Paginated, searchable list of non-admin users for the suspension console. */
-  async listUsers(query: { search?: string; page?: number; pageSize?: number }) {
+  /**
+   * GET /admin/users — paginated, searchable list of non-admin users, shared
+   * by both the suspension console (search + suspend/unsuspend) and the
+   * Active/Suspended-Deleted tabs (status filter). `status` defaults to
+   * 'active' (deletedAt: null) so the main view stays clean — ghosted/
+   * anonymized accounts (see AdminService.anonymizeExpiredUsers) don't
+   * clutter it by default — while still letting an admin explicitly switch
+   * to the deleted tab via ?status=deleted. Every row carries both the
+   * deletion and suspension state (toUserRow), since the two are orthogonal
+   * account states an admin may need to see together.
+   */
+  async listUsers(
+    query: {
+      status?: 'active' | 'deleted' | 'all';
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    } = {},
+  ) {
+    const status = query.status ?? 'active';
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
     const search = query.search?.trim();
     const where = {
       role: { not: 'ADMIN' as const },
+      ...(status === 'deleted'
+        ? { deletedAt: { not: null } }
+        : status === 'all'
+          ? {}
+          : { deletedAt: null }),
       ...(search
         ? {
             OR: [
@@ -131,6 +168,7 @@ export class AdminService {
       role: true,
       isActive: true,
       createdAt: true,
+      deletedAt: true,
       suspendedAt: true,
       suspendedUntil: true,
       suspensionReason: true,
@@ -150,7 +188,11 @@ export class AdminService {
   }
 
   /** Suspend a non-admin account. `durationDays` null ⇒ permanent. */
-  async suspendUser(actorId: string, targetUserId: string, dto: SuspendUserDto) {
+  async suspendUser(
+    actorId: string,
+    targetUserId: string,
+    dto: SuspendUserDto,
+  ) {
     if (actorId === targetUserId) {
       throw new BadRequestException('لا يمكنك إيقاف حسابك الخاص');
     }
@@ -951,7 +993,8 @@ export class AdminService {
     // Guard the last super-admin: if this change would strip the target of
     // active super-admin status, ensure at least one other remains.
     const targetIsSuperAdmin =
-      target.isActive && capabilitiesFor(target.adminRole).includes('admin:manage');
+      target.isActive &&
+      capabilitiesFor(target.adminRole).includes('admin:manage');
     const targetStaysSuperAdmin =
       nextActive && capabilitiesFor(nextAdminRole).includes('admin:manage');
     if (targetIsSuperAdmin && !targetStaysSuperAdmin) {
@@ -1103,5 +1146,247 @@ export class AdminService {
         { label: 'تم الرفض', value: totalRejected },
       ],
     };
+  }
+
+  /**
+   * Soft-deletes a platform account (DELETE /admin/users/:id). Sets
+   * `deletedAt` and archives everything that would otherwise keep surfacing
+   * this user's activity to others — their own TenantRequests (so the
+   * matching pool stops considering them) and, if they're a landlord, their
+   * Properties (so their listings stop appearing in browse/search). All
+   * three writes are one transaction: a landlord with 40 properties must
+   * never end up half-deleted if the process dies partway through.
+   *
+   * This does not touch existing MatchConnections, Messages, or
+   * PaymentTransactions — deleting those would corrupt the other party's
+   * conversation history and the platform's financial audit trail. The user
+   * becomes inert (can't log in, stops appearing as an active landlord/
+   * tenant); their historical footprint stays intact by design.
+   */
+  async softDeleteUser(adminId: string, userId: string) {
+    const target = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, deletedAt: true, adminRole: true },
+    });
+    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (target.deletedAt) {
+      throw new ConflictException('تم حذف هذا المستخدم بالفعل');
+    }
+    if (target.role === 'ADMIN') {
+      // Deleting admin accounts is a distinct, higher-stakes action (it
+      // should go through team-offboarding, not the generic user-delete
+      // button) — out of scope here, refuse rather than silently allow it.
+      throw new ForbiddenException(
+        'لا يمكن حذف حسابات المشرفين من هنا — استخدم إدارة الفريق',
+      );
+    }
+    if (target.id === adminId) {
+      throw new ForbiddenException('لا يمكنك حذف حسابك الخاص');
+    }
+
+    await this.prismaService.$transaction([
+      this.prismaService.user.update({
+        where: { id: userId },
+        data: { deletedAt: new Date() },
+      }),
+      this.prismaService.tenantRequest.updateMany({
+        where: { tenantId: userId, status: { notIn: ['ARCHIVED'] } },
+        data: { status: 'ARCHIVED' },
+      }),
+      this.prismaService.property.updateMany({
+        where: { ownerId: userId, status: { not: 'ARCHIVED' } },
+        data: { status: 'ARCHIVED' },
+      }),
+    ]);
+
+    await this.audit(adminId, 'user:delete', userId);
+
+    // Passive invalidation (JwtStrategy/gateway middleware checking
+    // deletedAt) only blocks the user on their *next* request/reconnect —
+    // if they're already connected, kick the live socket now so a currently
+    // active session doesn't keep working until it happens to refresh.
+    this.realtimeService.forceLogoutUser(userId);
+
+    return { success: true, id: userId };
+  }
+
+  /** GET /admin/reactivations — pending self-service reactivation requests. */
+  async listReactivationRequests() {
+    const requests = await this.prismaService.activationRequest.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        user: { select: { fullName: true, email: true, deletedAt: true } },
+      },
+    });
+    return {
+      items: requests.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        userFullName: r.user.fullName,
+        userEmail: r.user.email,
+        deletedAt: r.user.deletedAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * POST /admin/reactivations/:id/approve. Restores the account and bumps
+   * tokenVersion (revokes any lingering pre-deletion token — see
+   * JwtStrategy). Deliberately does NOT touch the user's ARCHIVED
+   * TenantRequests/Properties or enqueue the matching worker: reactivation
+   * restores the account, not its listings — the user re-publishes each one
+   * manually, on their own schedule, exactly as the business rule specifies.
+   */
+  async approveReactivation(adminId: string, requestId: string) {
+    const request = await this.prismaService.activationRequest.findUnique({
+      where: { id: requestId },
+      include: { user: { select: { fullName: true, email: true } } },
+    });
+    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
+    }
+
+    await this.prismaService.$transaction([
+      this.prismaService.user.update({
+        where: { id: request.userId },
+        data: { deletedAt: null, tokenVersion: { increment: 1 } },
+      }),
+      this.prismaService.activationRequest.update({
+        where: { id: requestId },
+        data: { status: 'APPROVED' },
+      }),
+    ]);
+
+    await this.audit(adminId, 'user:reactivate:approve', request.userId);
+
+    await this.realtimeService.notifyUser(request.userId, {
+      type: 'ACCOUNT_REACTIVATED',
+      title: 'تمت إعادة تفعيل حسابك',
+      message: 'وافق أحد المشرفين على طلبك بإعادة تفعيل حسابك.',
+      link: '/login',
+    });
+    await this.mailService.sendAccountReactivatedEmail(request.user.email);
+
+    return { success: true, id: requestId };
+  }
+
+  /** POST /admin/reactivations/:id/reject. */
+  async rejectReactivation(adminId: string, requestId: string) {
+    const request = await this.prismaService.activationRequest.findUnique({
+      where: { id: requestId },
+      include: { user: { select: { fullName: true, email: true } } },
+    });
+    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
+    }
+
+    await this.prismaService.activationRequest.update({
+      where: { id: requestId },
+      data: { status: 'REJECTED' },
+    });
+
+    await this.audit(adminId, 'user:reactivate:reject', request.userId);
+
+    await this.realtimeService.notifyUser(request.userId, {
+      type: 'ACCOUNT_REACTIVATION_REJECTED',
+      title: 'طلب إعادة التفعيل',
+      message: 'راجع أحد المشرفين طلبك ولم تتم الموافقة عليه في الوقت الحالي.',
+      link: null,
+    });
+    await this.mailService.sendAccountReactivationRejectedEmail(
+      request.user.email,
+    );
+
+    return { success: true, id: requestId };
+  }
+
+  /**
+   * Daily at midnight — anonymizes accounts that have sat soft-deleted past
+   * the 30-day grace period. This replaced a literal hard `user.delete()`:
+   * most of this schema's relations to User use Prisma's default
+   * onDelete: Restrict, not Cascade, so a real delete would foreign-key-fail
+   * for any user who ever sent a message, made an offer, left a review, etc.
+   * — effectively every real account — and even where cascading could be
+   * forced, it would destroy other parties' history (e.g. cascading through
+   * MatchConnection would wipe the *other* tenant/landlord's chat).
+   *
+   * Anonymization sidesteps all of that: the row and its id stay intact, so
+   * every relation (Messages, Offers, Properties, Requests) stays unbroken,
+   * and the user becomes an unreachable "ghost". PII fields are scrubbed:
+   * name becomes a placeholder, email is scrambled to a random, permanently
+   * unique address (freeing the original email for a fresh signup),
+   * password/phone are scrambled to unusable values (both columns are
+   * non-nullable, so "nullify" isn't an option for them), and the reset-token
+   * pair is cleared so a stale token can't be replayed against the ghost row.
+   *
+   * Batched deliberately, same as the previous implementation: fetching every
+   * candidate up front and chunking it in memory (rather than repeatedly
+   * re-querying `deletedAt < cutoff`) means a user whose update fails can
+   * never cause an infinite loop. Promise.allSettled per batch means one
+   * failure doesn't abort the rest of that batch, and the delay between
+   * batches spreads the load instead of firing everything at Postgres at
+   * once.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async anonymizeExpiredUsers(): Promise<void> {
+    const cutoff = new Date(
+      Date.now() - ANONYMIZATION_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const candidates = await this.prismaService.user.findMany({
+      where: { deletedAt: { lt: cutoff } },
+      select: { id: true },
+    });
+    if (candidates.length === 0) return;
+
+    let anonymizedCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < candidates.length; i += ANONYMIZATION_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + ANONYMIZATION_BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((u) =>
+          this.prismaService.user.update({
+            where: { id: u.id },
+            data: {
+              fullName: 'Deleted User',
+              email: `deleted-${crypto.randomUUID()}@propmatch.local`,
+              passwordHash: bcrypt.hashSync(crypto.randomUUID(), 10),
+              phoneNumber: `deleted-${crypto.randomUUID()}`,
+              avatarUrl: null,
+              resetToken: null,
+              resetTokenExpiry: null,
+            },
+          }),
+        ),
+      );
+      for (const [index, result] of results.entries()) {
+        if (result.status === 'fulfilled') {
+          anonymizedCount++;
+        } else {
+          failedCount++;
+          this.logger.error(
+            `Anonymization failed for user ${batch[index].id}: ${
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason)
+            }`,
+          );
+        }
+      }
+      const isLastBatch = i + ANONYMIZATION_BATCH_SIZE >= candidates.length;
+      if (!isLastBatch) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, ANONYMIZATION_BATCH_DELAY_MS),
+        );
+      }
+    }
+
+    this.logger.log(
+      `Anonymization cron: ${anonymizedCount} anonymized, ${failedCount} failed (of ${candidates.length} candidates past the ${ANONYMIZATION_GRACE_PERIOD_DAYS}-day grace period).`,
+    );
   }
 }

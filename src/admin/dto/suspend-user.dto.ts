@@ -11,7 +11,7 @@ export class SuspendUserDto {
 
   // Omitted / null ⇒ permanent. Otherwise one of the allowed presets (days).
   @IsOptional()
-  @IsIn(SUSPENSION_DURATION_DAYS as unknown as number[])
+  @IsIn(SUSPENSION_DURATION_DAYS)
   durationDays?: number | null;
 
   @IsOptional()

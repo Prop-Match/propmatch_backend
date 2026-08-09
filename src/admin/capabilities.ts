@@ -19,7 +19,9 @@ export type Capability =
   | 'audit:view'
   | 'user:suspend'
   | 'admin:create'
-  | 'admin:manage';
+  | 'admin:manage'
+  | 'user:delete'
+  | 'user:reactivate';
 
 const SUPER_ADMIN_CAPS: Capability[] = [
   'property:approve',
@@ -36,6 +38,8 @@ const SUPER_ADMIN_CAPS: Capability[] = [
   'user:suspend',
   'admin:create',
   'admin:manage',
+  'user:delete',
+  'user:reactivate',
 ];
 
 export const ROLE_CAPABILITIES: Record<AdminRole, Capability[]> = {
