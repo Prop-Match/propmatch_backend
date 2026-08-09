@@ -25,7 +25,21 @@ import {
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
 import type { WireTicketStatus } from './ticket-status.mapper';
-import { ticketStatusToDb, ticketStatusToWire } from './ticket-status.mapper';
+import {
+  ticketStatusToDb,
+  ticketStatusToWire,
+  WIRE_TICKET_STATUSES,
+} from './ticket-status.mapper';
+
+const COMMERCIAL_PRIORITIES = ['FREEMIUM', 'OWNER_PLUS', 'PREMIUM'] as const;
+type CommercialPriority = (typeof COMMERCIAL_PRIORITIES)[number];
+
+interface AdminTicketQuery {
+  status?: string;
+  commercialPriority?: string;
+  page?: number;
+  pageSize?: number;
+}
 
 /** Normalize the optional attachment fields off a reply DTO (empty ⇒ nulls). */
 function attachmentFields(dto: PostReplyDto) {
@@ -220,8 +234,36 @@ export class CustomerSupportService {
     });
     return this.mapToTicketDetail(ticket);
   }
-  async getAdminTickets() {
+  async getAdminTickets(query: AdminTicketQuery = {}) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
+    const requestedStatus = query.status?.trim().toLowerCase();
+    const status =
+      requestedStatus && requestedStatus !== 'all'
+        ? requestedStatus
+        : undefined;
+    if (status && !WIRE_TICKET_STATUSES.includes(status as WireTicketStatus)) {
+      throw new BadRequestException('Invalid support ticket status');
+    }
+
+    const requestedCommercialPriority = query.commercialPriority
+      ?.trim()
+      .toUpperCase();
+    const commercialPriority =
+      requestedCommercialPriority && requestedCommercialPriority !== 'ALL'
+        ? requestedCommercialPriority
+        : undefined;
+    if (
+      commercialPriority &&
+      !COMMERCIAL_PRIORITIES.includes(commercialPriority as CommercialPriority)
+    ) {
+      throw new BadRequestException('Invalid commercial priority');
+    }
+
     const tickets = await this.prisma.supportTicket.findMany({
+      where: status
+        ? { status: ticketStatusToDb(status as WireTicketStatus) }
+        : undefined,
       include: {
         user: { select: { fullName: true, userQuota: true } },
         assignedAdmin: { select: { fullName: true } },
@@ -245,7 +287,12 @@ export class CustomerSupportService {
       return 'FREEMIUM' as const;
     };
     const commercialWeight = { PREMIUM: 200, OWNER_PLUS: 100, FREEMIUM: 0 };
-    tickets.sort((a, b) => {
+    const filteredTickets = commercialPriority
+      ? tickets.filter(
+          (ticket) => commercialTier(ticket) === commercialPriority,
+        )
+      : tickets;
+    filteredTickets.sort((a, b) => {
       const severity = severityWeight[b.priority] - severityWeight[a.priority];
       if (severity !== 0) return severity;
       const score = (ticket: (typeof tickets)[number]) =>
@@ -255,8 +302,13 @@ export class CustomerSupportService {
         score(b) - score(a) || a.createdAt.getTime() - b.createdAt.getTime()
       );
     });
+    const total = filteredTickets.length;
+    const pagedTickets = filteredTickets.slice(
+      (page - 1) * pageSize,
+      page * pageSize,
+    );
     return {
-      items: tickets.map((t) => ({
+      items: pagedTickets.map((t) => ({
         id: t.id,
         subject:
           t.escalationReason ??
@@ -270,6 +322,9 @@ export class CustomerSupportService {
         lastMessageAt: t.lastMessageAt.toISOString(),
         createdAt: t.createdAt.toISOString(),
       })),
+      total,
+      page,
+      pageSize,
     };
   }
   async getUserTickets(userId: string) {
