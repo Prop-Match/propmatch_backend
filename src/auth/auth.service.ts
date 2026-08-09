@@ -116,7 +116,7 @@ export class AuthService {
       throw new ForbiddenException({
         statusCode: 403,
         code: 'EMAIL_NOT_VERIFIED',
-        message: 'Please verify your email address before signing in.',
+        message: 'يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول.',
       });
     }
     const payLoad = {
