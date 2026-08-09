@@ -88,6 +88,18 @@ export class AuthController {
     return await this.authService.getMe(req.user.userId);
   }
 
+  /**
+   * The browser cannot read its httpOnly access token to authenticate a socket
+   * on a different origin. The frontend BFF exchanges that cookie-backed HTTP
+   * session for this short-lived handshake token instead.
+   */
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post('socket-ticket')
+  async socketTicket(@Request() req: { user: { userId: string } }) {
+    return this.authService.createSocketTicket(req.user.userId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Patch('profile')
   async updateProfile(

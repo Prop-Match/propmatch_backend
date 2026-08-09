@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -225,7 +227,15 @@ export class AuthService {
 
     const cooldown = this.otpResendCooldownSeconds() * 1000;
     if (user.emailOtpSentAt && user.emailOtpSentAt.getTime() + cooldown > Date.now()) {
-      throw new BadRequestException('Please wait before requesting another code.');
+      const retryAfterSeconds = Math.ceil(
+        (user.emailOtpSentAt.getTime() + cooldown - Date.now()) / 1000,
+      );
+      throw new HttpException({
+        statusCode: 429,
+        code: 'EMAIL_VERIFICATION_RESEND_COOLDOWN',
+        message: 'يرجى الانتظار قبل طلب رمز جديد.',
+        retryAfterSeconds,
+      }, HttpStatus.TOO_MANY_REQUESTS);
     }
     const otp = this.createEmailOtp();
     await this.prisma.user.update({
@@ -452,6 +462,24 @@ export class AuthService {
   async deleteAccount(userId: string) {
     await this.userService.deleteAccount(userId);
     return { message: 'تم حذف الحساب بنجاح' };
+  }
+
+  async createSocketTicket(userId: string): Promise<{ token: string }> {
+    const user = await this.userService.findById(userId);
+    if (!user) throw new UnauthorizedException();
+    const token = await this.jwtService.signAsync(
+      {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        tokenVersion: user.tokenVersion,
+      },
+      {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        expiresIn: '5m',
+      },
+    );
+    return { token };
   }
 
   private createEmailOtp(): string {
