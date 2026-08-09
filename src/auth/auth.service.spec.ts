@@ -58,6 +58,7 @@ describe('AuthService refresh tokens', () => {
     {} as never,
     configService as unknown as ConfigService,
     {} as never,
+    {} as never,
   );
 
   beforeEach(() => {
@@ -199,6 +200,9 @@ describe('AuthService — soft-delete edge cases', () => {
     reactivationRequested: jest.fn(),
     notifyUsers: jest.fn(),
   };
+  const customerSupportService = {
+    createSuspensionAppeal: jest.fn(),
+  };
 
   const service = new AuthService(
     {} as never,
@@ -207,12 +211,18 @@ describe('AuthService — soft-delete edge cases', () => {
     prisma as never,
     {} as unknown as ConfigService,
     realtimeService as never,
+    customerSupportService as never,
   );
 
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.user.findMany.mockResolvedValue([]);
     realtimeService.notifyUsers.mockResolvedValue([]);
+    customerSupportService.createSuspensionAppeal.mockResolvedValue({
+      id: 'ticket-1',
+      kind: 'SUSPENSION_APPEAL',
+      status: 'new',
+    });
   });
 
   it('rejects login for a soft-deleted user with 403 ACCOUNT_DELETED, even with valid credentials', async () => {
@@ -345,6 +355,34 @@ describe('AuthService — soft-delete edge cases', () => {
     await expect(
       service.requestReactivation(deletedUser.email, plainPassword),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('creates a support appeal ticket for a suspended account with valid credentials', async () => {
+    const suspendedUser = {
+      ...deletedUser,
+      deletedAt: null,
+      suspendedAt: new Date('2026-08-01T00:00:00.000Z'),
+      suspendedUntil: null,
+      suspensionReason: 'FRAUD',
+    };
+    userService.findByEmail.mockResolvedValue(suspendedUser);
+
+    await expect(
+      service.requestReactivation(
+        suspendedUser.email,
+        plainPassword,
+        'أرجو مراجعة قرار إيقاف حسابي.',
+      ),
+    ).resolves.toEqual({
+      id: 'ticket-1',
+      kind: 'SUSPENSION_APPEAL',
+      status: 'new',
+    });
+    expect(customerSupportService.createSuspensionAppeal).toHaveBeenCalledWith(
+      { id: suspendedUser.id, fullName: suspendedUser.fullName },
+      'أرجو مراجعة قرار إيقاف حسابي.',
+    );
+    expect(prisma.activationRequest.create).not.toHaveBeenCalled();
   });
 
   it('rejects a reactivation request with a wrong password', async () => {

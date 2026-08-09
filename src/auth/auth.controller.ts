@@ -44,16 +44,18 @@ export class AuthController {
     return { sent: true };
   }
 
-  // Must stay public: a soft-deleted user has no valid session (their token
-  // is revoked the moment deletedAt is set — see JwtStrategy), so this can
-  // only ever authenticate via the email/password in the DTO, never a
-  // bearer token. No global JwtAuthGuard exists today, but @Public() here
-  // is the load-bearing guarantee that stays true if one is ever added.
+  // Must stay public: deleted and suspended users have no usable session, so
+  // this narrow request authenticates with email/password and can only create
+  // an activation request or support appeal. It never restores access.
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('request-reactivation')
   async requestReactivation(@Body() dto: RequestReactivationDto) {
-    return await this.authService.requestReactivation(dto.email, dto.password);
+    return await this.authService.requestReactivation(
+      dto.email,
+      dto.password,
+      dto.message,
+    );
   }
 
   @Post('register')
