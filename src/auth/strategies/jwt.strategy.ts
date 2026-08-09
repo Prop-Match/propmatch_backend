@@ -63,13 +63,27 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         suspensionReason: true,
       },
     });
-    if (user && !user.isActive) {
+    if (!user || payload.tokenVersion !== user.tokenVersion) {
+      throw new UnauthorizedException();
+    }
+    if (!user.isActive) {
       throw new ForbiddenException(
         'تم تعطيل هذا الحساب. برجاء التواصل مع الإدارة.',
       );
     }
-    if (user && isSuspensionActive(user)) {
-      throw new ForbiddenException(suspensionMessage(user));
+    if (user.deletedAt) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ACCOUNT_DELETED',
+        message: 'هذا الحساب مجدول للحذف. يمكنك طلب إعادة التفعيل.',
+      });
+    }
+    if (isSuspensionActive(user)) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ACCOUNT_SUSPENDED',
+        message: suspensionMessage(user),
+      });
     }
     // This return value is attached automatically to req.user
     return { userId: payload.sub, email: payload.email, role: payload.role };
