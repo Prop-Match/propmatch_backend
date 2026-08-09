@@ -154,6 +154,8 @@ enum NotificationType {
    * A soft-deleted user requested reactivation — persisted to admins' bells.
    */
   REACTIVATION_REQUEST
+  /** A customer-support case was automatically escalated to admins. */
+  SUPPORT_TICKET_ESCALATED
 }
 
 enum TenantRequestStatus {

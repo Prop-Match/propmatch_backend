@@ -56,7 +56,8 @@ export type NotificationType =
   | 'HIGH_MATCH_TENANT_REQUEST'
   | 'ACCOUNT_REACTIVATED'
   | 'ACCOUNT_REACTIVATION_REJECTED'
-  | 'REACTIVATION_REQUEST';
+  | 'REACTIVATION_REQUEST'
+  | 'SUPPORT_TICKET_ESCALATED';
 
 export interface NotificationPayload {
   id: string;

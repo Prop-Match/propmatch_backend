@@ -210,6 +210,31 @@ export class CustomerSupportService {
       priority: ticket.priority,
       createdAt: ticket.createdAt.toISOString(),
     });
+    // The ticket record is the queue's source of truth. Persist a separate
+    // notification for every active admin too, so an offline admin sees it in
+    // the bell on their next visit and a connected admin is notified at once.
+    try {
+      const admins = await this.prisma.user.findMany({
+        where: { role: 'ADMIN', isActive: true, deletedAt: null },
+        select: { id: true },
+      });
+      await this.realtime.notifyUsers(
+        admins.map((admin) => ({
+          userId: admin.id,
+          type: NotificationType.SUPPORT_TICKET_ESCALATED,
+          title: 'تصعيد جديد لخدمة العملاء',
+          message: `${user.fullName}: ${input.reason.slice(0, 160)}`,
+          link: `/admin/tickets/${ticket.id}`,
+        })),
+      );
+    } catch (error) {
+      // The ticket has already been safely persisted and announced to the
+      // admin queue; a bell-notification failure must not undo the handoff.
+      this.logger.error(
+        `Could not notify admins about automatic SupportTicket ${ticket.id}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
     return this.mapToTicketDetail(ticket, userId);
   }
 

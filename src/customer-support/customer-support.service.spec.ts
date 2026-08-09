@@ -4,6 +4,7 @@ describe('CustomerSupportService suspension appeals', () => {
   const prisma = {
     user: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     supportTicket: {
       findUnique: jest.fn(),
@@ -11,7 +12,10 @@ describe('CustomerSupportService suspension appeals', () => {
       create: jest.fn(),
     },
   };
-  const realtime = { supportTicketCreated: jest.fn() };
+  const realtime = {
+    supportTicketCreated: jest.fn(),
+    notifyUsers: jest.fn().mockResolvedValue([]),
+  };
   const service = new CustomerSupportService(
     prisma as never,
     realtime as never,
@@ -109,6 +113,7 @@ describe('CustomerSupportService suspension appeals', () => {
         id: 'user-1',
         fullName: 'Support User',
       });
+      prisma.user.findMany.mockResolvedValue([{ id: 'admin-1' }]);
       prisma.supportTicket.create.mockResolvedValue(ticket);
     });
 
@@ -131,6 +136,13 @@ describe('CustomerSupportService suspension appeals', () => {
         }),
       );
       expect(realtime.supportTicketCreated).toHaveBeenCalledTimes(1);
+      expect(realtime.notifyUsers).toHaveBeenCalledWith([
+        expect.objectContaining({
+          userId: 'admin-1',
+          type: 'SUPPORT_TICKET_ESCALATED',
+          link: '/admin/tickets/ticket-auto-1',
+        }),
+      ]);
     });
 
     it('returns the idempotent ticket without creating or broadcasting again', async () => {
