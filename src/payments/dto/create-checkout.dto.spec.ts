@@ -5,7 +5,7 @@ import { CreateCheckoutDto } from './create-checkout.dto';
 describe('CreateCheckoutDto', () => {
   it('requires a wallet phone for mobile wallet checkout', async () => {
     const dto = plainToInstance(CreateCheckoutDto, {
-      paymentType: 'SINGLE_OFFER',
+      paymentType: 'OFFERS_10_60D',
       method: 'WALLET',
     });
 
@@ -16,7 +16,7 @@ describe('CreateCheckoutDto', () => {
 
   it('accepts and compacts a valid Egyptian wallet phone', async () => {
     const dto = plainToInstance(CreateCheckoutDto, {
-      paymentType: 'SINGLE_OFFER',
+      paymentType: 'OFFERS_10_60D',
       method: 'WALLET',
       walletPhone: '010-1234-5678',
     });
@@ -27,7 +27,7 @@ describe('CreateCheckoutDto', () => {
 
   it('does not require a wallet phone for card checkout', async () => {
     const dto = plainToInstance(CreateCheckoutDto, {
-      paymentType: 'PREMIUM_OWNER',
+      paymentType: 'PREMIUM_MONTHLY',
       method: 'CARD',
     });
 

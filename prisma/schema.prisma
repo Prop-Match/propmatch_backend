@@ -56,6 +56,16 @@ enum ConnectionStatus {
 }
 
 enum PaymentType {
+  OWNER_PLUS_MONTHLY
+  OWNER_PLUS_YEARLY
+  PREMIUM_MONTHLY
+  PREMIUM_YEARLY
+  EXTRA_LISTING_60D
+  OFFERS_10_60D
+  BOOST_7D
+  BOOST_14D
+  BOOST_30D
+  AI_USES_10_90D
   PREMIUM_OWNER
   OWNER_PLUS
   SINGLE_LISTING
@@ -86,6 +96,35 @@ enum OwnerPlan {
   PREMIUM
 }
 
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum EntitlementType {
+  ACTIVE_LISTING
+  MATCHED_OFFER
+  AI_OPTIMIZER_USE
+}
+
+enum EntitlementSource {
+  PLAN
+  ADDON
+  MIGRATION
+}
+
+enum AnalyticsTrafficSource {
+  ORGANIC
+  BOOSTED
+}
+
+enum BoostCampaignStatus {
+  SCHEDULED
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
 enum NotificationType {
   EKYC_APPROVED
   PROPERTY_APPROVED
@@ -105,7 +144,9 @@ enum NotificationType {
   HIGH_MATCH_TENANT_REQUEST
   ACCOUNT_REACTIVATED
   ACCOUNT_REACTIVATION_REJECTED
-  /** A soft-deleted user requested reactivation — persisted to admins' bells. */
+  /**
+   * A soft-deleted user requested reactivation — persisted to admins' bells.
+   */
   REACTIVATION_REQUEST
 }
 
@@ -115,8 +156,10 @@ enum TenantRequestStatus {
   REJECTED
   FULFILLED
   CLOSED
-  /** The tenant's account was soft-deleted — distinct from CLOSED (which the
-   * tenant chooses themselves) so an admin audit can tell the two apart. */
+  /**
+   * The tenant's account was soft-deleted — distinct from CLOSED (which the
+   * tenant chooses themselves) so an admin audit can tell the two apart.
+   */
   ARCHIVED
 }
 
@@ -165,21 +208,25 @@ model User {
   role         UserRole   @default(TENANT)
   avatarUrl    String?    @map("avatar_url")
   adminRole    AdminRole? @map("admin_role")
-  isActive     Boolean   @default(true) @map("is_active")
-  lastLoginAt  DateTime? @map("last_login_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  /** Soft-delete marker. Non-null means the account is deleted — JwtStrategy
+  isActive     Boolean    @default(true) @map("is_active")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  /**
+   * Soft-delete marker. Non-null means the account is deleted — JwtStrategy
    * rejects any token for a user with this set, revoking sessions immediately
    * despite JWTs being otherwise stateless. Distinct from suspension below:
    * a deleted user is a "ghost" (self-delete or 30-day-expired anonymized
    * account) with its own reactivation flow; a suspended user is still a
-   * live account, just temporarily/permanently blocked by an admin. */
-  deletedAt    DateTime? @map("deleted_at")
-  /** Bumped on reactivation (and available for any future forced-logout use).
+   * live account, just temporarily/permanently blocked by an admin.
+   */
+  deletedAt    DateTime?  @map("deleted_at")
+  /**
+   * Bumped on reactivation (and available for any future forced-logout use).
    * JwtStrategy rejects a token whose embedded tokenVersion doesn't match
-   * this, so tokens minted before a reactivation can't outlive it. */
-  tokenVersion Int       @default(0) @map("token_version")
+   * this, so tokens minted before a reactivation can't outlive it.
+   */
+  tokenVersion Int        @default(0) @map("token_version")
 
   activationRequests ActivationRequest[]
 
@@ -224,6 +271,9 @@ model User {
 
   // Transactions & Billing
   paymentTransactions PaymentTransaction[]
+  entitlementGrants   EntitlementGrant[]
+  boostCampaigns      BoostCampaign[]
+  propertyViewEvents  PropertyViewEvent[]
   leaseContracts      LeaseContract[]
   notifications       Notification[]
   sentMessages        Message[]
@@ -268,20 +318,29 @@ model IdentityVerification {
 }
 
 model UserQuota {
-  id                       String    @id @default(uuid()) @db.Uuid
-  userId                   String    @unique @map("user_id") @db.Uuid
-  user                     User      @relation(fields: [userId], references: [id])
-  planType                 OwnerPlan @default(FREE) @map("plan_type")
-  planExpiresAt            DateTime? @map("plan_expires_at")
-  maxActiveListings        Int       @default(1) @map("max_active_listings")
+  id                       String           @id @default(uuid()) @db.Uuid
+  userId                   String           @unique @map("user_id") @db.Uuid
+  user                     User             @relation(fields: [userId], references: [id])
+  planType                 OwnerPlan        @default(FREE) @map("plan_type")
+  planExpiresAt            DateTime?        @map("plan_expires_at")
+  maxActiveListings        Int              @default(1) @map("max_active_listings")
   // Legacy counters retained for a safe rollout. Listing capacity is derived
   // from active properties; optimizer uses are the paid AI allowance.
-  freeListingsLeft         Int       @default(0) @map("free_listings_left")
-  optimizerUsesLeft        Int       @default(0) @map("optimizer_uses_left")
-  freeOffersLeft           Int       @default(5) @map("free_offers_left")
-  documentationPackCredits Int       @default(0) @map("documentation_pack_credits")
-  lastResetDate            DateTime  @default(now()) @map("last_reset_date")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
+  freeListingsLeft         Int              @default(0) @map("free_listings_left")
+  optimizerUsesLeft        Int              @default(0) @map("optimizer_uses_left")
+  freeOffersLeft           Int              @default(5) @map("free_offers_left")
+  documentationPackCredits Int              @default(0) @map("documentation_pack_credits")
+  billingInterval          BillingInterval? @map("billing_interval")
+  currentPeriodStartsAt    DateTime?        @map("current_period_starts_at")
+  currentPeriodEndsAt      DateTime?        @map("current_period_ends_at")
+  boostCreditsLeft         Int              @default(0) @map("boost_credits_left")
+  listingGraceEndsAt       DateTime?        @map("listing_grace_ends_at")
+  pendingPlanType          OwnerPlan?       @map("pending_plan_type")
+  pendingBillingInterval   BillingInterval? @map("pending_billing_interval")
+  pendingPlanStartsAt      DateTime?        @map("pending_plan_starts_at")
+  pendingPlanExpiresAt     DateTime?        @map("pending_plan_expires_at")
+  lastResetDate            DateTime         @default(now()) @map("last_reset_date")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
 
   @@map("user_quota")
 }
@@ -333,6 +392,9 @@ model Property {
   matchConnections MatchConnection[]
   ownerOffers      OwnerOffer[]
   tenantOffers     TenantOffer[]
+  boostCampaigns   BoostCampaign[]
+  viewEvents       PropertyViewEvent[]
+  analyticsDaily   PropertyAnalyticsDaily[]
   governorateId    Int
   cityId           Int
   countryId        Int
@@ -515,21 +577,146 @@ model Message {
 }
 
 model PaymentTransaction {
-  id                    String          @id @default(uuid()) @db.Uuid
-  userId                String          @map("user_id") @db.Uuid
-  user                  User            @relation(fields: [userId], references: [id])
-  provider              PaymentProvider @default(PAYMOB)
-  providerOrderId       String          @unique @map("provider_order_id")
-  providerTransactionId String?         @map("provider_transaction_id")
+  id                    String             @id @default(uuid()) @db.Uuid
+  userId                String             @map("user_id") @db.Uuid
+  user                  User               @relation(fields: [userId], references: [id])
+  provider              PaymentProvider    @default(PAYMOB)
+  providerOrderId       String             @unique @map("provider_order_id")
+  providerTransactionId String?            @map("provider_transaction_id")
   amount                Float
-  currency              String          @default("EGP")
-  paymentType           PaymentType     @map("payment_type")
-  targetPropertyId      String?         @map("target_property_id") @db.Uuid
-  status                PaymentStatus   @default(PENDING)
-  paidAt                DateTime?       @map("paid_at")
-  createdAt             DateTime        @default(now()) @map("created_at")
+  currency              String             @default("EGP")
+  paymentType           PaymentType        @map("payment_type")
+  targetPropertyId      String?            @map("target_property_id") @db.Uuid
+  productSku            String?            @map("product_sku")
+  billingInterval       BillingInterval?   @map("billing_interval")
+  catalogSnapshot       Json?              @map("catalog_snapshot")
+  status                PaymentStatus      @default(PENDING)
+  paidAt                DateTime?          @map("paid_at")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  entitlementGrants     EntitlementGrant[]
+  boostCampaigns        BoostCampaign[]
 
   @@map("payment_transaction")
+}
+
+/**
+ * Mutable commercial values. Product meaning remains defined in code so an
+ * admin cannot accidentally turn a Boost purchase into another entitlement.
+ */
+model ProductConfiguration {
+  id           String      @id @default(uuid()) @db.Uuid
+  paymentType  PaymentType @unique @map("payment_type")
+  priceEgp     Int         @map("price_egp")
+  quantity     Int?
+  validityDays Int?        @map("validity_days")
+  durationDays Int?        @map("duration_days")
+  enabled      Boolean     @default(true)
+  updatedById  String?     @map("updated_by_id") @db.Uuid
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  @@map("product_configuration")
+}
+
+/**
+ * Monthly plan allowances used for new periods and shown in pricing UI.
+ */
+model PlanConfiguration {
+  id                    String    @id @default(uuid()) @db.Uuid
+  planType              OwnerPlan @unique @map("plan_type")
+  activeListings        Int       @map("active_listings")
+  offersPerPeriod       Int       @map("offers_per_period")
+  aiUsesPerPeriod       Int       @map("ai_uses_per_period")
+  boostCreditsPerPeriod Int       @map("boost_credits_per_period")
+  boostDurationDays     Int       @map("boost_duration_days")
+  updatedById           String?   @map("updated_by_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("plan_configuration")
+}
+
+model EntitlementGrant {
+  id                   String              @id @default(uuid()) @db.Uuid
+  userId               String              @map("user_id") @db.Uuid
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentTransactionId String?             @map("payment_transaction_id") @db.Uuid
+  paymentTransaction   PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
+  type                 EntitlementType
+  source               EntitlementSource   @default(ADDON)
+  productSku           String              @map("product_sku")
+  grantedQuantity      Int                 @map("granted_quantity")
+  remainingQuantity    Int                 @map("remaining_quantity")
+  startsAt             DateTime            @default(now()) @map("starts_at")
+  expiresAt            DateTime            @map("expires_at")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  @@unique([paymentTransactionId, type])
+  @@index([userId, type, expiresAt])
+  @@map("entitlement_grant")
+}
+
+model BoostCampaign {
+  id                   String              @id @default(uuid()) @db.Uuid
+  propertyId           String              @map("property_id") @db.Uuid
+  property             Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  userId               String              @map("user_id") @db.Uuid
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentTransactionId String?             @unique @map("payment_transaction_id") @db.Uuid
+  paymentTransaction   PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
+  productSku           String              @map("product_sku")
+  durationDays         Int                 @map("duration_days")
+  startsAt             DateTime            @map("starts_at")
+  endsAt               DateTime            @map("ends_at")
+  status               BoostCampaignStatus @default(SCHEDULED)
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  viewEvents           PropertyViewEvent[]
+
+  @@index([propertyId, startsAt, endsAt])
+  @@index([userId, status])
+  @@map("boost_campaign")
+}
+
+model PropertyViewEvent {
+  id              String                 @id @default(uuid()) @db.Uuid
+  propertyId      String                 @map("property_id") @db.Uuid
+  property        Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  viewerId        String?                @map("viewer_id") @db.Uuid
+  viewer          User?                  @relation(fields: [viewerId], references: [id], onDelete: SetNull)
+  visitorHash     String                 @map("visitor_hash")
+  dedupeKey       String                 @unique @map("dedupe_key")
+  trafficSource   AnalyticsTrafficSource @default(ORGANIC) @map("traffic_source")
+  boostCampaignId String?                @map("boost_campaign_id") @db.Uuid
+  boostCampaign   BoostCampaign?         @relation(fields: [boostCampaignId], references: [id], onDelete: SetNull)
+  occurredAt      DateTime               @default(now()) @map("occurred_at")
+
+  @@index([propertyId, occurredAt])
+  @@index([propertyId, visitorHash])
+  @@map("property_view_event")
+}
+
+model PropertyAnalyticsDaily {
+  id               String   @id @default(uuid()) @db.Uuid
+  propertyId       String   @map("property_id") @db.Uuid
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  date             DateTime @db.Date
+  views            Int      @default(0)
+  uniqueViews      Int      @default(0) @map("unique_views")
+  organicViews     Int      @default(0) @map("organic_views")
+  boostedViews     Int      @default(0) @map("boosted_views")
+  favoritesAdded   Int      @default(0) @map("favorites_added")
+  favoritesRemoved Int      @default(0) @map("favorites_removed")
+  tenantOffers     Int      @default(0) @map("tenant_offers")
+  ownerOffers      Int      @default(0) @map("owner_offers")
+  matches          Int      @default(0)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([propertyId, date])
+  @@index([date])
+  @@map("property_analytics_daily")
 }
 
 model LeaseContract {
@@ -633,9 +820,11 @@ enum ActivationRequestStatus {
   REJECTED
 }
 
-/** A soft-deleted user's self-service request to have an admin restore their
+/**
+ * A soft-deleted user's self-service request to have an admin restore their
  * account (POST /auth/request-reactivation). One row per attempt — a user
- * can be rejected and request again later. */
+ * can be rejected and request again later.
+ */
 model ActivationRequest {
   id        String                  @id @default(uuid()) @db.Uuid
   userId    String                  @map("user_id") @db.Uuid

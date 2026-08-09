@@ -4,13 +4,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import {
-  FREE_ACTIVE_LISTING_LIMIT,
-  PREMIUM_ACTIVE_LISTING_LIMIT,
-  PRICING_CATALOG,
-} from '../payments/pricing.catalog';
+import { PRICING_CATALOG } from '../payments/pricing.catalog';
 import { Prisma } from 'generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
@@ -39,6 +36,7 @@ import {
   detectPropertyTypePreference,
   propertyLocationMatches,
 } from './semantic-match-reasons';
+import { QuotaService } from '../quota/quota.service';
 
 @Injectable()
 export class PropertiesService {
@@ -50,6 +48,7 @@ export class PropertiesService {
     private readonly embeddingService?: PropertyEmbeddingService,
     private readonly chromaService?: ChromaPropertyService,
     private readonly semanticMatchingConfig?: SemanticMatchingConfig,
+    @Optional() private readonly quotaService?: QuotaService,
   ) {}
 
   private static readonly DETAIL_INCLUDE = {
@@ -250,7 +249,15 @@ export class PropertiesService {
         },
       );
 
-      const limitedItems = items.slice(0, query.limit);
+      // Boost increases exposure by moving eligible results ahead of organic
+      // results; it never changes the measured semantic score or analytics.
+      const limitedItems = items
+        .sort(
+          (a, b) =>
+            Number(b.isBoosted) - Number(a.isBoosted) ||
+            b.semanticSimilarity - a.semanticSimilarity,
+        )
+        .slice(0, query.limit);
       return limitedItems.length > 0
         ? {
             items: limitedItems,
@@ -260,7 +267,7 @@ export class PropertiesService {
             pageSize: query.limit,
           }
         : this.noRelevantSemanticMatch(query.limit);
-    } catch (error) {
+    } catch {
       this.logger.error('semantic property search unavailable');
       throw new ServiceUnavailableException({
         statusCode: 503,
@@ -294,22 +301,8 @@ export class PropertiesService {
    */
   async create(ownerId: string, dto: CreatePropertyDto) {
     // ── 1. Server-authoritative active-unit gate ───────────────────────
-    const quota = await this.prisma.userQuota.findUnique({
-      where: { userId: ownerId },
-    });
-    const premiumActive =
-      quota?.planType === 'PREMIUM' &&
-      quota.planExpiresAt !== null &&
-      quota.planExpiresAt.getTime() > Date.now();
-    const activeUnitLimit = premiumActive
-      ? PREMIUM_ACTIVE_LISTING_LIMIT
-      : FREE_ACTIVE_LISTING_LIMIT;
-    const activeUnitCount = await this.prisma.property.count({
-      where: {
-        ownerId,
-        status: { in: ['PENDING', 'APPROVED'] },
-      },
-    });
+    const { activeUnitLimit, activeUnitCount } =
+      await this.quotaService!.getListingCapacity(ownerId);
 
     if (activeUnitCount >= activeUnitLimit) {
       throw new ForbiddenException({
@@ -317,8 +310,8 @@ export class PropertiesService {
         code: 'PLAN_LIMIT_REACHED',
         message: 'وصلت إلى الحد الأقصى للوحدات النشطة في خطتك',
         trigger: 'payment',
-        paymentType: 'PREMIUM_OWNER',
-        priceEgp: PRICING_CATALOG.PREMIUM_OWNER.priceEgp,
+        paymentType: 'EXTRA_LISTING_60D',
+        priceEgp: PRICING_CATALOG.EXTRA_LISTING_60D.priceEgp,
         activeUnitCount,
         activeUnitLimit,
       });
@@ -365,8 +358,8 @@ export class PropertiesService {
             code: 'PLAN_LIMIT_REACHED',
             message: 'وصلت إلى الحد الأقصى للوحدات النشطة في خطتك',
             trigger: 'payment',
-            paymentType: 'PREMIUM_OWNER',
-            priceEgp: PRICING_CATALOG.PREMIUM_OWNER.priceEgp,
+            paymentType: 'EXTRA_LISTING_60D',
+            priceEgp: PRICING_CATALOG.EXTRA_LISTING_60D.priceEgp,
             activeUnitCount: currentActiveUnitCount,
             activeUnitLimit,
           });
@@ -533,20 +526,12 @@ export class PropertiesService {
   }
 
   /**
-   * PRO-14 — boost a listing. Boosting is always a paid action (no free tier),
-   * so this returns the coded paywall the frontend turns into the BOOST_LISTING
-   * PaymentSheet. The isBoosted flip happens on payment success.
+   * Spend an included monthly 7-day credit. If none remains, the coded error
+   * opens the paid 7/14/30-day boost choices in the client.
    */
   async boost(ownerId: string, propertyId: string) {
     await this.requireOwnedProperty(ownerId, propertyId);
-    throw new ForbiddenException({
-      statusCode: 403,
-      code: 'QUOTA_EXHAUSTED',
-      message: 'ترقية الإعلان تتطلب دفعًا',
-      trigger: 'payment',
-      paymentType: 'BOOST_LISTING',
-      priceEgp: 75,
-    });
+    return this.quotaService!.activatePlanBoost(ownerId, propertyId);
   }
 
   /** Soft-archive a listing (ERD: never delete). */
@@ -667,16 +652,8 @@ export class PropertiesService {
         // A rejected listing becoming active again must still respect the
         // owner's current plan capacity.
         if (!['PENDING', 'APPROVED'].includes(existing.status)) {
-          const quota = await tx.userQuota.findUnique({
-            where: { userId: ownerId },
-          });
-          const premiumActive =
-            quota?.planType === 'PREMIUM' &&
-            quota.planExpiresAt !== null &&
-            quota.planExpiresAt.getTime() > Date.now();
-          const activeUnitLimit = premiumActive
-            ? PREMIUM_ACTIVE_LISTING_LIMIT
-            : FREE_ACTIVE_LISTING_LIMIT;
+          const { activeUnitLimit } =
+            await this.quotaService!.getListingCapacity(ownerId);
           const activeUnitCount = await tx.property.count({
             where: {
               ownerId,
@@ -690,8 +667,8 @@ export class PropertiesService {
               code: 'PLAN_LIMIT_REACHED',
               message: 'وصلت إلى الحد الأقصى للوحدات النشطة في خطتك',
               trigger: 'payment',
-              paymentType: 'PREMIUM_OWNER',
-              priceEgp: PRICING_CATALOG.PREMIUM_OWNER.priceEgp,
+              paymentType: 'EXTRA_LISTING_60D',
+              priceEgp: PRICING_CATALOG.EXTRA_LISTING_60D.priceEgp,
               activeUnitCount,
               activeUnitLimit,
             });
