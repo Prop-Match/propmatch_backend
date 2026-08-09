@@ -1,10 +1,38 @@
 /* eslint-disable @typescript-eslint/require-await, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
+import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../quota/quota.service';
 import { PropertyAnalyticsService } from './property-analytics.service';
 
 describe('PropertyAnalyticsService view integrity', () => {
+  it('does not expose analytics for a rejected or resubmitted property', async () => {
+    const findFirst = jest.fn(async () => null);
+    const quota = { getCommercialPriority: jest.fn() };
+    const prisma = {
+      property: { findFirst },
+      userQuota: { findUnique: jest.fn() },
+    } as unknown as PrismaService;
+    const service = new PropertyAnalyticsService(
+      prisma,
+      { get: jest.fn(() => 'test-secret') } as unknown as ConfigService,
+      quota as unknown as QuotaService,
+    );
+
+    await expect(
+      service.getPropertyAnalytics('owner-1', 'property-1', '30d'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'property-1',
+        ownerId: 'owner-1',
+        status: 'APPROVED',
+      },
+      select: { id: true, title: true },
+    });
+    expect(quota.getCommercialPriority).not.toHaveBeenCalled();
+  });
+
   it('excludes the owner and bots from property view counts', async () => {
     const create = jest.fn();
     const prisma = {

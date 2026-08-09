@@ -13,6 +13,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { Queue } from 'bullmq';
 import * as crypto from 'crypto';
+import { Prisma } from 'generated/prisma/client';
 import { I18nContext } from 'nestjs-i18n';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
@@ -124,17 +125,16 @@ export class AdminService {
   /**
    * GET /admin/users — paginated, searchable list of non-admin users, shared
    * by both the suspension console (search + suspend/unsuspend) and the
-   * Active/Suspended-Deleted tabs (status filter). `status` defaults to
-   * 'active' (deletedAt: null) so the main view stays clean — ghosted/
+   * Active/Suspended/Deleted tabs (status filter). `status` defaults to
+   * 'active' so the main view stays clean — ghosted/
    * anonymized accounts (see AdminService.anonymizeExpiredUsers) don't
    * clutter it by default — while still letting an admin explicitly switch
    * to the deleted tab via ?status=deleted. Every row carries both the
-   * deletion and suspension state (toUserRow), since the two are orthogonal
-   * account states an admin may need to see together.
+   * deletion and suspension state (toUserRow).
    */
   async listUsers(
     query: {
-      status?: 'active' | 'deleted' | 'all';
+      status?: 'active' | 'suspended' | 'deleted' | 'all';
       search?: string;
       page?: number;
       pageSize?: number;
@@ -144,23 +144,32 @@ export class AdminService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
     const search = query.search?.trim();
-    const where = {
-      role: { not: 'ADMIN' as const },
-      ...(status === 'deleted'
-        ? { deletedAt: { not: null } }
-        : status === 'all'
-          ? {}
-          : { deletedAt: null }),
-      ...(search
-        ? {
-            OR: [
-              { fullName: { contains: search, mode: 'insensitive' as const } },
-              { email: { contains: search, mode: 'insensitive' as const } },
-              { phoneNumber: { contains: search } },
-            ],
-          }
-        : {}),
-    };
+    const now = new Date();
+    const filters: Prisma.UserWhereInput[] = [{ role: { not: 'ADMIN' } }];
+    if (status === 'deleted') {
+      filters.push({ deletedAt: { not: null } });
+    } else if (status === 'suspended') {
+      filters.push({
+        deletedAt: null,
+        suspendedAt: { not: null },
+        OR: [{ suspendedUntil: null }, { suspendedUntil: { gt: now } }],
+      });
+    } else if (status === 'active') {
+      filters.push({
+        deletedAt: null,
+        OR: [{ suspendedAt: null }, { suspendedUntil: { lte: now } }],
+      });
+    }
+    if (search) {
+      filters.push({
+        OR: [
+          { fullName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phoneNumber: { contains: search } },
+        ],
+      });
+    }
+    const where: Prisma.UserWhereInput = { AND: filters };
     const select = {
       id: true,
       fullName: true,
@@ -572,6 +581,7 @@ export class AdminService {
           status,
           approvedBy: adminId,
           approvedAt: new Date(),
+          rejectionReason: isApproved ? null : reviewDecisionDto.reason!.trim(),
         },
       }),
     );

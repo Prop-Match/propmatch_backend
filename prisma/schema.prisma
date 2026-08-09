@@ -385,6 +385,7 @@ model Property {
   hasParking             Boolean        @map("has_parking")
   contactRevealed        Boolean        @default(false) @map("contact_revealed")
   status                 PropertyStatus @default(PENDING)
+  rejectionReason        String?        @map("rejection_reason")
   isBoosted              Boolean        @default(false) @map("is_boosted")
   boostedUntil           DateTime?      @map("boosted_until")
 
@@ -960,8 +961,7 @@ model SupportTicket {
   messages           SupportMessage[]
   lastMessageAt      DateTime         @default(now()) @map("last_message_at")
   escalationReason   String?          @map("escalation_reason") @db.Text
-  /// Idempotency key supplied by the support agent for an autonomous handoff.
-  /// A model retry must return the existing ticket instead of creating a duplicate.
+  /// Legacy nullable field retained for migration compatibility; no agent may create tickets.
   agentEscalationKey String?          @unique @map("agent_escalation_key")
   priority           SupportPriority  @default(NORMAL)
   aiSummary          String?          @map("ai_summary") @db.Text

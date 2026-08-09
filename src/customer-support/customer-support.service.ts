@@ -130,59 +130,6 @@ export class CustomerSupportService {
     };
   }
 
-  /**
-   * The AI service calls this only after its model selects the
-   * create-support-ticket tool. `agentRunId` is persisted as a unique key so
-   * HTTP retries cannot create duplicate tickets.
-   */
-  async createAgentEscalation(
-    userId: string,
-    input: {
-      agentRunId: string;
-      message: string;
-      reason: string;
-      priority: SupportPriority;
-    },
-  ) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, fullName: true },
-    });
-    if (!user) throw new NotFoundException('User not found');
-
-    const ticket = await this.prisma.supportTicket.upsert({
-      where: { agentEscalationKey: input.agentRunId },
-      create: {
-        userId,
-        priority: input.priority,
-        escalationReason: input.reason,
-        aiSummary: input.reason,
-        agentEscalationKey: input.agentRunId,
-        messages: {
-          create: {
-            authorType: SupportAuthor.AI,
-            authorName: 'AI Support Agent',
-            content: input.message.trim(),
-          },
-        },
-      },
-      update: {},
-      include: {
-        user: { select: { fullName: true } },
-        messages: true,
-      },
-    });
-
-    this.realtime.supportTicketCreated({
-      ticketId: ticket.id,
-      subject: input.reason.slice(0, 200),
-      userName: user.fullName,
-      priority: ticket.priority,
-      createdAt: ticket.createdAt.toISOString(),
-    });
-    return this.mapToTicketDetail(ticket);
-  }
-
   async createTicket(userId: string, dto: CreateTicketDto) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

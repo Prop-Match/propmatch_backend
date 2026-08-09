@@ -288,7 +288,10 @@ describe('AdminService property moderation', () => {
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        data: expect.objectContaining({ status: 'APPROVED' }),
+        data: expect.objectContaining({
+          status: 'APPROVED',
+          rejectionReason: null,
+        }),
       }),
     );
     expect(indexApprovedProperty).toHaveBeenCalledWith('property-1');
@@ -315,7 +318,10 @@ describe('AdminService property moderation', () => {
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        data: expect.objectContaining({ status: 'REJECTED' }),
+        data: expect.objectContaining({
+          status: 'REJECTED',
+          rejectionReason: 'Missing required photos',
+        }),
       }),
     );
     expect(indexApprovedProperty).not.toHaveBeenCalled();
@@ -696,11 +702,40 @@ describe('AdminService.listUsers', () => {
     count.mockResolvedValue(1);
   });
 
-  it('defaults to active, non-admin users only (deletedAt: null)', async () => {
+  it('defaults to active, non-admin, non-suspended users only', async () => {
     await service.listUsers();
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { role: { not: 'ADMIN' }, deletedAt: null },
+        where: {
+          AND: expect.arrayContaining([
+            { role: { not: 'ADMIN' } },
+            expect.objectContaining({
+              deletedAt: null,
+              OR: expect.arrayContaining([{ suspendedAt: null }]),
+            }),
+          ]),
+        },
+      }),
+    );
+  });
+
+  it('filters active suspensions before pagination when status=suspended', async () => {
+    await service.listUsers({ status: 'suspended' });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: expect.arrayContaining([
+            { role: { not: 'ADMIN' } },
+            expect.objectContaining({
+              deletedAt: null,
+              suspendedAt: { not: null },
+              OR: expect.arrayContaining([
+                { suspendedUntil: null },
+                { suspendedUntil: { gt: expect.any(Date) } },
+              ]),
+            }),
+          ]),
+        },
       }),
     );
   });
@@ -709,7 +744,9 @@ describe('AdminService.listUsers', () => {
     await service.listUsers({ status: 'deleted' });
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { role: { not: 'ADMIN' }, deletedAt: { not: null } },
+        where: {
+          AND: [{ role: { not: 'ADMIN' } }, { deletedAt: { not: null } }],
+        },
       }),
     );
   });
@@ -717,7 +754,9 @@ describe('AdminService.listUsers', () => {
   it('applies no deletedAt filter when status=all', async () => {
     await service.listUsers({ status: 'all' });
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { role: { not: 'ADMIN' } } }),
+      expect.objectContaining({
+        where: { AND: [{ role: { not: 'ADMIN' } }] },
+      }),
     );
   });
 
@@ -726,13 +765,18 @@ describe('AdminService.listUsers', () => {
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        where: expect.objectContaining({
-          OR: [
-            { fullName: { contains: 'ali', mode: 'insensitive' } },
-            { email: { contains: 'ali', mode: 'insensitive' } },
-            { phoneNumber: { contains: 'ali' } },
+        where: {
+          AND: [
+            { role: { not: 'ADMIN' } },
+            {
+              OR: [
+                { fullName: { contains: 'ali', mode: 'insensitive' } },
+                { email: { contains: 'ali', mode: 'insensitive' } },
+                { phoneNumber: { contains: 'ali' } },
+              ],
+            },
           ],
-        }),
+        },
       }),
     );
   });

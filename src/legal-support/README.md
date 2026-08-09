@@ -41,14 +41,11 @@ already-authenticated user ID/role in internal headers.
 The frontend must not define `LEGAL_SUPPORT_API_URL`; it needs only the normal
 `NESTJS_API_URL`.
 
-## Autonomous support-ticket tool
+## Support-ticket escalation
 
-The FastAPI support agent may call `POST /internal/support-agent/escalations`
-after its model selects `CREATE_SUPPORT_TICKET`. This is a service-to-service
-endpoint, authenticated with `INTERNAL_SERVICE_API_KEY`; it is not exposed to
-the browser. NestJS validates the payload, derives the user only from its
-trusted header, and uses the agent run ID as a database-backed idempotency key
-before creating the ticket and notifying admins.
+The FastAPI support agent is read-only and cannot create support tickets.
+Escalation happens only after the user presses the support button; the browser
+then calls the authenticated NestJS customer-support endpoint directly.
 
 ## Failure behavior
 

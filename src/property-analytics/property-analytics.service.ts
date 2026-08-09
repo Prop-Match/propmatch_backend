@@ -157,7 +157,7 @@ export class PropertyAnalyticsService {
     period: '7d' | '30d' | 'current' | 'lifetime',
   ) {
     const property = await this.prisma.property.findFirst({
-      where: { id: propertyId, ownerId },
+      where: { id: propertyId, ownerId, status: 'APPROVED' },
       select: { id: true, title: true },
     });
     if (!property) throw new NotFoundException('Property not found');
