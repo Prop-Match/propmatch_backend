@@ -223,4 +223,72 @@ describe('PropertiesService.semanticSearch', () => {
     expect(result.items[0].isFurnished).toBe(true);
     expect(result.items[0].semanticSimilarity).toBe(0.2);
   });
+
+  it('includes approved listings that satisfy explicit Arabic constraints even when Chroma misses them', async () => {
+    const mansoura = {
+      ...approved('mansoura-furnished', true),
+      city: { nameAr: 'المنصورة', nameEn: 'Mansoura' },
+      district: 'الجامعة',
+      bedrooms: 2,
+      rentAmount: 6000,
+    };
+    const cairo = {
+      ...approved('cairo-furnished', true),
+      city: { nameAr: 'القاهرة', nameEn: 'Cairo' },
+      district: 'المعادي',
+      bedrooms: 2,
+      rentAmount: 5000,
+    };
+    query.mockResolvedValue([]);
+    findMany
+      .mockResolvedValueOnce([mansoura, cairo])
+      .mockResolvedValueOnce([mansoura]);
+
+    const result = await createService().semanticSearch({
+      query: 'شقة مفروشة غرفتين في المنصورة بحد أقصى 6000',
+      limit: 10,
+    });
+
+    expect(result.items.map((item) => item.id)).toEqual(['mansoura-furnished']);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'APPROVED',
+          propertyType: 'APARTMENT',
+          isFurnished: true,
+          bedrooms: { gte: 2 },
+          rentAmount: { lte: 6000 },
+        }),
+      }),
+    );
+  });
+
+  it('prioritizes an exact public title match over broad apartment candidates', async () => {
+    const queryText = 'شقة في شارع المستشفى الدولي';
+    const exact = {
+      ...approved('international-hospital'),
+      title: queryText,
+      description: 'قريبة من المستشفى الدولي',
+      city: { nameAr: 'المنصورة', nameEn: 'Mansoura' },
+      district: 'مدينة مبارك',
+    };
+    const broad = {
+      ...approved('broad-apartment'),
+      title: 'شقة في توريل',
+      description: 'شقة واسعة',
+      city: { nameAr: 'المنصورة', nameEn: 'Mansoura' },
+      district: 'توريل',
+    };
+    query.mockResolvedValue([
+      { vectorId: 'property:broad-apartment', propertyId: 'broad-apartment', distance: 0.1 },
+    ]);
+    findMany
+      .mockResolvedValueOnce([exact, broad])
+      .mockResolvedValueOnce([broad])
+      .mockResolvedValueOnce([exact]);
+
+    const result = await createService().semanticSearch({ query: queryText, limit: 10 });
+
+    expect(result.items.map((item) => item.id)).toEqual(['international-hospital']);
+  });
 });

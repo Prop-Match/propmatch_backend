@@ -51,7 +51,8 @@ function containsTerm(query: string, term: string): boolean {
   );
 }
 
-function requestedBedroomCount(query: string): number | undefined {
+/** Extract an explicit minimum bedroom requirement from Arabic or English text. */
+export function requestedBedroomCount(query: string): number | undefined {
   const normalized = normalizeSemanticReasonText(query)
     .replace(/[٠]/g, '0')
     .replace(/[١]/g, '1')
@@ -74,6 +75,29 @@ function requestedBedroomCount(query: string): number | undefined {
   );
   if (numeric) return Number(numeric[1]);
   return wordCounts.find(([, phrase]) => containsTerm(normalized, phrase))?.[0];
+}
+
+/**
+ * Extract an explicit upper monthly-rent limit. The semantic model ranks by
+ * intent, but a phrase such as "بحد أقصى 6000" is a hard user constraint and
+ * must never be treated as merely a soft similarity signal.
+ */
+export function requestedMaximumRent(query: string): number | undefined {
+  const normalized = normalizeSemanticReasonText(query)
+    .replace(/[٠]/g, '0')
+    .replace(/[١]/g, '1')
+    .replace(/[٢]/g, '2')
+    .replace(/[٣]/g, '3')
+    .replace(/[٤]/g, '4')
+    .replace(/[٥]/g, '5')
+    .replace(/[٦]/g, '6')
+    .replace(/[٧]/g, '7')
+    .replace(/[٨]/g, '8')
+    .replace(/[٩]/g, '9');
+  const match = normalized.match(
+    /(?:بحد\s*اقصي|حد\s*اقصي|لا\s*يزيد\s*عن|حتى|اقل\s*من|max(?:imum)?|up\s*to|under)\s*(\d{3,7})/,
+  );
+  return match ? Number(match[1]) : undefined;
 }
 
 /** Returns a query-derived furnishing constraint only when wording is explicit. */
@@ -99,7 +123,7 @@ export function detectFurnishingPreference(query: string): boolean | undefined {
 
 export function propertyLocationMatches(
   query: string,
-  property: SemanticReasonProperty,
+  property: Pick<SemanticReasonProperty, 'city' | 'district'>,
 ): boolean {
   return [property.city?.nameAr, property.city?.nameEn, property.district]
     .filter((value): value is string => Boolean(value?.trim()))
