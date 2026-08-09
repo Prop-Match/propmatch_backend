@@ -218,9 +218,12 @@ export class PropertiesService {
         propertyLocationMatches(query.query, property),
       );
       const locationConstraintDetected = matchedLocations.length > 0;
-      const hasExplicitConstraint =
+      // A property type alone ("شقة") is too broad to justify adding every
+      // apartment from SQL. Use the deterministic fallback only when the
+      // query carries a genuinely narrowing requirement; otherwise Chroma's
+      // semantic order and threshold remain in control.
+      const hasRestrictiveConstraint =
         furnishingPreference !== undefined ||
-        propertyTypePreference !== undefined ||
         minimumBedrooms !== undefined ||
         maximumRent !== undefined ||
         locationConstraintDetected;
@@ -274,13 +277,34 @@ export class PropertiesService {
       // A vector database improves ordering, but it must not hide listings
       // that satisfy an explicit customer request. Merge exact SQL candidates
       // with the vector candidates below.
-      const exactProperties = hasExplicitConstraint
+      const exactProperties = hasRestrictiveConstraint
         ? await this.prisma.property.findMany({
             where: exactWhere,
             include: PropertiesService.DETAIL_INCLUDE,
           })
         : [];
-      const properties = [
+      // An exact phrase in the public title or description is stronger than a
+      // broad semantic interpretation. This covers searches such as
+      // "شقة في شارع المستشفى الدولي" without using manualAddress, which is
+      // deliberately private until a match is accepted.
+      const directTextCandidates = await this.prisma.property.findMany({
+        where: {
+          status: 'APPROVED',
+          OR: [
+            { title: { contains: query.query, mode: 'insensitive' } },
+            { description: { contains: query.query, mode: 'insensitive' } },
+          ],
+        },
+        include: PropertiesService.DETAIL_INCLUDE,
+      });
+      const directTextProperties = directTextCandidates.filter(
+        (property) =>
+          property.title.includes(query.query) ||
+          (property.description ?? '').includes(query.query),
+      );
+      const properties = directTextProperties.length
+        ? directTextProperties
+        : [
         ...new Map(
           [...vectorProperties, ...exactProperties].map((property) => [
             property.id,
@@ -291,12 +315,17 @@ export class PropertiesService {
       const byId = new Map(
         properties.map((property) => [property.id, property]),
       );
-      const rankedMatches = [
-        ...semanticMatches,
-        ...exactProperties
-          .filter((property) => !seenIds.has(property.id))
-          .map((property) => ({ propertyId: property.id, semanticSimilarity: 0 })),
-      ];
+      const rankedMatches = directTextProperties.length
+        ? directTextProperties.map((property) => ({
+            propertyId: property.id,
+            semanticSimilarity: 1,
+          }))
+        : [
+            ...semanticMatches,
+            ...exactProperties
+              .filter((property) => !seenIds.has(property.id))
+              .map((property) => ({ propertyId: property.id, semanticSimilarity: 0 })),
+          ];
       const items: SemanticPropertySearchItem[] = rankedMatches.flatMap(
         ({ propertyId, semanticSimilarity }) => {
           const property = byId.get(propertyId);
@@ -319,7 +348,11 @@ export class PropertiesService {
           ) {
             return [];
           }
-          if (!hasExplicitConstraint && semanticSimilarity < minSimilarity) {
+          if (
+            !directTextProperties.some((candidate) => candidate.id === propertyId) &&
+            !exactProperties.some((candidate) => candidate.id === propertyId) &&
+            semanticSimilarity < minSimilarity
+          ) {
             return [];
           }
           return property
