@@ -162,7 +162,7 @@ export function transformPropertyToDetail(
       ? (property.owner?.phoneNumber ?? null)
       : null,
     ownerName: contactRevealed ? (property.owner?.fullName ?? null) : null,
-    rejectionReason: null,
+    rejectionReason: property.rejectionReason,
     approvedAt: property.approvedAt?.toISOString() ?? null,
     createdAt: property.createdAt.toISOString(),
   };

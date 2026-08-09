@@ -35,6 +35,8 @@ import {
   detectFurnishingPreference,
   detectPropertyTypePreference,
   propertyLocationMatches,
+  requestedBedroomCount,
+  requestedMaximumRent,
 } from './semantic-match-reasons';
 import { QuotaService } from '../quota/quota.service';
 
@@ -187,29 +189,144 @@ export class PropertiesService {
           },
         ];
       });
-      if (semanticMatches.length === 0) {
+      const orderedIds = semanticMatches.map((match) => match.propertyId);
+      const furnishingPreference = detectFurnishingPreference(query.query);
+      const propertyTypePreference = detectPropertyTypePreference(query.query);
+      const minimumBedrooms = requestedBedroomCount(query.query);
+      const maximumRent = requestedMaximumRent(query.query);
+      if (
+        semanticMatches.length === 0 &&
+        furnishingPreference === undefined &&
+        propertyTypePreference === undefined &&
+        minimumBedrooms === undefined &&
+        maximumRent === undefined
+      ) {
         return this.noRelevantSemanticMatch(query.limit);
       }
 
-      const orderedIds = semanticMatches.map((match) => match.propertyId);
+      // Location must be detected from the approved catalogue, not from the
+      // first vector candidates. Otherwise a valid Mansoura listing that was
+      // not returned by Chroma can make the code silently ignore "المنصورة".
+      const locationCatalogue = await this.prisma.property.findMany({
+        where: { status: 'APPROVED' },
+        select: {
+          city: { select: { nameAr: true, nameEn: true } },
+          district: true,
+        },
+      });
+      const matchedLocations = locationCatalogue.filter((property) =>
+        propertyLocationMatches(query.query, property),
+      );
+      const locationConstraintDetected = matchedLocations.length > 0;
+      // A property type alone ("شقة") is too broad to justify adding every
+      // apartment from SQL. Use the deterministic fallback only when the
+      // query carries a genuinely narrowing requirement; otherwise Chroma's
+      // semantic order and threshold remain in control.
+      const hasRestrictiveConstraint =
+        furnishingPreference !== undefined ||
+        minimumBedrooms !== undefined ||
+        maximumRent !== undefined ||
+        locationConstraintDetected;
 
-      const properties = await this.prisma.property.findMany({
-        where: { id: { in: orderedIds }, status: 'APPROVED' },
+      const vectorProperties = orderedIds.length
+        ? await this.prisma.property.findMany({
+            where: { id: { in: orderedIds }, status: 'APPROVED' },
+            include: PropertiesService.DETAIL_INCLUDE,
+          })
+        : [];
+
+      const exactWhere: Prisma.PropertyWhereInput = {
+        status: 'APPROVED',
+        ...(furnishingPreference !== undefined
+          ? { isFurnished: furnishingPreference }
+          : {}),
+        ...(propertyTypePreference !== undefined
+          ? { propertyType: propertyTypePreference }
+          : {}),
+        ...(minimumBedrooms !== undefined
+          ? { bedrooms: { gte: minimumBedrooms } }
+          : {}),
+        ...(maximumRent !== undefined
+          ? { rentAmount: { lte: maximumRent } }
+          : {}),
+      };
+      if (locationConstraintDetected) {
+        const cityNamesAr = [
+          ...new Set(
+            matchedLocations
+              .map((property) => property.city?.nameAr)
+              .filter((name): name is string => Boolean(name)),
+          ),
+        ];
+        const cityNamesEn = [
+          ...new Set(
+            matchedLocations
+              .map((property) => property.city?.nameEn)
+              .filter((name): name is string => Boolean(name)),
+          ),
+        ];
+        const districts = [
+          ...new Set(matchedLocations.map((property) => property.district)),
+        ];
+        exactWhere.OR = [
+          ...(cityNamesAr.length ? [{ city: { nameAr: { in: cityNamesAr } } }] : []),
+          ...(cityNamesEn.length ? [{ city: { nameEn: { in: cityNamesEn } } }] : []),
+          ...(districts.length ? [{ district: { in: districts } }] : []),
+        ];
+      }
+      // A vector database improves ordering, but it must not hide listings
+      // that satisfy an explicit customer request. Merge exact SQL candidates
+      // with the vector candidates below.
+      const exactProperties = hasRestrictiveConstraint
+        ? await this.prisma.property.findMany({
+            where: exactWhere,
+            include: PropertiesService.DETAIL_INCLUDE,
+          })
+        : [];
+      // An exact phrase in the public title or description is stronger than a
+      // broad semantic interpretation. This covers searches such as
+      // "شقة في شارع المستشفى الدولي" without using manualAddress, which is
+      // deliberately private until a match is accepted.
+      const directTextCandidates = await this.prisma.property.findMany({
+        where: {
+          status: 'APPROVED',
+          OR: [
+            { title: { contains: query.query, mode: 'insensitive' } },
+            { description: { contains: query.query, mode: 'insensitive' } },
+          ],
+        },
         include: PropertiesService.DETAIL_INCLUDE,
       });
+      const directTextProperties = directTextCandidates.filter(
+        (property) =>
+          property.title.includes(query.query) ||
+          (property.description ?? '').includes(query.query),
+      );
+      const properties = directTextProperties.length
+        ? directTextProperties
+        : [
+        ...new Map(
+          [...vectorProperties, ...exactProperties].map((property) => [
+            property.id,
+            property,
+          ]),
+        ).values(),
+      ];
       const byId = new Map(
         properties.map((property) => [property.id, property]),
       );
-      const furnishingPreference = detectFurnishingPreference(query.query);
-      const propertyTypePreference = detectPropertyTypePreference(query.query);
-      const locationConstraintDetected = properties.some((property) =>
-        propertyLocationMatches(query.query, property),
-      );
-      const hasExplicitConstraint =
-        furnishingPreference !== undefined ||
-        propertyTypePreference !== undefined ||
-        locationConstraintDetected;
-      const items: SemanticPropertySearchItem[] = semanticMatches.flatMap(
+      const rankedMatches = directTextProperties.length
+        ? directTextProperties.map((property) => ({
+            propertyId: property.id,
+            semanticSimilarity: 1,
+          }))
+        : [
+            ...semanticMatches,
+            ...exactProperties
+              .filter((property) => !seenIds.has(property.id))
+              .map((property) => ({ propertyId: property.id, semanticSimilarity: 0 })),
+          ];
+      const items: SemanticPropertySearchItem[] = rankedMatches.flatMap(
         ({ propertyId, semanticSimilarity }) => {
           const property = byId.get(propertyId);
           if (!property) return [];
@@ -231,7 +348,11 @@ export class PropertiesService {
           ) {
             return [];
           }
-          if (!hasExplicitConstraint && semanticSimilarity < minSimilarity) {
+          if (
+            !directTextProperties.some((candidate) => candidate.id === propertyId) &&
+            !exactProperties.some((candidate) => candidate.id === propertyId) &&
+            semanticSimilarity < minSimilarity
+          ) {
             return [];
           }
           return property

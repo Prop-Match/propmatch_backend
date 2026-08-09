@@ -2,7 +2,11 @@ import { CustomerSupportService } from './customer-support.service';
 
 describe('CustomerSupportService', () => {
   const prisma = {
+    user: {
+      findUnique: jest.fn(),
+    },
     supportTicket: {
+      findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
@@ -115,5 +119,90 @@ describe('CustomerSupportService', () => {
       service.getAdminTickets({ status: 'missing' }),
     ).rejects.toThrow('Invalid support ticket status');
     expect(prisma.supportTicket.findMany).not.toHaveBeenCalled();
+  });
+
+  describe('automatic escalations', () => {
+    const input = {
+      agentRunId: '00000000-0000-4000-8000-000000000001',
+      message: 'أريد التحدث مع موظف دعم',
+      reason: 'طلب المستخدم التحدث مع موظف دعم فني بشكل صريح',
+      priority: 'HIGH' as const,
+    };
+
+    const ticket = {
+      id: 'ticket-auto-1',
+      userId: 'user-1',
+      status: 'NEW',
+      priority: 'HIGH',
+      escalationReason: input.reason,
+      aiSummary: input.reason,
+      assignedAdminId: null,
+      assignedAdmin: null,
+      lastMessageAt: new Date('2026-08-09T10:00:00.000Z'),
+      createdAt: new Date('2026-08-09T10:00:00.000Z'),
+      user: { fullName: 'Support User' },
+      messages: [
+        {
+          id: 'message-1',
+          authorType: 'USER',
+          authorName: 'Support User',
+          authorId: 'user-1',
+          content: input.message,
+          internal: false,
+          createdAt: new Date('2026-08-09T10:00:00.000Z'),
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      prisma.supportTicket.findUnique.mockResolvedValue(null);
+      prisma.supportTicket.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        fullName: 'Support User',
+      });
+      prisma.supportTicket.create.mockResolvedValue(ticket);
+    });
+
+    it('creates and broadcasts an automatic ticket once', async () => {
+      const result = await service.createAgentEscalation('user-1', input);
+
+      expect(result.id).toBe('ticket-auto-1');
+      expect(prisma.supportTicket.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            agentEscalationKey: input.agentRunId,
+            priority: 'HIGH',
+            messages: {
+              create: expect.objectContaining({
+                authorType: 'USER',
+                authorId: 'user-1',
+              }),
+            },
+          }),
+        }),
+      );
+      expect(realtime.supportTicketCreated).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns the idempotent ticket without creating or broadcasting again', async () => {
+      prisma.supportTicket.findUnique.mockResolvedValue(ticket);
+
+      const result = await service.createAgentEscalation('user-1', input);
+
+      expect(result.id).toBe('ticket-auto-1');
+      expect(prisma.supportTicket.create).not.toHaveBeenCalled();
+      expect(realtime.supportTicketCreated).not.toHaveBeenCalled();
+    });
+
+    it('reuses an existing open ticket instead of flooding the queue', async () => {
+      prisma.supportTicket.findFirst.mockResolvedValue(ticket);
+
+      const result = await service.createAgentEscalation('user-1', input);
+
+      expect(result.id).toBe('ticket-auto-1');
+      expect(prisma.supportTicket.create).not.toHaveBeenCalled();
+      expect(realtime.supportTicketCreated).not.toHaveBeenCalled();
+    });
   });
 });

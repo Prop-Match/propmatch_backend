@@ -77,6 +77,12 @@ export class CustomerSupportService {
 
   static readonly SUSPENSION_APPEAL_REASON = 'طلب مراجعة إيقاف الحساب';
 
+  private readonly ticketDetailInclude = {
+    user: { select: { fullName: true } },
+    assignedAdmin: { select: { fullName: true } },
+    messages: { orderBy: { createdAt: 'asc' as const } },
+  };
+
   /**
    * Create the support ticket used by a suspended account to appeal the
    * suspension. Authentication happens in AuthService because suspended JWTs
@@ -145,9 +151,9 @@ export class CustomerSupportService {
   }
 
   /**
-   * The AI service calls this only after its model selects the
-   * create-support-ticket tool. `agentRunId` is persisted as a unique key so
-   * HTTP retries cannot create duplicate tickets.
+   * Persist an AI-requested handoff using the authenticated gateway user.
+   * The request UUID makes retries idempotent, while reusing another open
+   * ticket prevents the assistant from flooding the support queue.
    */
   async createAgentEscalation(
     userId: string,
@@ -157,36 +163,60 @@ export class CustomerSupportService {
       reason: string;
       priority: SupportPriority;
     },
-  ) {
+  ): Promise<{ id: string }> {
+    const duplicate = await this.prisma.supportTicket.findUnique({
+      where: { agentEscalationKey: input.agentRunId },
+      include: this.ticketDetailInclude,
+    });
+    if (duplicate) return this.mapToTicketDetail(duplicate, userId);
+
+    const openTicket = await this.prisma.supportTicket.findFirst({
+      where: { userId, status: { not: TicketStatus.CLOSED } },
+      orderBy: { updatedAt: 'desc' },
+      include: this.ticketDetailInclude,
+    });
+    if (openTicket) return this.mapToTicketDetail(openTicket, userId);
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, fullName: true },
     });
     if (!user) throw new NotFoundException('User not found');
 
-    const ticket = await this.prisma.supportTicket.upsert({
-      where: { agentEscalationKey: input.agentRunId },
-      create: {
-        userId,
-        priority: input.priority,
-        escalationReason: input.reason,
-        aiSummary: input.reason,
-        agentEscalationKey: input.agentRunId,
-        messages: {
-          create: {
-            authorType: SupportAuthor.AI,
-            authorName: 'AI Support Agent',
-            content: input.message.trim(),
+    let ticket;
+    try {
+      ticket = await this.prisma.supportTicket.create({
+        data: {
+          userId,
+          status: TicketStatus.NEW,
+          priority: input.priority,
+          escalationReason: input.reason,
+          aiSummary: input.reason,
+          agentEscalationKey: input.agentRunId,
+          messages: {
+            create: {
+              authorType: SupportAuthor.USER,
+              authorName: user.fullName,
+              authorId: user.id,
+              content: input.message.trim(),
+            },
           },
         },
-      },
-      update: {},
-      include: {
-        user: { select: { fullName: true } },
-        messages: true,
-      },
-    });
+        include: this.ticketDetailInclude,
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'P2002') throw error;
+      ticket = await this.prisma.supportTicket.findUnique({
+        where: { agentEscalationKey: input.agentRunId },
+        include: this.ticketDetailInclude,
+      });
+      if (!ticket) throw error;
+      return this.mapToTicketDetail(ticket, userId);
+    }
 
+    this.logger.log(
+      `Created automatic SupportTicket: id=${ticket.id} userId=${userId}`,
+    );
     this.realtime.supportTicketCreated({
       ticketId: ticket.id,
       subject: input.reason.slice(0, 200),
@@ -194,7 +224,7 @@ export class CustomerSupportService {
       priority: ticket.priority,
       createdAt: ticket.createdAt.toISOString(),
     });
-    return this.mapToTicketDetail(ticket);
+    return this.mapToTicketDetail(ticket, userId);
   }
 
   async createTicket(userId: string, dto: CreateTicketDto) {
@@ -544,8 +574,9 @@ export class CustomerSupportService {
 
   async openAiStream(
     message: string,
-    history: any[] | undefined,
+    history: Array<{ role: string; content: string }> | undefined,
     user: { userId: string; role?: string },
+    clientRequestId: string,
     clientSignal?: AbortSignal,
   ) {
     const baseUrl =
@@ -574,6 +605,7 @@ export class CustomerSupportService {
     const body = {
       message,
       history,
+      clientRequestId,
       userContext: {
         role: user.role,
         kycStatus: userDetails?.identityVerification?.status || 'NOT_SUBMITTED',

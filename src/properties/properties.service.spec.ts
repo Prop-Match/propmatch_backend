@@ -309,6 +309,7 @@ describe('PropertiesService.getPropertyById', () => {
     status: 'ARCHIVED',
     manualAddress: 'Detailed street address',
     propertyAroundServices: null,
+    rejectionReason: 'يرجى تحسين صور العقار',
     approvedAt: new Date('2026-07-20T12:00:00.000Z'),
     createdAt: new Date('2026-07-01T12:00:00.000Z'),
     propertyImages: [],
@@ -339,6 +340,7 @@ describe('PropertiesService.getPropertyById', () => {
         id: 'property-1',
         status: 'ARCHIVED',
         contactRevealed: true,
+        rejectionReason: 'يرجى تحسين صور العقار',
       }),
     );
   });

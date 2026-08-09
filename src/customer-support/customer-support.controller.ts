@@ -11,6 +11,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Throttle } from '@nestjs/throttler';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
@@ -20,6 +21,8 @@ import { CustomerSupportService } from './customer-support.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { PostReplyDto } from './dto/post-reply.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
+import { SupportAiChatDto } from './dto/support-ai-chat.dto';
+import { transformSupportSseFrame } from './support-ai-stream';
 
 import { ConfigService } from '@nestjs/config';
 import type { Response as ExpressResponse } from 'express';
@@ -51,16 +54,18 @@ export class CustomerSupportController {
   @Post('support/ai-chat/stream')
   async streamAiChat(
     @Request() req: RequestWithUser,
-    @Body() dto: { message: string; history?: any[] },
+    @Body() dto: SupportAiChatDto,
     @Res() res: ExpressResponse,
   ): Promise<void> {
     const abortController = new AbortController();
     res.once('close', () => abortController.abort());
 
+    const agentRunId = dto.clientRequestId ?? randomUUID();
     const upstream = await this.customerSupportService.openAiStream(
       dto.message,
       dto.history,
       req.user!,
+      agentRunId,
       abortController.signal,
     );
 
@@ -76,12 +81,39 @@ export class CustomerSupportController {
     res.flushHeaders();
 
     const reader = upstream.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const writeFrame = async (frame: string) => {
+      const output = await transformSupportSseFrame(frame, async (intent) => {
+        const ticket = await this.customerSupportService.createAgentEscalation(
+          req.user!.userId,
+          {
+            agentRunId,
+            message: dto.message,
+            reason: intent.escalationReason,
+            priority: intent.priority,
+          },
+        );
+        return { ticketId: ticket.id };
+      });
+      output.forEach((item) => res.write(item));
+    };
+
     try {
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
-        res.write(Buffer.from(value));
+        buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, '\n');
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          if (frame.trim()) await writeFrame(frame);
+        }
       }
+      buffer += decoder.decode();
+      if (buffer.trim()) await writeFrame(buffer);
       res.end();
     } catch (error) {
       if (!abortController.signal.aborted) res.destroy(error as Error);
