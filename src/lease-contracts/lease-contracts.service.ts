@@ -201,8 +201,8 @@ export class LeaseContractsService {
     if (existing.tenantReviewStatus === 'CHANGES_REQUESTED') {
       await this.realtime.notifyUser(match.tenantId, {
         type: 'NEW_REVIEW_SUBMITTED',
-        title: 'Updated contract draft',
-        message: 'The landlord saved an updated draft for your review.',
+        title: 'تحديث مسودة عقد الإيجار',
+        message: 'قام المالك بتحديث مسودة العقد بناءً على ملاحظاتك.',
         link: `/contracts/${contract.id}`,
       });
     }
@@ -435,8 +435,8 @@ export class LeaseContractsService {
     const updated = await this.authorizedContract(userId, contractId, true);
     await this.realtime.notifyUser(contract.matchConnection.ownerId, {
       type: 'NEW_REVIEW_SUBMITTED',
-      title: 'Contract changes requested',
-      message: 'The tenant requested changes to the contract draft.',
+      title: 'طلب تعديل على العقد',
+      message: 'طلب المستأجر إدخال تعديلات على مسودة عقد الإيجار.',
       link: `/contracts/${contractId}`,
     });
     return this.toResponse(updated, userId, contract.matchConnection);
@@ -481,8 +481,8 @@ export class LeaseContractsService {
     const updated = await this.authorizedContract(userId, contractId, true);
     await this.realtime.notifyUser(contract.matchConnection.ownerId, {
       type: 'REVIEW_APPROVED',
-      title: 'Contract draft review confirmed',
-      message: 'The tenant confirmed review of the current draft.',
+      title: 'تم تأكيد مراجعة مسودة العقد',
+      message: 'أكد المستأجر مراجعة وموافقته على المسودة الحالية للعقد.',
       link: `/contracts/${contractId}`,
     });
     return this.toResponse(updated, userId, contract.matchConnection);

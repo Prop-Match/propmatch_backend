@@ -1,11 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { transformPropertyToSummary } from '../properties/mappers/property.mapper';
 import { CreateFavoriteDto } from './dto/create-favorite.dto';
+import { PropertyAnalyticsService } from '../property-analytics/property-analytics.service';
 
 @Injectable()
 export class FavoritesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly analytics?: PropertyAnalyticsService,
+  ) {}
 
   /**
    * GET /tenant/favorites
@@ -70,6 +74,7 @@ export class FavoritesService {
           propertyId: dto.propertyId,
         },
       });
+      await this.analytics?.recordCounter(dto.propertyId, 'favoritesAdded');
     }
 
     return { favorited: true };
@@ -80,12 +85,15 @@ export class FavoritesService {
    * Remove a property from tenant's favorites.
    */
   async removeFavorite(tenantId: string, propertyId: string) {
-    await this.prisma.favorite.deleteMany({
+    const removed = await this.prisma.favorite.deleteMany({
       where: {
         tenantId,
         propertyId,
       },
     });
+    if (removed.count > 0) {
+      await this.analytics?.recordCounter(propertyId, 'favoritesRemoved');
+    }
 
     return { favorited: false };
   }

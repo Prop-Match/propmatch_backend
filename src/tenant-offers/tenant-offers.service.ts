@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -11,6 +12,7 @@ import type {
   CounterOfferDto,
   CreateTenantOfferDto,
 } from './dto/tenant-offer.dto';
+import { PropertyAnalyticsService } from '../property-analytics/property-analytics.service';
 
 const PROPERTY_SUMMARY_INCLUDE = {
   propertyImages: { orderBy: { displayOrder: 'asc' as const } },
@@ -40,6 +42,7 @@ export class TenantOffersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
+    @Optional() private readonly analytics?: PropertyAnalyticsService,
   ) {}
 
   /** POST /tenant/listing-offers */
@@ -78,6 +81,7 @@ export class TenantOffersService {
         status: 'PENDING',
       },
     });
+    await this.analytics?.recordCounter(dto.propertyId, 'tenantOffers');
 
     await this.realtime.notifyUser(property.ownerId, {
       type: 'NEW_OFFER_RECEIVED',
@@ -294,6 +298,8 @@ export class TenantOffersService {
         },
       });
     });
+
+    await this.analytics?.recordCounter(offer.propertyId, 'matches');
 
     const recipientId = notify === 'tenant' ? offer.tenantId : offer.ownerId;
     await this.realtime.notifyUser(recipientId, {

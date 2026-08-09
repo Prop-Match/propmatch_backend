@@ -151,12 +151,38 @@ export class CustomerSupportService {
   }
   async getAdminTickets() {
     const tickets = await this.prisma.supportTicket.findMany({
-      orderBy: { lastMessageAt: 'desc' },
       include: {
-        user: { select: { fullName: true } },
+        user: { select: { fullName: true, userQuota: true } },
         assignedAdmin: { select: { fullName: true } },
         messages: { orderBy: { createdAt: 'asc' }, take: 1 },
       },
+    });
+    const severityWeight = {
+      CRITICAL: 5,
+      URGENT: 4,
+      HIGH: 3,
+      NORMAL: 2,
+      LOW: 1,
+    } as const;
+    const commercialTier = (ticket: (typeof tickets)[number]) => {
+      const quota = ticket.user.userQuota;
+      const active = quota?.planExpiresAt && quota.planExpiresAt > new Date();
+      if (active && quota.planType === 'PREMIUM') return 'PREMIUM' as const;
+      if (active && quota.planType === 'OWNER_PLUS') {
+        return 'OWNER_PLUS' as const;
+      }
+      return 'FREEMIUM' as const;
+    };
+    const commercialWeight = { PREMIUM: 200, OWNER_PLUS: 100, FREEMIUM: 0 };
+    tickets.sort((a, b) => {
+      const severity = severityWeight[b.priority] - severityWeight[a.priority];
+      if (severity !== 0) return severity;
+      const score = (ticket: (typeof tickets)[number]) =>
+        commercialWeight[commercialTier(ticket)] +
+        Math.floor((Date.now() - ticket.createdAt.getTime()) / 86_400_000) * 20;
+      return (
+        score(b) - score(a) || a.createdAt.getTime() - b.createdAt.getTime()
+      );
     });
     return {
       items: tickets.map((t) => ({
@@ -168,6 +194,7 @@ export class CustomerSupportService {
         userName: t.user.fullName,
         status: ticketStatusToWire(t.status),
         priority: t.priority,
+        commercialPriority: commercialTier(t),
         assignedAdminName: t.assignedAdmin?.fullName ?? null,
         lastMessageAt: t.lastMessageAt.toISOString(),
         createdAt: t.createdAt.toISOString(),

@@ -285,20 +285,56 @@ export class AdminService {
     await this.audit(actorId, 'user:unsuspend', targetUserId);
     return this.toUserRow(updated);
   }
+
+  private commercialPriority(
+    quota?: {
+      planType: 'FREE' | 'OWNER_PLUS' | 'PREMIUM';
+      planExpiresAt: Date | null;
+    } | null,
+  ) {
+    const active = quota?.planExpiresAt && quota.planExpiresAt > new Date();
+    if (active && quota.planType === 'PREMIUM') return 'PREMIUM' as const;
+    if (active && quota.planType === 'OWNER_PLUS') return 'OWNER_PLUS' as const;
+    return 'FREEMIUM' as const;
+  }
+
+  private sortCommercialQueue<
+    T extends { submittedAt: string; commercialPriority: string },
+  >(items: T[]): T[] {
+    const tierWeight: Record<string, number> = {
+      PREMIUM: 200,
+      OWNER_PLUS: 100,
+      FREEMIUM: 0,
+    };
+    return items.sort((a, b) => {
+      const ageScore = (item: T) =>
+        Math.floor((Date.now() - Date.parse(item.submittedAt)) / 86_400_000) *
+        20;
+      return (
+        tierWeight[b.commercialPriority] +
+          ageScore(b) -
+          (tierWeight[a.commercialPriority] + ageScore(a)) ||
+        Date.parse(a.submittedAt) - Date.parse(b.submittedAt)
+      );
+    });
+  }
+
   async getQueues() {
     const [kyc, properties, editedProperties, requests, reviews] =
       await Promise.all([
         this.prismaService.identityVerification.findMany({
           where: { status: 'PENDING' },
-          include: { user: true },
+          include: { user: { include: { userQuota: true } } },
           orderBy: { submittedAt: 'desc' },
         }),
         this.prismaService.property.findMany({
           where: { status: 'PENDING', approvedAt: null },
+          include: { owner: { include: { userQuota: true } } },
           orderBy: { createdAt: 'desc' },
         }),
         this.prismaService.property.findMany({
           where: { status: 'PENDING', approvedAt: { not: null } },
+          include: { owner: { include: { userQuota: true } } },
           orderBy: { updatedAt: 'desc' },
         }),
         this.prismaService.tenantRequest.findMany({
@@ -313,30 +349,39 @@ export class AdminService {
         }),
       ]);
     return {
-      kycQueue: kyc.map((k) => ({
-        id: `q_kyc_${k.id}`,
-        type: 'kyc',
-        subjectId: k.userId,
-        title: k.user.fullName,
-        subtitle: k.user.email,
-        submittedAt: k.submittedAt.toISOString(),
-      })),
-      propertyQueue: properties.map((p) => ({
-        id: `q_prop_${p.id}`,
-        type: 'property',
-        subjectId: p.id,
-        title: p.title,
-        subtitle: `Rent Amount: EGP ${p.rentAmount}`,
-        submittedAt: p.createdAt.toISOString(),
-      })),
-      editedPropertyQueue: editedProperties.map((p) => ({
-        id: `q_prop_edit_${p.id}`,
-        type: 'propertyEdit',
-        subjectId: p.id,
-        title: p.title,
-        subtitle: `تم تعديل الإعلان · الإيجار: ${p.rentAmount} ج.م`,
-        submittedAt: p.updatedAt.toISOString(),
-      })),
+      kycQueue: this.sortCommercialQueue(
+        kyc.map((k) => ({
+          id: `q_kyc_${k.id}`,
+          type: 'kyc',
+          subjectId: k.userId,
+          title: k.user.fullName,
+          subtitle: k.user.email,
+          submittedAt: k.submittedAt.toISOString(),
+          commercialPriority: this.commercialPriority(k.user.userQuota),
+        })),
+      ),
+      propertyQueue: this.sortCommercialQueue(
+        properties.map((p) => ({
+          id: `q_prop_${p.id}`,
+          type: 'property',
+          subjectId: p.id,
+          title: p.title,
+          subtitle: `Rent Amount: EGP ${p.rentAmount}`,
+          submittedAt: p.createdAt.toISOString(),
+          commercialPriority: this.commercialPriority(p.owner?.userQuota),
+        })),
+      ),
+      editedPropertyQueue: this.sortCommercialQueue(
+        editedProperties.map((p) => ({
+          id: `q_prop_edit_${p.id}`,
+          type: 'propertyEdit',
+          subjectId: p.id,
+          title: p.title,
+          subtitle: `تم تعديل الإعلان · الإيجار: ${p.rentAmount} ج.م`,
+          submittedAt: p.updatedAt.toISOString(),
+          commercialPriority: this.commercialPriority(p.owner?.userQuota),
+        })),
+      ),
       requestQueue: requests.map((r) => ({
         id: `q_req_${r.id}`,
         type: 'request',
@@ -344,6 +389,7 @@ export class AdminService {
         title: `Request for ${r.propertyType}`,
         subtitle: `Budget: EGP ${r.minBudget} - ${r.maxBudget}`,
         submittedAt: r.createdAt.toISOString(),
+        commercialPriority: 'FREEMIUM' as const,
       })),
       reviewQueue: reviews.map((rev) => ({
         id: `q_rev_${rev.id}`,
@@ -352,6 +398,7 @@ export class AdminService {
         title: `Review on ${rev.property.title} by ${rev.reviewer.fullName}`,
         subtitle: `Rating: ${rev.rating}/5. ${rev.comment ?? ''}`,
         submittedAt: rev.createdAt.toISOString(),
+        commercialPriority: 'FREEMIUM' as const,
       })),
     };
   }

@@ -17,6 +17,10 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { transformUserToFrontend } from '../users/mappers/user.mapper';
 import { UsersService } from './../users/users.service';
 import { RefreshDto } from './dto/refresh.dto';
+import {
+  FREE_AI_USES_MONTHLY_ALLOTMENT,
+  FREE_OFFERS_MONTHLY_ALLOTMENT,
+} from '../payments/pricing.catalog';
 
 type TokenPayload = {
   sub: string;
@@ -141,8 +145,8 @@ export class AuthService {
             userQuota: {
               create: {
                 freeListingsLeft: 0,
-                optimizerUsesLeft: 0,
-                freeOffersLeft: 5,
+                optimizerUsesLeft: FREE_AI_USES_MONTHLY_ALLOTMENT,
+                freeOffersLeft: FREE_OFFERS_MONTHLY_ALLOTMENT,
               },
             },
           }
