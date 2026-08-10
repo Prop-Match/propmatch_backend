@@ -27,9 +27,10 @@ import { LeaseContractsService } from './lease-contracts.service';
 /**
  * Handshake flow: landlord drafts (POST .../draft, repeatable while
  * DRAFTING) → landlord sends for review (POST .../send-for-review, locks
- * it) → tenant approves (POST .../approve, the only path that actually
- * generates a PDF) or rejects (POST .../reject, unlocks it back to the
- * landlord with an optional note).
+ * it) → tenant approves (POST .../approve) or rejects (POST .../reject,
+ * unlocks it back to the landlord with an optional note). The canonical
+ * ID-addressed review/confirm endpoint below performs the same approval and
+ * PDF generation for the current frontend flow.
  */
 @Controller('matches/:matchConnectionId/contract')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -174,12 +175,12 @@ export class LeaseContractByIdController {
   }
 
   @Get(':id/pdf')
-  async downloadDraftPdf(
+  async downloadPdf(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
     @Res() res: Response,
   ) {
-    const pdf = await this.leaseContractsService.downloadDraftPdf(
+    const pdf = await this.leaseContractsService.downloadPdf(
       req.user.userId,
       id,
     );
@@ -187,7 +188,7 @@ export class LeaseContractByIdController {
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Length': String(pdf.length),
-      'Content-Disposition': `attachment; filename="rental-contract-draft-${safeId}.pdf"`,
+      'Content-Disposition': `attachment; filename="rental-contract-${safeId}.pdf"`,
       'Cache-Control': 'private, no-store',
     });
     res.send(pdf);
@@ -205,12 +206,17 @@ export class LeaseContractByIdController {
 
   @Post(':id/review/confirm')
   @UseGuards(VerifiedGuard)
-  confirmReview(
+  async confirmReview(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
     @Body() dto: ConfirmContractReviewDto,
   ) {
-    return this.leaseContractsService.confirmReview(req.user.userId, id, dto);
+    const contract = await this.leaseContractsService.confirmReview(
+      req.user.userId,
+      id,
+      dto,
+    );
+    return this.withAbsolutePdfUrl(contract);
   }
 
   private withAbsolutePdfUrl<T extends { pdfUrl: string | null }>(

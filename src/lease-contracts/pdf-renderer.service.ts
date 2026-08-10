@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Browser, Page } from 'puppeteer';
 
 /**
@@ -13,6 +17,8 @@ import type { Browser, Page } from 'puppeteer';
  */
 @Injectable()
 export class PdfRendererService {
+  private readonly logger = new Logger(PdfRendererService.name);
+
   async renderHtmlToPdf(
     html: string,
     footerTemplate?: string,
@@ -23,6 +29,8 @@ export class PdfRendererService {
     try {
       browser = await puppeteer.launch({
         headless: true,
+        executablePath:
+          process.env.PUPPETEER_EXECUTABLE_PATH?.trim() || undefined,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
       });
       page = await browser.newPage();
@@ -50,6 +58,10 @@ export class PdfRendererService {
       });
       return Buffer.from(pdf);
     } catch (error) {
+      this.logger.error(
+        'Failed to render lease contract PDF',
+        error instanceof Error ? error.stack : String(error),
+      );
       throw new ServiceUnavailableException('PDF_GENERATION_FAILED');
     } finally {
       await page?.close().catch(() => undefined);

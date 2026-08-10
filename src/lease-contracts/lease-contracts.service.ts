@@ -305,6 +305,10 @@ export class LeaseContractsService {
           tenantNationalId: tenantVerification.nationalId,
           pdfUrl: objectKey,
           status: 'APPROVED',
+          tenantReviewStatus: 'REVIEW_CONFIRMED',
+          tenantReviewConfirmedAt:
+            contract.tenantReviewConfirmedAt ?? new Date(),
+          tenantReviewedRevision: contract.draftRevision,
         },
       });
       return approvedContract;
@@ -390,16 +394,24 @@ export class LeaseContractsService {
             property: { select: { title: true } },
           },
         },
+        userReviews: {
+          where: { reviewerId: userId },
+          select: { id: true },
+          take: 1,
+        },
       },
       orderBy: { updatedAt: 'desc' },
     });
     return {
       items: await Promise.all(
-        contracts.map(async ({ matchConnection, ...contract }) => ({
-          ...(await this.toResponse(contract, userId, matchConnection)),
-          propertyId: matchConnection.propertyId,
-          propertyTitle: matchConnection.property.title,
-        })),
+        contracts.map(
+          async ({ matchConnection, userReviews, ...contract }) => ({
+            ...(await this.toResponse(contract, userId, matchConnection)),
+            propertyId: matchConnection.propertyId,
+            propertyTitle: matchConnection.property.title,
+            hasSubmittedUserReview: (userReviews?.length ?? 0) > 0,
+          }),
+        ),
       ),
     };
   }
@@ -448,8 +460,19 @@ export class LeaseContractsService {
     dto: ConfirmContractReviewDto,
   ) {
     const contract = await this.authorizedContract(userId, contractId, true);
-    if (contract.tenantReviewStatus === 'REVIEW_CONFIRMED')
+    if (contract.status === 'APPROVED') {
       return this.toResponse(contract, userId, contract.matchConnection);
+    }
+    // Recover contracts created by the former split workflow. It marked the
+    // tenant review as confirmed but never advanced the lease to approval,
+    // leaving PDF generation and both user reviews permanently unavailable.
+    if (contract.tenantReviewStatus === 'REVIEW_CONFIRMED') {
+      await this.prisma.leaseContract.updateMany({
+        where: { id: contractId, status: { not: 'APPROVED' } },
+        data: { status: 'PENDING_TENANT_APPROVAL' },
+      });
+      return this.approve(userId, contract.matchConnectionId);
+    }
     if (contract.tenantReviewStatus === 'CHANGES_REQUESTED')
       throw new ConflictException('CONTRACT_CHANGES_PENDING');
     if (dto.expectedRevision !== contract.draftRevision)
@@ -461,6 +484,7 @@ export class LeaseContractsService {
         draftRevision: dto.expectedRevision,
       },
       data: {
+        status: 'PENDING_TENANT_APPROVAL',
         tenantReviewStatus: 'REVIEW_CONFIRMED',
         tenantReviewConfirmedAt: new Date(),
         tenantReviewedRevision: dto.expectedRevision,
@@ -471,25 +495,21 @@ export class LeaseContractsService {
     if (changed.count !== 1) {
       const current = await this.authorizedContract(userId, contractId, true);
       if (current.tenantReviewStatus === 'REVIEW_CONFIRMED') {
-        return this.toResponse(current, userId, current.matchConnection);
+        if (current.status === 'APPROVED') {
+          return this.toResponse(current, userId, current.matchConnection);
+        }
+        return this.approve(userId, current.matchConnectionId);
       }
       if (current.tenantReviewStatus === 'CHANGES_REQUESTED') {
         throw new ConflictException('CONTRACT_CHANGES_PENDING');
       }
       throw new ConflictException('CONTRACT_REVISION_CHANGED');
     }
-    const updated = await this.authorizedContract(userId, contractId, true);
-    await this.realtime.notifyUser(contract.matchConnection.ownerId, {
-      type: 'REVIEW_APPROVED',
-      title: 'تم تأكيد مراجعة مسودة العقد',
-      message: 'أكد المستأجر مراجعة وموافقته على المسودة الحالية للعقد.',
-      link: `/contracts/${contractId}`,
-    });
-    return this.toResponse(updated, userId, contract.matchConnection);
+    return this.approve(userId, contract.matchConnectionId);
   }
 
-  /** Generates bytes in memory only; the saved contract is never mutated or stored. */
-  async downloadDraftPdf(userId: string, contractId: string): Promise<Buffer> {
+  /** Generates an authorized download without exposing private object keys. */
+  async downloadPdf(userId: string, contractId: string): Promise<Buffer> {
     const contract = await this.prisma.leaseContract.findUnique({
       where: { id: contractId },
       include: {
@@ -502,6 +522,27 @@ export class LeaseContractsService {
       contract.matchConnection.ownerId !== userId
     ) {
       throw new ForbiddenException('NOT_A_PARTY_TO_THIS_CONTRACT');
+    }
+    if (contract.status === 'APPROVED') {
+      return this.pdfRenderer.renderHtmlToPdf(
+        buildLeaseContractHtml({
+          ownerName: contract.ownerName,
+          ownerNationalId: contract.ownerNationalId,
+          tenantName: contract.tenantName,
+          tenantNationalId: contract.tenantNationalId,
+          propertyAddress: contract.propertyAddress,
+          rentAmount: contract.rentAmount,
+          startDate: contract.startDate,
+          endDate: contract.endDate,
+          customClauses: contract.customClauses,
+          witness1Name: contract.witness1Name,
+          witness1NationalId: contract.witness1NationalId,
+          witness2Name: contract.witness2Name,
+          witness2NationalId: contract.witness2NationalId,
+          generatedAt: contract.updatedAt,
+        }),
+        buildLeaseContractPdfFooterHtml(),
+      );
     }
     if (
       contract.status !== 'DRAFTING' ||
@@ -633,20 +674,24 @@ export class LeaseContractsService {
       canEdit: Boolean(
         parties &&
         parties.ownerId === userId &&
+        contract.status === 'DRAFTING' &&
         contract.tenantReviewStatus !== 'REVIEW_CONFIRMED',
       ),
       canRequestChanges: Boolean(
         parties &&
         parties.tenantId === userId &&
+        contract.status === 'DRAFTING' &&
         contract.tenantReviewStatus === 'PENDING_REVIEW',
       ),
       canConfirmReview: Boolean(
         parties &&
         parties.tenantId === userId &&
-        contract.tenantReviewStatus === 'PENDING_REVIEW',
+        contract.status !== 'APPROVED' &&
+        (contract.tenantReviewStatus === 'PENDING_REVIEW' ||
+          contract.tenantReviewStatus === 'REVIEW_CONFIRMED'),
       ),
       canDownloadPdf: Boolean(
-        contract.pdfUrl && contract.tenantReviewStatus === 'REVIEW_CONFIRMED',
+        contract.status === 'APPROVED' && contract.pdfUrl,
       ),
     };
   }
