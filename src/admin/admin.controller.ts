@@ -81,7 +81,7 @@ export class AdminController {
 
   private publicBackendOrigin(): string {
     const value = this.configService.get<string>('BACKEND_PUBLIC_URL')?.trim();
-    if (!value) return 'http://localhost:3001';
+    if (!value) return 'https://propmatch.technative.me';
     const url = new URL(value);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new Error('BACKEND_PUBLIC_URL must use http or https');
