@@ -14,9 +14,13 @@ export function parseRedisConnection(
   }
 
   const url = new URL(redisUrl);
+  const isTls = url.protocol === 'rediss:';
+
   return {
     host: url.hostname,
-    port: Number(url.port || 6379),
-    password: url.password || undefined,
+    port: Number(url.port || (isTls ? 6379 : 6379)),
+    username: url.username ? decodeURIComponent(url.username) : undefined,
+    password: url.password ? decodeURIComponent(url.password) : undefined,
+    ...(isTls ? { tls: {} } : {}),
   };
 }
