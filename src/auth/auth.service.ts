@@ -193,7 +193,8 @@ export class AuthService {
     const user = await this.userService.findByEmail(normalizeEmail(email));
     if (!user || user.emailVerifiedAt) {
       throw new BadRequestException(
-        'This verification code is invalid or expired.',
+        I18nContext.current()?.t('auth.INVALID_OR_EXPIRED_OTP') ||
+          'رمز التحقق غير صالح أو منتهي الصلاحية.',
       );
     }
     if (!this.isDevelopmentEmailOtp(code)) {
@@ -203,12 +204,14 @@ export class AuthService {
         user.emailOtpExpiresAt <= new Date()
       ) {
         throw new BadRequestException(
-          'This verification code is invalid or expired.',
+          I18nContext.current()?.t('auth.INVALID_OR_EXPIRED_OTP') ||
+            'رمز التحقق غير صالح أو منتهي الصلاحية.',
         );
       }
       if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
         throw new BadRequestException(
-          'Too many invalid attempts. Please request a new code.',
+          I18nContext.current()?.t('auth.TOO_MANY_OTP_ATTEMPTS') ||
+            'تم تجاوز الحد الأقصى للمحاولات. يرجى طلب رمز جديد.',
         );
       }
       if (this.hashOtp(code) !== user.emailOtpHash) {
@@ -217,7 +220,8 @@ export class AuthService {
           data: { emailOtpAttempts: { increment: 1 } },
         });
         throw new BadRequestException(
-          'This verification code is invalid or expired.',
+          I18nContext.current()?.t('auth.INVALID_OR_EXPIRED_OTP') ||
+            'رمز التحقق غير صالح أو منتهي الصلاحية.',
         );
       }
     }
