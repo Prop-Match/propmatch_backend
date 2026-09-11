@@ -907,10 +907,27 @@ export class PropertiesService {
    * offer on this property.
    */
   async getPropertyById(id: string, viewer?: { userId: string; role: string }) {
-    const property = await this.prisma.property.findUniqueOrThrow({
-      where: { id },
-      include: PropertiesService.DETAIL_INCLUDE,
-    });
+    let property;
+    try {
+      property = await (this.prisma.property.findUnique
+        ? this.prisma.property.findUnique({
+            where: { id },
+            include: PropertiesService.DETAIL_INCLUDE,
+          })
+        : this.prisma.property.findUniqueOrThrow({
+            where: { id },
+            include: PropertiesService.DETAIL_INCLUDE,
+          }));
+    } catch (error: any) {
+      if (error?.name === 'NotFoundError' || error?.code === 'P2025') {
+        throw new NotFoundException('العقار المطلوب غير موجود');
+      }
+      throw error;
+    }
+
+    if (!property) {
+      throw new NotFoundException('العقار المطلوب غير موجود');
+    }
 
     const isAdmin = viewer?.role === 'ADMIN';
     const isOwner = viewer?.userId === property.ownerId;

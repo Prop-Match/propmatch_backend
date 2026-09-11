@@ -182,6 +182,13 @@ export class PropertiesController {
     return this.propertiesService.archive(req.user.userId, id);
   }
 
+  @Get('properties/me')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('LANDLORD')
+  async getMyPropertiesAlias(@Request() req: { user: { userId: string } }) {
+    return this.propertiesService.getMyProperties(req.user.userId);
+  }
+
   @Get('properties/:id')
   @UseGuards(JwtAuthGuard)
   async getPropertyById(

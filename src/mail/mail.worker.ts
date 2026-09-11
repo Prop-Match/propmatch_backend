@@ -65,7 +65,8 @@ export class MailWorker extends WorkerHost {
       );
     }
     this.frontendUrl =
-      config.get<string>('FRONTEND_URL')?.trim() || 'http://localhost:3000';
+      config.get<string>('FRONTEND_URL')?.trim() ||
+      'https://propmatch-frontend.vercel.app';
     const frontend = new URL(this.frontendUrl);
     if (!['http:', 'https:'].includes(frontend.protocol)) {
       throw new Error('FRONTEND_URL must use http or https.');
