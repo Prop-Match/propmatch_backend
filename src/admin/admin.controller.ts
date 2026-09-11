@@ -71,11 +71,22 @@ export class AdminController {
   async getKyc(@Param('id') id: string) {
     const kyc = await this.adminService.getKyc(id);
     const origin = this.publicBackendOrigin();
+    const toAbsoluteUrl = (pathOrUrl: string) => {
+      if (!pathOrUrl) return '';
+      if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+        return pathOrUrl;
+      }
+      try {
+        return new URL(pathOrUrl, origin).toString();
+      } catch {
+        return pathOrUrl;
+      }
+    };
     return {
       ...kyc,
-      nationalIdFrontUrl: new URL(kyc.nationalIdFrontUrl, origin).toString(),
-      nationalIdBackUrl: new URL(kyc.nationalIdBackUrl, origin).toString(),
-      selfieUrl: new URL(kyc.selfieUrl, origin).toString(),
+      nationalIdFrontUrl: toAbsoluteUrl(kyc.nationalIdFrontUrl),
+      nationalIdBackUrl: toAbsoluteUrl(kyc.nationalIdBackUrl),
+      selfieUrl: toAbsoluteUrl(kyc.selfieUrl),
     };
   }
 

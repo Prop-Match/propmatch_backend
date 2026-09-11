@@ -450,10 +450,17 @@ export class AdminService {
       if (keyOrUrl.startsWith('http://') || keyOrUrl.startsWith('https://')) {
         return keyOrUrl;
       }
-      return this.privateObjectStorage.createTemporaryReadUrl(
-        keyOrUrl,
-        KYC_DOCUMENT_READ_TTL_SECONDS,
-      );
+      try {
+        return await this.privateObjectStorage.createTemporaryReadUrl(
+          keyOrUrl,
+          KYC_DOCUMENT_READ_TTL_SECONDS,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to create temporary read URL for KYC key "${keyOrUrl}": ${(err as Error)?.message}`,
+        );
+        return '';
+      }
     };
 
     const [nationalIdFrontUrl, nationalIdBackUrl, selfieUrl] =
