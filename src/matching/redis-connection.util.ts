@@ -14,11 +14,19 @@ export function parseRedisConnection(
   }
 
   const url = new URL(redisUrl);
-  const isTls = url.protocol === 'rediss:';
+  // Upstash console copies as `redis://...` + separate `--tls` flag (redis-cli --tls -u redis://...)
+  // BullMQ/ioredis equivalent is `rediss://` (s = TLS). Be tolerant: enable TLS if
+  // scheme is rediss: OR host is Upstash OR explicit ?tls=true (covers pasted CLI string).
+  const isTls =
+    url.protocol === 'rediss:' ||
+    url.hostname.endsWith('.upstash.io') ||
+    url.hostname.endsWith('upstash.io') ||
+    url.searchParams.get('tls') === 'true' ||
+    url.searchParams.get('ssl') === 'true';
 
   return {
     host: url.hostname,
-    port: Number(url.port || (isTls ? 6379 : 6379)),
+    port: Number(url.port || 6379),
     username: url.username ? decodeURIComponent(url.username) : undefined,
     password: url.password ? decodeURIComponent(url.password) : undefined,
     ...(isTls ? { tls: {} } : {}),
