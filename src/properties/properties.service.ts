@@ -642,7 +642,9 @@ export class PropertiesService {
       where: { id: propertyId, ownerId },
       select: { id: true, status: true },
     });
-    if (!property) throw new NotFoundException('العقار غير موجود');
+    if (!property) {
+      throw new NotFoundException('العقار المطلوب غير موجود أو لا تملك صلاحية لإدارته');
+    }
     return property;
   }
 
@@ -706,7 +708,9 @@ export class PropertiesService {
       where: { id: propertyId, ownerId },
       include: { propertyImages: { orderBy: { displayOrder: 'asc' } } },
     });
-    if (!existing) throw new NotFoundException('العقار غير موجود');
+    if (!existing) {
+      throw new NotFoundException('العقار المطلوب تعديله غير موجود أو لا تملك صلاحية لتعديله');
+    }
     if (existing.status === 'ARCHIVED') {
       throw new ForbiddenException('لا يمكن تعديل عقار مؤرشف');
     }
@@ -876,7 +880,9 @@ export class PropertiesService {
       where: { id: propertyId, ownerId },
       select: { id: true, status: true },
     });
-    if (!property) throw new NotFoundException('العقار غير موجود');
+    if (!property) {
+      throw new NotFoundException('العقار المطلوب أرشفته غير موجود أو لا تملك صلاحية لأرشفته');
+    }
     if (property.status === 'ARCHIVED') {
       return { ok: true, status: 'ARCHIVED' as const };
     }
@@ -912,7 +918,7 @@ export class PropertiesService {
       (property.status === 'ARCHIVED' && !isOwner && !isAdmin) ||
       (property.status !== 'APPROVED' && !isOwner && !isAdmin)
     ) {
-      throw new NotFoundException('العقار غير موجود');
+      throw new NotFoundException('العقار المطلوب غير معروض حالياً أو تم أرشفته');
     }
 
     let contactRevealed = false;

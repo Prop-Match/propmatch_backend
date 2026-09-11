@@ -19,7 +19,11 @@ export class ReviewsService {
     const property = await this.prisma.property.findFirst({
       where: { id: dto.propertyId, status: 'APPROVED' },
     });
-    if (!property) throw new NotFoundException('غير موجود');
+    if (!property) {
+      throw new NotFoundException(
+        'العقار المطلوب كتابة تقييم له غير موجود أو لم يتم اعتماده بعد',
+      );
+    }
 
     const review = await this.prisma.propertyReview.create({
       data: {

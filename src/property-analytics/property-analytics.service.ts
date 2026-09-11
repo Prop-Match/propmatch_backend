@@ -49,7 +49,7 @@ export class PropertyAnalyticsService {
       where: { id: propertyId, status: 'APPROVED' },
       select: { id: true, ownerId: true },
     });
-    if (!property) throw new NotFoundException('Property not found');
+    if (!property) throw new NotFoundException('العقار المطلوب تسجيل مشاهدته غير موجود أو غير متاح');
 
     const bot = /bot|crawler|spider|preview|headless/i.test(userAgent ?? '');
     const excluded =
@@ -160,7 +160,7 @@ export class PropertyAnalyticsService {
       where: { id: propertyId, ownerId, status: 'APPROVED' },
       select: { id: true, title: true },
     });
-    if (!property) throw new NotFoundException('Property not found');
+    if (!property) throw new NotFoundException('العقار المطلوب عرض إحصائياته غير موجود أو لا تملكه');
 
     const quota = await this.prisma.userQuota.findUnique({
       where: { userId: ownerId },

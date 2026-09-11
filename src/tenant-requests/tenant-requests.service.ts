@@ -64,7 +64,7 @@ export class TenantRequestsService {
     const request = await this.prisma.tenantRequest.findFirst({
       where: { id, tenantId },
     });
-    if (!request) throw new NotFoundException('Tenant request not found.');
+    if (!request) throw new NotFoundException('طلب البحث عن عقار المحدد غير موجود أو ليس لديك صلاحية لإغلاقه');
 
     await this.prisma.tenantRequest.update({
       where: { id },

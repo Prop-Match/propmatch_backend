@@ -368,7 +368,7 @@ export class LeaseContractsService {
       },
     });
     if (!contract) {
-      throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
+      throw new NotFoundException('عقد الإيجار المطلوب غير موجود');
     }
     const { matchConnection, ...record } = contract;
     if (
@@ -516,7 +516,9 @@ export class LeaseContractsService {
         matchConnection: { select: { tenantId: true, ownerId: true } },
       },
     });
-    if (!contract) throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
+    if (!contract) {
+      throw new NotFoundException('عقد الإيجار المطلوب غير موجود');
+    }
     if (
       contract.matchConnection.tenantId !== userId &&
       contract.matchConnection.ownerId !== userId
@@ -570,7 +572,7 @@ export class LeaseContractsService {
       where: { matchConnectionId },
     });
     if (!contract) {
-      throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
+      throw new NotFoundException('عقد الإيجار المطلوب غير موجود');
     }
     return contract;
   }
@@ -592,7 +594,9 @@ export class LeaseContractsService {
       },
     });
     if (!match) {
-      throw new NotFoundException('MATCH_CONNECTION_NOT_FOUND');
+      throw new NotFoundException(
+        'محادثة التوافق المرتبطة بعقد الإيجار غير موجودة أو لم تعد نشطة',
+      );
     }
     return match;
   }
@@ -608,7 +612,9 @@ export class LeaseContractsService {
         matchConnection: { select: { tenantId: true, ownerId: true } },
       },
     });
-    if (!contract) throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
+    if (!contract) {
+      throw new NotFoundException('عقد الإيجار المطلوب غير موجود');
+    }
     if (
       tenantOnly
         ? contract.matchConnection.tenantId !== userId

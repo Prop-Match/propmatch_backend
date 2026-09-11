@@ -51,7 +51,7 @@ export class TenantOffersService {
       where: { id: dto.propertyId },
       select: { id: true, ownerId: true, status: true, title: true },
     });
-    if (!property) throw new NotFoundException('العقار غير موجود');
+    if (!property) throw new NotFoundException('العقار المطلوب تقديم عرض عليه غير موجود');
     if (property.status !== 'APPROVED') {
       throw new ForbiddenException('لا يمكن تقديم عرض على عقار غير متاح');
     }
@@ -247,7 +247,7 @@ export class TenantOffersService {
     const offer = await this.prisma.tenantOffer.findFirst({
       where: { id: offerId, ...scope },
     });
-    if (!offer) throw new NotFoundException('العرض غير موجود');
+    if (!offer) throw new NotFoundException('عرض المستأجر المطلوب غير موجود أو ليس لديك صلاحية للوصول إليه');
     return offer;
   }
 

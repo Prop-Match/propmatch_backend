@@ -13,6 +13,15 @@ async function bootstrap() {
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ limit: '10mb', extended: true }));
 
+  app.enableCors({
+    origin: [
+      process.env.FRONTEND_URL || 'http://localhost:3000',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+    ],
+    credentials: true,
+  });
+
   app.setGlobalPrefix('api');
   app.useStaticAssets(path.join(process.cwd(), 'public'), {
     prefix: '/public/',

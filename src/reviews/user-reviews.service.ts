@@ -95,7 +95,9 @@ export class UserReviewsService {
       where: { id: userId },
       select: { id: true, fullName: true, role: true, deletedAt: true },
     });
-    if (!user || user.deletedAt) throw new NotFoundException('USER_NOT_FOUND');
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('المستخدم المطلوب عرض تقييماته غير موجود');
+    }
 
     return {
       userId: user.id,
@@ -120,7 +122,9 @@ export class UserReviewsService {
         },
       },
     });
-    if (!contract) throw new NotFoundException('LEASE_CONTRACT_NOT_FOUND');
+    if (!contract) {
+      throw new NotFoundException('عقد الإيجار المرتبط بالتقييم غير موجود');
+    }
 
     const { matchConnection } = contract;
     if (userId === matchConnection.tenantId) {

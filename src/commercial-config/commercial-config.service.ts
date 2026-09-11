@@ -135,7 +135,7 @@ export class CommercialConfigService {
     dto: UpdateProductConfigurationDto,
   ): Promise<ResolvedProduct> {
     if (!isBillablePaymentType(paymentTypeValue)) {
-      throw new NotFoundException('Commercial product not found');
+      throw new NotFoundException('المنتج التجاري المطلوب تعديله غير موجود أو غير مدعوم');
     }
     const paymentType = paymentTypeValue;
     const defaults = this.defaultProduct(paymentType);
@@ -181,7 +181,7 @@ export class CommercialConfigService {
     dto: UpdatePlanConfigurationDto,
   ): Promise<PlanAllowances> {
     if (!Object.values(OwnerPlan).includes(planTypeValue as OwnerPlan)) {
-      throw new NotFoundException('Commercial plan not found');
+      throw new NotFoundException('الباقة التجارية المطلوب تعديلها غير موجودة');
     }
     const planType = planTypeValue as OwnerPlanName;
     const previous = await this.getPlanAllowances(planType);

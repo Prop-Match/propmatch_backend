@@ -206,7 +206,7 @@ export class CustomerSupportService {
       where: { id: userId },
       select: { id: true, fullName: true },
     });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException('حساب المستخدم المطلوب غير موجود');
 
     let ticket;
     try {
@@ -282,7 +282,7 @@ export class CustomerSupportService {
       where: { id: userId },
       select: { id: true, fullName: true },
     });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException('حساب المستخدم المطلوب غير موجود');
     const ticket = await this.prisma.supportTicket.create({
       data: {
         userId,
@@ -438,11 +438,14 @@ export class CustomerSupportService {
       where: { id: adminId },
       select: { id: true, fullName: true },
     });
-    if (!admin) throw new NotFoundException('Admin not found');
+    if (!admin) throw new NotFoundException('حساب المشرف غير موجود');
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
       include: { user: { select: { email: true, fullName: true } } },
     });
+    if (!ticket) {
+      throw new NotFoundException('تذكرة الدعم الفني المطلوبة غير موجودة');
+    }
 
     const attachment = attachmentFields(dto);
     if (!dto.content?.trim() && !attachment.attachmentUrl) {
@@ -459,9 +462,6 @@ export class CustomerSupportService {
         ...attachment,
       },
     });
-    if (!ticket) {
-      throw new NotFoundException('Ticket not found');
-    }
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
       data: {
@@ -501,7 +501,7 @@ export class CustomerSupportService {
       where: { id: ticketId },
       include: { user: { select: { fullName: true } } },
     });
-    if (!ticket) throw new NotFoundException('Ticket not found');
+    if (!ticket) throw new NotFoundException('تذكرة الدعم الفني المطلوبة غير موجودة');
     if (ticket.userId !== userId) throw new ForbiddenException('Access denied');
 
     const attachment = attachmentFields(dto);
@@ -560,7 +560,7 @@ export class CustomerSupportService {
         messages: { orderBy: { createdAt: 'asc' } },
       },
     });
-    if (!ticket) throw new NotFoundException('Ticket not found');
+    if (!ticket) throw new NotFoundException('تذكرة الدعم الفني المطلوبة غير موجودة');
     return this.mapToTicketDetail(ticket, userId);
   }
   async assignToAdmin(ticketId: string, userId: string) {

@@ -150,7 +150,9 @@ export class OffersService {
         where: { ownerId: landlordId, status: 'APPROVED' },
       }),
     ]);
-    if (!request) throw new NotFoundException('الطلب غير موجود');
+    if (!request) {
+      throw new NotFoundException('طلب البحث عن عقار المطلوب غير موجود');
+    }
 
     return {
       items: properties.map((property) => ({
@@ -217,26 +219,30 @@ export class OffersService {
     const request = await this.prisma.tenantRequest.findFirst({
       where: { id: dto.tenantRequestId, status: 'APPROVED' },
     });
-    if (!request) throw new NotFoundException('Ø§Ù„Ø·Ù„Ø¨ ØºÙŠØ± Ù…ØªØ§Ø­');
+    if (!request) {
+      throw new NotFoundException(
+        'طلب البحث عن عقار المطلوب غير متاح أو لم يعد معتمداً',
+      );
+    }
 
     const property = await this.prisma.property.findFirst({
       where: { id: dto.propertyId, ownerId: landlordId },
     });
-    if (!property)
-      throw new NotFoundException('Ø§Ù„Ø¹Ù‚Ø§Ø± ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯');
-    if (property.status !== 'APPROVED') {
-      throw new ForbiddenException(
-        'Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªÙ‚Ø¯ÙŠÙ… Ø¹Ø±Ø¶ Ø¨Ø¹Ù‚Ø§Ø± ØºÙŠØ± Ù…Ø¹ØªÙ…Ø¯',
+    if (!property) {
+      throw new NotFoundException(
+        'العقار المحدد غير موجود أو لا تملك صلاحية الوصول إليه',
       );
+    }
+    if (property.status !== 'APPROVED') {
+      throw new ForbiddenException('لا يمكن تقديم عرض بعقار غير معتمد');
     }
 
     const existing = await this.prisma.ownerOffer.findFirst({
       where: { tenantRequestId: dto.tenantRequestId, ownerId: landlordId },
     });
-    if (existing)
-      throw new ConflictException(
-        'Ù‚Ø¯Ù‘Ù…Øª Ø¹Ø±Ø¶Ù‹Ø§ Ø¹Ù„Ù‰ Ù‡Ø°Ø§ Ø§Ù„Ø·Ù„Ø¨ Ø¨Ø§Ù„ÙØ¹Ù„',
-      );
+    if (existing) {
+      throw new ConflictException('قدّمت عرضًا على هذا الطلب بالفعل');
+    }
 
     // All plans have a finite monthly allowance. Add-ons are consumed by
     // nearest expiry, so Premium is no longer treated as unlimited.
@@ -350,7 +356,11 @@ export class OffersService {
     const offer = await this.prisma.ownerOffer.findFirst({
       where: { id: offerId, tenantRequest: { tenantId } },
     });
-    if (!offer) throw new NotFoundException('ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯');
+    if (!offer) {
+      throw new NotFoundException(
+        'عرض المؤجر المطلوب غير موجود أو غير مخصص لهذا المستأجر',
+      );
+    }
     return offer;
   }
 

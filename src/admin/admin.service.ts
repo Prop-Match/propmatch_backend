@@ -210,7 +210,9 @@ export class AdminService {
       where: { id: targetUserId },
       select: { id: true, role: true },
     });
-    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (!target) {
+      throw new NotFoundException('المستخدم المراد إيقاف حسابه غير موجود');
+    }
     if (target.role === 'ADMIN') {
       throw new BadRequestException('لا يمكن إيقاف حساب مشرف من هنا');
     }
@@ -278,7 +280,9 @@ export class AdminService {
       where: { id: targetUserId },
       select: { id: true },
     });
-    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (!target) {
+      throw new NotFoundException('المستخدم المراد إلغاء إيقاف حسابه غير موجود');
+    }
     const updated = await this.prismaService.user.update({
       where: { id: targetUserId },
       data: {
@@ -436,7 +440,9 @@ export class AdminService {
       });
     if (!identityVerification) {
       throw new NotFoundException(
-        'IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER',
+        I18nContext.current()?.t(
+          'admin.IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER',
+        ) || 'طلب توثيق الهوية لهذا المستخدم غير موجود أو تمت معالجته بالفعل',
       );
     }
     const getUrl = async (keyOrUrl: string) => {
@@ -470,7 +476,7 @@ export class AdminService {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
     });
-    if (!user) throw new NotFoundException('User not found.');
+    if (!user) throw new NotFoundException('حساب المشرف المطلوب غير موجود');
     return {
       id: userId,
       fullName: user.fullName,
@@ -496,7 +502,11 @@ export class AdminService {
       include: { user: { select: { email: true, fullName: true } } },
     });
     if (!v) {
-      throw new NotFoundException(I18nContext.current()?.t('admin.NOT_FOUND'));
+      throw new NotFoundException(
+        I18nContext.current()?.t(
+          'admin.IDENTITY_VERIFICATION_NOT_FOUND_FOR_THIS_USER',
+        ) || 'طلب توثيق الهوية لهذا المستخدم غير موجود أو تمت معالجته بالفعل',
+      );
     }
     if (v.status !== 'PENDING') {
       throw new ConflictException(
@@ -1105,7 +1115,7 @@ export class AdminService {
       },
     });
     if (!target || target.role !== 'ADMIN') {
-      throw new NotFoundException('المشرف غير موجود');
+      throw new NotFoundException('المشرف المراد تعديل بياناته وصلاحياته غير موجود');
     }
     // An admin can never change their own role or status here — closes
     // self-demotion lockouts and self-escalation attempts.
@@ -1174,7 +1184,7 @@ export class AdminService {
       select: { id: true, email: true, role: true },
     });
     if (!admin || admin.role !== 'ADMIN') {
-      throw new NotFoundException('المشرف غير موجود');
+      throw new NotFoundException('حساب المشرف المراد إعادة تعيين كلمة مروره غير موجود');
     }
     const rawToken = crypto.randomBytes(32).toString('hex');
     const resetToken = crypto
@@ -1344,7 +1354,9 @@ export class AdminService {
         adminRole: true,
       },
     });
-    if (!target) throw new NotFoundException('المستخدم غير موجود');
+    if (!target) {
+      throw new NotFoundException('المستخدم المراد حذف حسابه غير موجود');
+    }
     if (target.deletedAt) {
       throw new ConflictException('تم حذف هذا المستخدم بالفعل');
     }
@@ -1424,7 +1436,11 @@ export class AdminService {
       where: { id: requestId },
       include: { user: { select: { fullName: true, email: true } } },
     });
-    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (!request) {
+      throw new NotFoundException(
+        'طلب إعادة التفعيل المطلوب غير موجود أو تمت معالجته بالفعل',
+      );
+    }
     if (request.status !== 'PENDING') {
       throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
     }
@@ -1462,7 +1478,11 @@ export class AdminService {
       where: { id: requestId },
       include: { user: { select: { fullName: true, email: true } } },
     });
-    if (!request) throw new NotFoundException('طلب إعادة التفعيل غير موجود');
+    if (!request) {
+      throw new NotFoundException(
+        'طلب إعادة التفعيل المطلوب غير موجود أو تمت معالجته بالفعل',
+      );
+    }
     if (request.status !== 'PENDING') {
       throw new ConflictException('تمت مراجعة هذا الطلب بالفعل');
     }

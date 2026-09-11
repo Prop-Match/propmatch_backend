@@ -55,7 +55,7 @@ export class FavoritesService {
     });
 
     if (!property) {
-      throw new NotFoundException('العقار غير موجود');
+      throw new NotFoundException('العقار المراد إضافته إلى المفضلة غير موجود');
     }
 
     const existing = await this.prisma.favorite.findUnique({

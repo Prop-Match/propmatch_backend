@@ -28,7 +28,9 @@ export class PrivateStorageController {
       response.setHeader('Referrer-Policy', 'no-referrer');
       response.send(object.data);
     } catch {
-      throw new NotFoundException('PRIVATE_DOCUMENT_NOT_FOUND');
+      throw new NotFoundException(
+        'المستند المطلوب غير موجود أو انتهت صلاحية رابط الوصول إليه',
+      );
     }
   }
 }

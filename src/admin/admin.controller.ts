@@ -81,12 +81,15 @@ export class AdminController {
 
   private publicBackendOrigin(): string {
     const value = this.configService.get<string>('BACKEND_PUBLIC_URL')?.trim();
-    if (!value) return 'https://propmatch.technative.me';
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error('BACKEND_PUBLIC_URL must use http or https');
+    if (value) {
+      const url = new URL(value);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('BACKEND_PUBLIC_URL must use http or https');
+      }
+      return url.toString().replace(/\/$/, '');
     }
-    return url.toString().replace(/\/$/, '');
+    const port = this.configService.get<string>('PORT')?.trim() || '3001';
+    return `http://localhost:${port}`;
   }
 
   @HttpCode(HttpStatus.OK)

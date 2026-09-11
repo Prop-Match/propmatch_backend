@@ -88,7 +88,7 @@ export class PaymentsService {
         select: { id: true },
       });
       if (!property) {
-        throw new NotFoundException('Eligible property not found');
+        throw new NotFoundException('العقار المؤهل للترقية غير موجود أو غير متاح أو لا تملكه');
       }
     }
 
@@ -189,7 +189,7 @@ export class PaymentsService {
       where: { userId, providerOrderId },
     });
     if (!transaction) {
-      throw new NotFoundException('Payment transaction not found');
+      throw new NotFoundException('معاملة الدفع المطلوبة غير موجودة');
     }
     return transaction;
   }
@@ -406,7 +406,7 @@ export class PaymentsService {
           data: { isBoosted: true, boostedUntil },
         });
         if (updated.count !== 1) {
-          throw new NotFoundException('Boost target property not found');
+          throw new NotFoundException('العقار المستهدف للترقية غير موجود أو لا تملكه');
         }
         await tx.boostCampaign.create({
           data: {

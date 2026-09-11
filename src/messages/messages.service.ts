@@ -33,7 +33,9 @@ export class MessagesService {
       },
       select: { id: true, tenantId: true, ownerId: true },
     });
-    if (!connection) throw new NotFoundException('Conversation not found.');
+    if (!connection) {
+      throw new NotFoundException('المحادثة غير موجودة أو تم إنهاؤها أو ليس لديك صلاحية للوصول إليها');
+    }
     return connection;
   }
 
@@ -110,7 +112,9 @@ export class MessagesService {
         agreementReachedAt: true,
       },
     });
-    if (!connection) throw new NotFoundException('Conversation not found.');
+    if (!connection) {
+      throw new NotFoundException('المحادثة أو المطابقة المطلوب تأكيد الاتفاق عليها غير موجودة');
+    }
     const confirmerId = connection.tenantRequestId
       ? connection.tenantId
       : connection.ownerId;
@@ -331,7 +335,7 @@ export class MessagesService {
         matchConnection: { select: { tenantId: true, ownerId: true } },
       },
     });
-    if (!message) throw new NotFoundException('الرسالة غير موجودة');
+    if (!message) throw new NotFoundException('الرسالة المطلوب تعديلها غير موجودة');
     if (message.senderId !== userId)
       throw new BadRequestException('لا يمكنك تعديل رسالة شخص آخر');
 
@@ -382,7 +386,7 @@ export class MessagesService {
         matchConnection: { select: { tenantId: true, ownerId: true } },
       },
     });
-    if (!message) throw new NotFoundException('الرسالة غير موجودة');
+    if (!message) throw new NotFoundException('الرسالة المطلوب حذفها غير موجودة');
     if (message.senderId !== userId)
       throw new BadRequestException('لا يمكنك حذف رسالة شخص آخر');
 
