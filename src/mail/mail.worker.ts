@@ -14,10 +14,20 @@ export class MailWorker extends WorkerHost {
   private readonly from: string;
   private readonly resendApiKey?: string;
   private readonly resendFrom: string;
+  private readonly gmailUser?: string;
+  private readonly gmailClientId?: string;
+  private readonly gmailClientSecret?: string;
+  private readonly gmailRefreshToken?: string;
+  private gmailAccessToken?: string;
+  private gmailTokenExpiresAt = 0;
 
   constructor(private readonly config: ConfigService) {
     super();
     this.resendApiKey = config.get<string>('RESEND_API_KEY')?.trim();
+    this.gmailUser = config.get<string>('GMAIL_USER')?.trim();
+    this.gmailClientId = config.get<string>('GMAIL_CLIENT_ID')?.trim();
+    this.gmailClientSecret = config.get<string>('GMAIL_CLIENT_SECRET')?.trim();
+    this.gmailRefreshToken = config.get<string>('GMAIL_REFRESH_TOKEN')?.trim();
 
     const port = Number(config.get<string>('SMTP_PORT') || 587);
     if (!Number.isInteger(port) || port <= 0) {
@@ -39,13 +49,19 @@ export class MailWorker extends WorkerHost {
     if ((user && !pass) || (!user && pass)) {
       throw new Error('SMTP_USER and SMTP_PASS must be configured together.');
     }
+    const hasGmailOAuth =
+      Boolean(this.gmailUser &&
+      this.gmailClientId &&
+      this.gmailClientSecret &&
+      this.gmailRefreshToken);
     if (
+      !hasGmailOAuth &&
       !this.resendApiKey &&
       config.get<string>('NODE_ENV') === 'production' &&
       (!user || !pass)
     ) {
       throw new Error(
-        'Either RESEND_API_KEY or (SMTP_USER and SMTP_PASS) is required in production.',
+        'Either GMAIL OAuth credentials, RESEND_API_KEY, or (SMTP_USER and SMTP_PASS) is required in production.',
       );
     }
     this.frontendUrl =
@@ -71,9 +87,94 @@ export class MailWorker extends WorkerHost {
     }
   }
 
+  private async getGmailAccessToken(): Promise<string> {
+    if (this.gmailAccessToken && Date.now() < this.gmailTokenExpiresAt - 60_000) {
+      return this.gmailAccessToken;
+    }
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: this.gmailClientId!,
+        client_secret: this.gmailClientSecret!,
+        refresh_token: this.gmailRefreshToken!,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    const data = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      error?: string;
+      error_description?: string;
+    };
+
+    if (!res.ok || !data.access_token) {
+      throw new Error(
+        `Failed to refresh Gmail OAuth token: ${data.error_description || data.error || res.statusText}`,
+      );
+    }
+
+    this.gmailAccessToken = data.access_token;
+    this.gmailTokenExpiresAt = Date.now() + (data.expires_in ?? 3600) * 1000;
+    return this.gmailAccessToken;
+  }
+
+  private async sendViaGmailApi(to: string, subject: string, html: string): Promise<void> {
+    const accessToken = await this.getGmailAccessToken();
+    const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+    const messageParts = [
+      `From: PropMatch <${this.gmailUser}>`,
+      `To: ${to}`,
+      `Subject: ${utf8Subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      html,
+    ];
+    const raw = Buffer.from(messageParts.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const response = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ raw }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(
+        `Gmail API delivery failed (status ${response.status}): ${errorText}`,
+      );
+    }
+  }
+
   async process(job: Job<MailJobData>): Promise<void> {
     if (job.name !== SEND_MAIL_JOB) return;
     const rendered = renderMail(job.data, this.frontendUrl);
+
+    if (
+      this.gmailUser &&
+      this.gmailClientId &&
+      this.gmailClientSecret &&
+      this.gmailRefreshToken
+    ) {
+      await this.sendViaGmailApi(job.data.to, rendered.subject, rendered.html);
+      this.logger.log(
+        `Delivered ${job.data.kind} email to ${job.data.to} via Gmail API (job ${job.id ?? 'unknown'})`,
+      );
+      return;
+    }
 
     if (this.resendApiKey) {
       const response = await fetch('https://api.resend.com/emails', {
@@ -117,7 +218,7 @@ export class MailWorker extends WorkerHost {
     }
 
     this.logger.warn(
-      `Skipped ${job.data.kind} email delivery to ${job.data.to}: neither RESEND_API_KEY nor SMTP credentials configured.`,
+      `Skipped ${job.data.kind} email delivery to ${job.data.to}: neither Gmail OAuth, RESEND_API_KEY, nor SMTP credentials configured.`,
     );
   }
 }
