@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
@@ -30,5 +31,22 @@ export class NotificationsController {
     @Param('id') id: string,
   ) {
     return this.notificationsService.markRead(req.user.userId, id);
+  }
+
+  @Post('device-token')
+  registerDeviceToken(
+    @Request() req: { user: { userId: string } },
+    @Body() body: { token: string; platform?: string },
+  ) {
+    return this.notificationsService.registerDeviceToken(
+      req.user.userId,
+      body.token,
+      body.platform,
+    );
+  }
+
+  @Post('device-token/remove')
+  removeDeviceToken(@Body() body: { token: string }) {
+    return this.notificationsService.removeDeviceToken(body.token);
   }
 }

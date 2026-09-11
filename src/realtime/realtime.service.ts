@@ -11,6 +11,7 @@ import {
   type QueueItem,
   type ReactivationRequestedPayload,
 } from './realtime.contract';
+import { PushNotificationService } from '../notifications/services/push-notification.service';
 import { RealtimeGateway } from './realtime.gateway';
 
 /**
@@ -40,6 +41,7 @@ export class RealtimeService {
   constructor(
     private readonly gateway: RealtimeGateway,
     private readonly prisma: PrismaService,
+    private readonly pushService: PushNotificationService,
   ) {}
 
   /* Each mirrors a frontend queue-item builder (src/mocks/router.ts). The
@@ -250,6 +252,20 @@ export class RealtimeService {
     };
     // userId routes the event; it is not part of the client payload.
     this.gateway.emitToUser(userId, SOCKET_EVENTS.notification, payload);
+
+    // Send mobile push notification asynchronously (FCM)
+    this.pushService
+      .sendToUser(userId, {
+        title: input.title,
+        body: input.message,
+        data: {
+          notificationId: row.id,
+          type: input.type,
+          link: input.link ?? '',
+        },
+      })
+      .catch(() => {});
+
     return payload;
   }
 
@@ -280,6 +296,21 @@ export class RealtimeService {
         link: input.link ?? null,
       })),
     });
+
+    const userIds = inputs.map((i) => i.userId);
+    if (inputs.length > 0) {
+      const first = inputs[0];
+      this.pushService
+        .sendToUsers(userIds, {
+          title: first.title,
+          body: first.message,
+          data: {
+            type: first.type,
+            link: first.link ?? '',
+          },
+        })
+        .catch(() => {});
+    }
 
     return rows.map((row) => {
       const payload: NotificationPayload = {

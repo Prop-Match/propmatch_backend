@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PushNotificationService } from './services/push-notification.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pushService: PushNotificationService,
+  ) {}
 
   async list(userId: string) {
     const rows = await this.prisma.notification.findMany({
@@ -40,6 +44,16 @@ export class NotificationsService {
       where: { userId, isRead: false },
       data: { isRead: true },
     });
+    return { ok: true };
+  }
+
+  async registerDeviceToken(userId: string, token: string, platform?: string) {
+    await this.pushService.saveDeviceToken(userId, token, platform);
+    return { ok: true };
+  }
+
+  async removeDeviceToken(token: string) {
+    await this.pushService.removeDeviceToken(token);
     return { ok: true };
   }
 }
